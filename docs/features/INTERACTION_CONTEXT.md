@@ -31,7 +31,7 @@ Those files cover almost all currently exercised user-visible behavior:
 `insight-io` keeps the same lower-level runtime model:
 
 - canonical URIs still look like
-  `insightos://<host>/<device>/<preset>[/<delivery>]`
+  `insightos://<host>/<device>/<stream-preset>[/<delivery>]`
 - devices still come from discovery and catalog listing
 - device aliases still create the human-usable names that appear in the base
   URI
@@ -68,7 +68,7 @@ Example:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/720p_30/mjpeg",
+  "input": "insightos://localhost/front-camera/video-720p_30/mjpeg",
   "route": "yolov5"
 }
 ```
@@ -77,7 +77,7 @@ Grouped-source example:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/480p_30?source=depth",
+  "input": "insightos://localhost/desk-rgbd/depth-480p_30",
   "route": "scene-depth"
 }
 ```
@@ -86,9 +86,7 @@ Recommended SDK shape:
 
 ```cpp
 app.route("scene-depth")
-    .expect(insightos::Depth{}
-                .same_group_as("scene-color")
-                .require_alignment())
+    .expect(insightos::Depth{})
     .on_caps([](const insightos::Caps& caps) { /* unchanged */ })
     .on_frame([](const insightos::Frame& frame) { /* unchanged */ });
 ```
@@ -122,6 +120,7 @@ This also remains a first-class part of the product:
 4. Stop sessions
 5. Restart the backend
 6. Rehydrate persisted sessions explicitly
+7. Optionally attach an already-running direct session to an app route later
 
 These flows matter because `insight-io` is not only an app builder. It still
 needs an inspectable media runtime beneath the app layer.
@@ -148,10 +147,14 @@ donor repo, but with clearer contracts:
 
 - multiple independent video routes in one app
 - related routes such as color + depth in one app
+- separate depth choices such as `depth-400p_30` and `depth-480p_30`
 - stereo left + right routes in one app
 - explicit rejection when a source cannot satisfy a route's semantic
   expectation
 - restart-safe app records that keep declared intent after the backend exits
+- same exact URI reused across multiple consumers
+- different delivery suffixes on the same source while sharing capture when
+  possible
 
 ### 5. Operator Audits Rename And Reuse Edge Cases
 
@@ -166,6 +169,20 @@ The donor demos show an important edge case:
 sits above it and does not erase the underlying session and publication
 semantics.
 
+## Exact Stream Discovery Implications
+
+The discovery catalog is now responsible for exposing exact stream choices up
+front.
+
+That means:
+
+- one listed URI always maps to one delivered stream
+- if D2C changes depth output from `400p` to `480p`, discovery lists both
+  choices separately
+- optional `/channel/<name>` disambiguation is available for stereo or dual-eye
+  devices, but discovery should emit the full final URI so users do not need to
+  compose it manually
+
 ## Why The Feature Trackers Need To Be Broader
 
 The original `fullstack-intent-routing-e2e.json` file mostly tracks the new
@@ -178,7 +195,11 @@ To represent the actual product, the repo also needs feature coverage for:
 - direct session and restart flows
 - idle app discovery flows
 - multi-route source connection flows
-- grouped-source validation
+- session-first attach flows
+- heterogeneous-hardware abstraction at discovery time
+- same-URI fan-out
+- same-source different-delivery behavior
+- runtime rebind
 - route-connection visibility in API responses
 - rename and reuse edge cases
 - future browser builder flows

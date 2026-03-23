@@ -2,66 +2,110 @@
 
 ## Summary
 
-This note captures the unresolved design problem around grouped sources in
+This note records the resolved design direction for grouped sources in
 `insight-io`.
 
-The product goal is clear:
+The adopted choices are:
 
-- keep the user-facing and app-facing configuration simple
 - keep route declarations purpose-first
-- avoid forcing users to think in raw runtime stream names
+- make discovery publish exact stream choices up front
+- keep the contract that one canonical URI maps to one delivered stream
+- treat route expectations as validation, not hidden stream selection
+- move D2C-sensitive depth differences into discovery-visible choices
+- allow an optional `/channel/<channel>` path suffix only when channel
+  disambiguation is required
 
-The hard runtime reality is also clear:
+One main objective is to mask heterogeneous hardware details from users,
+including LLMs that use `insight-io` as a development substrate for reusable
+audio/video apps.
 
-- some devices expose multiple related source variants
-- some of those variants must be told apart explicitly
-- some variants change caps in meaningful ways
+## Final Decisions
 
-This is most visible in two families:
+### 1. Exact URI Beats Backend Guessing
 
-- stereo or dual-eye cameras:
-  - `left`
-  - `right`
-- RGBD depth sources:
-  - native depth
-  - D2C-aligned depth
+The system no longer relies on route expectations to decide which concrete
+variant the user meant.
 
-Aligned depth is not just another label. It can change the delivered caps of
-the depth stream, so it must remain distinguishable in backend resolution and
-runtime metadata.
+Instead:
 
-## Problem Statement
+- discovery publishes the exact canonical URI
+- the user copies or selects that URI
+- the backend validates the URI against the route
+- the backend does not silently swap one nearby variant for another
 
-The route model should let applications declare:
+This closes the ambiguity that existed when route expectations and backend
+policy were trying to choose the stream together.
 
-```cpp
-app.route("yolov5").expect(insightos::Video{})
-app.route("scene-depth").expect(insightos::Depth{})
+### 2. RGBD D2C Is Resolved At Discovery Time
+
+For the targeted 480p family:
+
+- D2C off yields a `400p` depth output
+- D2C on yields a `480p` depth output
+
+That means the user-visible choice should also be split there.
+
+Discovery must expose separate exact stream entries such as:
+
+- `insightos://localhost/desk-rgbd/depth-400p_30`
+- `insightos://localhost/desk-rgbd/depth-480p_30`
+
+This lets the user choose the delivered output directly.
+
+Implications:
+
+- `Depth{}` validates that the selected URI is a depth stream
+- the route layer no longer needs `require_alignment()`
+- the resolved metadata still records the capture policy that produced that
+  stream
+
+### 3. Channel Disambiguation May Use `/channel/<name>`
+
+Dual-eye and stereo devices still need an explicit way to separate left and
+right when the stream preset alone is not enough.
+
+That is allowed through an optional path suffix:
+
+```text
+insightos://<host>/<device>/<stream-preset>/channel/<channel>
+insightos://<host>/<device>/<stream-preset>/channel/<channel>/<delivery>
 ```
 
-without forcing the application author to also spell:
+Examples:
 
-- `left`
-- `right`
-- `color`
-- `depth`
-- `aligned`
-- `native`
-- `same_group_as(...)`
+- `insightos://localhost/stereo-cam/video-720p_30/channel/left`
+- `insightos://localhost/stereo-cam/video-720p_30/channel/right`
 
-in the common path.
+This should not be the common user story.
 
-However, the backend still has to answer these questions deterministically:
+Preferred behavior:
 
-1. Which concrete source variant should this route receive?
-2. Is that source part of a grouped device?
-3. If it is grouped, is the choice ambiguous?
-4. Does the selected variant have different caps from another nearby variant?
-5. Do two connected routes need to come from the same underlying source group?
+- discovery emits the full final URI
+- the frontend shows it as a ready-made choice
+- users rarely type `/channel/...` manually
 
-## Why The Current Ideas Are Not Good Enough
+### 4. Source Groups Stay In Metadata
 
-### 1. Flat path names such as `desk-rgbd-color`
+The grouped relationship remains metadata, not a required visible path layer.
+
+Catalog and resolved-source metadata should still expose:
+
+- `source_group_id`
+- `member_kind`
+- `channel`
+- `delivered_caps`
+- `capture_policy`
+
+That preserves:
+
+- color/depth pairing checks
+- left/right validation
+- restart-safe exact stream identity
+- route rejection when the user picks the wrong stream
+
+## Why Earlier Options Were Rejected
+
+### Flat path names such as `desk-rgbd-color`
 
 This is not a good public contract.
 
@@ -74,7 +118,7 @@ Problems:
 - it does not scale well to aligned-vs-native depth, left-vs-right, or future
   variants
 
-### 2. Visible `<group>` in the URI path
+### Visible `<group>` in the URI path
 
 Example:
 
@@ -91,34 +135,18 @@ Problems:
 - it still needs another discriminator for left/right or aligned/native depth
 - it makes casual copy/paste and demo usage worse
 
-### 3. Mandatory query selection in all cases
-
-Example:
-
-```text
-insightos://localhost/desk-rgbd/480p_30?source=depth
-```
-
-This is acceptable as an escape hatch, but not ideal as the primary user story.
-
-Problems:
-
-- it exposes source-variant detail too early
-- it still requires the user to understand which member they need
-- it does not reduce complexity enough for the common path
-
-### 4. Route expectations with explicit low-level constraints
+### Route expectations with explicit low-level alignment logic
 
 Example:
 
 ```cpp
 app.route("scene-depth")
-    .expect(insightos::Depth{}
-                .same_group_as("scene-color")
-                .require_alignment())
+    .expect(insightos::Depth{})
 ```
 
-This is technically workable, but not ideal as the primary experience.
+Keeping grouped-source metadata is fine.
+
+Making the route declare hardware pairing or D2C policy is not.
 
 Problems:
 
@@ -126,7 +154,7 @@ Problems:
 - it forces application code to care about pairing and alignment policy
 - it leaks backend grouping logic into the normal SDK flow
 
-## Hard Requirements
+## Hard Requirements The Final Design Satisfies
 
 Any final design must satisfy all of these:
 
@@ -134,10 +162,13 @@ Any final design must satisfy all of these:
 2. Left and right channels can be told apart.
 3. Native depth and aligned depth can be told apart.
 4. Aligned depth and native depth can expose different caps without ambiguity.
-5. The backend can still enforce same-device or same-group constraints when
-   needed.
+5. The backend can still preserve same-device and same-group relationships
+   internally when needed.
 6. The common user flow does not require manual pairing logic.
 7. The public URI stays readable.
+
+The adopted solution satisfies those requirements by making discovery list exact
+stream choices rather than making the route layer infer them.
 
 ## Better Mental Model
 
@@ -159,173 +190,43 @@ Human-facing capture choice:
 - `480p_30`
 - `stereo`
 
-### 3. Source variant
+### 3. Exact stream choice
 
-Concrete selectable source under one device + preset:
+Concrete selectable source under one device:
 
-- `video`
-- `depth-native`
-- `depth-aligned`
-- `left`
-- `right`
+- `color-480p_30`
+- `depth-400p_30`
+- `depth-480p_30`
+- `video-720p_30/channel/left`
+- `video-720p_30/channel/right`
 
-The source variant is real runtime identity. It must exist in catalog metadata,
-even if users do not usually type it manually.
+The exact stream choice is real runtime identity. It must exist in catalog
+metadata, even if users do not usually type it manually.
 
-## Recommended Direction
+## Practical Guidance
 
-Use a hybrid design:
-
-### A. Keep the base URI simple
-
-Keep:
-
-```text
-insightos://<host>/<device>/<preset>
-insightos://<host>/<device>/<preset>/<delivery>
-```
-
-This remains the primary public shape.
-
-### B. Publish source variants in the catalog
-
-For each device + preset entry, the catalog should expose zero or more source
-variants with metadata such as:
-
-- `source_variant_id`
-- `source_group_id`
-- `member_kind`
-- `channel`
-- `alignment`
-- `caps`
-- `is_default_for_expectation`
-
-Examples:
-
-- `member_kind = video`
-- `member_kind = depth`, `alignment = native`
-- `member_kind = depth`, `alignment = aligned`
-- `member_kind = video`, `channel = left`
-- `member_kind = video`, `channel = right`
-
-### C. Make `route.expect(...)` semantic, not low-level
-
-Good primary API:
+### Keep The Route API Semantic
 
 ```cpp
 app.route("yolov5").expect(insightos::Video{})
 app.route("scene-depth").expect(insightos::Depth{})
-app.route("stereo-left-detector").expect(insightos::StereoLeft{})
+app.route("stereo-left-detector").expect(insightos::Video{}.channel("left"))
 ```
 
-Better grouped-source expectations for common use:
+### Keep Discovery Exact
 
-```cpp
-app.route("scene").expect(insightos::RgbdAligned{})
-app.route("stereo").expect(insightos::StereoPair{})
-```
+- expose separate 400p and 480p depth URIs
+- expose channel-qualified URIs when left/right are both present
+- persist the resolved exact stream identity and delivered caps
 
-This keeps the common path short.
+### Keep Advanced Channel Selection Optional
 
-### D. Let the backend resolve the concrete source variant
+It is possible to support a dedicated `/channel/<name>` URI suffix.
 
-The backend should choose the concrete source variant from catalog metadata
-based on:
+That is acceptable because:
 
-- the route expectation
-- the selected device + preset
-- policy defaults
-- ambiguity rules
+- it solves real dual-eye ambiguity
+- it is only needed on a minority of devices
+- discovery can emit the final URI so manual typing is uncommon
 
-Examples:
-
-- `Video{}` on a plain camera resolves to the default video source variant
-- `Depth{}` on an RGBD device may resolve to `depth-aligned` if that is the
-  product default for the chosen preset
-- `StereoLeft{}` resolves to the left-eye source variant
-
-### E. Reserve explicit source selection for advanced paths only
-
-If the automatic choice is ambiguous, allow an advanced override, but do not
-make it the normal contract.
-
-Possible forms:
-
-- query selector:
-  - `?source=depth-aligned`
-- REST field:
-  - `"source_variant": "depth-aligned"`
-- opaque catalog handle:
-  - `"source_variant_id": "..."`
-
-The first is human-readable and good for debugging.
-The last is cleaner for frontend-driven flows.
-
-## Recommended Default Policy
-
-To reduce user complexity, the product should define defaults per device family
-and preset.
-
-Examples:
-
-### RGBD
-
-- `RgbdAligned{}`:
-  - choose aligned depth when the preset supports it
-- `Depth{}`:
-  - choose the product-default depth variant for that preset
-- `Video{}` on an RGBD device:
-  - choose the color/video variant, not depth
-
-### Stereo
-
-- `StereoPair{}`:
-  - return a paired grouped source
-- `StereoLeft{}`:
-  - choose left
-- `StereoRight{}`:
-  - choose right
-
-This means the common user rarely needs to specify a source variant manually.
-
-## Why D2C-Aligned Depth Needs To Stay Explicit In Metadata
-
-Aligned depth cannot be treated as a cosmetic toggle.
-
-Reasons:
-
-- it may change width and height
-- it may change the valid caps set
-- it may affect whether a route is compatible with an expected processing path
-- it may need to share capture policy with a related color source
-
-Therefore the backend must preserve:
-
-- which depth variant was selected
-- whether it was aligned or native
-- what caps actually apply to that variant
-
-Even if the app does not spell this out directly, the system must store it.
-
-## Practical Recommendation
-
-For the next design round:
-
-1. Keep `route.expect(...)`.
-2. Do not require `on_stream(...)`.
-3. Do not add `<group>` to the URI path.
-4. Do not flatten variants into fake device aliases such as `desk-rgbd-color`.
-5. Keep the base URI readable.
-6. Move left/right and aligned/native distinction into catalog source-variant
-   metadata.
-7. Let the backend auto-resolve variants for common expectations.
-8. Keep an advanced explicit variant selector only for debug and edge cases.
-
-## Open Questions
-
-1. Should the advanced override be a human-readable query selector or an opaque
-   catalog-generated source-variant id?
-2. Should `Depth{}` pick native or aligned depth by default for each preset?
-3. Should `RgbdAligned{}` and `StereoPair{}` be first-class grouped
-   expectations in v1, or should they wait until the simpler single-route
-   design is implemented?
+It should remain optional, not the default path shape for every device.

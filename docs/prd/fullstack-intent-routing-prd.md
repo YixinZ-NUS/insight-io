@@ -2,37 +2,47 @@
 
 ## Summary
 
-`insight-io` is a DB-first full-stack project for routing discoverable source
-URIs into app-defined routes. The public URI format remains:
+`insight-io` is a DB-first route-based project for routing discoverable exact
+stream URIs into app-defined routes.
+
+The public URI shape remains `insightos://`, but the canonical contract is now
+explicitly exact-stream oriented:
 
 ```text
-insightos://<host>/<device>/<preset>
-insightos://<host>/<device>/<preset>/<delivery>
-```
-
-When a preset exposes multiple related sources, the URI stays readable by
-keeping the device alias and preset in the path and using a selector in query
-parameters:
-
-```text
-insightos://<host>/<device>/<preset>?source=<member>
+insightos://<host>/<device>/<stream-preset>
+insightos://<host>/<device>/<stream-preset>/<delivery>
+insightos://<host>/<device>/<stream-preset>/channel/<channel>
+insightos://<host>/<device>/<stream-preset>/channel/<channel>/<delivery>
 ```
 
 Examples:
 
-- `insightos://localhost/front-camera/720p_30/mjpeg`
-- `insightos://localhost/desk-rgbd/480p_30?source=color`
-- `insightos://localhost/desk-rgbd/480p_30?source=depth`
-- `insightos://localhost/stereo-cam/720p_30?source=left`
-- `insightos://localhost/stereo-cam/720p_30?source=right`
+- `insightos://localhost/front-camera/video-720p_30/mjpeg`
+- `insightos://localhost/desk-rgbd/color-480p_30`
+- `insightos://localhost/desk-rgbd/depth-400p_30`
+- `insightos://localhost/desk-rgbd/depth-480p_30`
+- `insightos://localhost/stereo-cam/video-720p_30/channel/left`
+- `insightos://localhost/stereo-cam/video-720p_30/channel/right`
 
 The key product rules are:
 
+- discovery publishes the exact canonical URIs that users and apps copy
 - the app declares routes by purpose, not by runtime stream name
-- one connected URI feeds one route
-- related URIs may belong to the same source group
-- group-level policies such as D2C remain backend concerns, not app callback
-  vocabulary
+- one canonical URI maps to one delivered stream
+- route expectations validate compatibility; they do not choose hidden stream
+  variants
+- related exact URIs may belong to the same source group
+- if backend processing changes delivered caps, discovery must expose separate
+  user-visible stream choices rather than hiding that difference behind route
+  policy
+- identical canonical URIs may fan out to multiple consumers through reuse
+- different delivery suffixes such as `/mjpeg` and `/rtsp` create distinct
+  delivery sessions while still being eligible for shared capture reuse
+
+One main product objective is to mask heterogeneous hardware details, such as
+D2C on/off behavior, from users. That includes LLM-assisted developers who
+should be able to build and reuse audio/video apps without learning per-device
+quirks first.
 
 ## Product Goals
 
@@ -40,20 +50,25 @@ The key product rules are:
    backed by an explicit SQL schema.
 2. Replace stream-name-first high-level app routing with purpose-first route
    routing.
-3. Keep the public URI readable while allowing source selection for dependent
-   or multi-channel devices.
-4. Give the frontend a first-class persistent application model instead of a
-   thin session launcher.
+3. Make the copied URI itself exact enough that one URI always means one
+   delivered stream.
+4. Mask heterogeneous hardware details from users and LLM-assisted app builders
+   by moving device-specific choices into discovery-visible exact stream
+   selection.
+5. Preserve the existing session graph, reuse semantics, and inspectable media
+   runtime underneath the app layer.
+6. Cover the full lifecycle: discovery, direct sessions, app routing, reverse
+   attach, reuse, reroute, restart, inspection, and stop.
 
 ## Non-Goals
 
-- changing the canonical `insightos://` base grammar
-- changing HTTP mirror conversion rules
 - changing the existing logical/capture/delivery session model
 - replacing `memfd` + ring buffer local IPC with a different transport
 - adding auth, cloud tenancy, or remote app-side media attach in this pass
 - making applications name runtime stream ids directly in normal route
   declaration
+- hiding materially different delivered depth modes behind one route-level
+  alignment toggle
 
 ## Personas
 
@@ -65,8 +80,9 @@ backend-routed frames without managing runtime stream names directly.
 
 ### Operator / User
 
-Needs to browse listed URIs, connect one URI to one route from the frontend or
-REST, start or stop it, and recover that configuration after backend restart.
+Needs to browse listed exact URIs, pick the right stream for the task, use that
+URI through direct-session tools or app routes, inspect runtime state, reroute
+when needed, and recover durable configuration after backend restart.
 
 ## Interaction Baseline
 
@@ -89,14 +105,50 @@ portion changes shape:
   URIs
 - direct session flows still exist for `insightos-open`, RTSP, AAC, restart,
   and low-level debugging
+- discovery must list the exact stream choices up front, including distinct
+  depth outputs when delivered caps differ
 - app flows become route-based, so users connect `input + route`
 - apps no longer register runtime stream names directly in route declarations
-- when a device exposes related sources, the catalog lists them as separate URI
-  options sharing one readable device alias and preset
+- the exact URI is authoritative for stream identity; route expectations only
+  validate that choice
+- dual-eye or stereo disambiguation may use an optional `/channel/<name>`
+  suffix, but discovery should normally emit the full exact URI so users rarely
+  type it manually
 
 ## Core User Flows
 
-### 1. Create App And Routes
+### 1. Discover Devices And Exact URIs
+
+1. User starts the backend and checks health.
+2. User lists discovered devices.
+3. User inspects the catalog entries for one device.
+4. Discovery returns one exact URI per delivered stream choice.
+
+Examples:
+
+- `color-480p_30`
+- `depth-400p_30`
+- `depth-480p_30`
+- `video-720p_30/channel/left`
+- `video-720p_30/channel/right`
+
+For RGBD depth, the delivered shape is discovery-visible:
+
+- `depth-400p_30` means native depth output
+- `depth-480p_30` means aligned depth output
+
+The user chooses between those outputs directly instead of toggling D2C
+implicitly through the route contract.
+
+### 2. Create Direct Sessions
+
+1. User takes one exact URI from the catalog.
+2. User starts capture either with `insightos-open` or `POST /api/sessions`.
+3. Backend normalizes the URI into `SessionRequest`.
+4. Backend creates or reuses capture and delivery runtime as appropriate.
+5. User monitors RTSP or local IPC output and later stops the session.
+
+### 3. Create App And Routes
 
 1. User creates an app.
 2. User defines one or more routes.
@@ -106,17 +158,16 @@ Examples:
 
 - `yolov5` expects video
 - `scene-depth` expects depth
-- `scene-depth` may also require the same source group as `scene-color`
 - `stereo-left-detector` expects video from the `left` channel
 
-### 2. Connect Source URI To Route
+### 4. Start App First, Then Connect Exact URI To Route
 
 1. User picks one listed canonical URI from the catalog.
 2. User connects it to one route with:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/720p_30/mjpeg",
+  "input": "insightos://localhost/front-camera/video-720p_30/mjpeg",
   "route": "yolov5"
 }
 ```
@@ -125,24 +176,65 @@ or:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/480p_30?source=depth",
+  "input": "insightos://localhost/desk-rgbd/depth-480p_30",
   "route": "scene-depth"
 }
 ```
 
 3. Backend normalizes the URI into the existing `SessionRequest`.
-4. Backend resolves the source member selected by the URI.
+4. Backend resolves one concrete exact stream identity from the URI itself.
 5. Backend validates the route expectations against the resolved source
    metadata.
 6. Backend creates one ordinary logical session.
 7. Backend returns the resolved source identity and source-group metadata to
    the SDK.
 
-### 3. Run Routed App Logic
+### 5. Start Stream First, Then Attach It To A Route
+
+1. User starts a direct session first through CLI or REST.
+2. User later creates or finds an app and route.
+3. User attaches the existing logical session to that route with `session_id`.
+4. Backend validates that the existing session is compatible with the route.
+5. SDK attaches to the already-running stream without forcing the user to stop
+   and recreate it first.
+
+### 6. Fan-Out And Delivery Divergence
+
+1. The same exact URI may be used in multiple places, including multiple routes
+   across one or more apps.
+2. When the canonical URI is identical, the runtime should reuse the same
+   delivery session when possible so all consumers see the same frame sequence.
+3. When URIs differ only by delivery, such as `/mjpeg` versus `/rtsp`, they
+   should remain separate delivery sessions while still being eligible for
+   shared capture reuse.
+
+### 7. Run Routed App Logic
 
 1. App declares route-scoped callbacks.
 2. SDK attaches using the existing `session_id + stream_name` IPC contract.
 3. SDK surfaces one callback chain per route.
+
+### 8. Inspect Runtime And Session State
+
+1. User inspects `GET /api/status` for shared capture and delivery reuse.
+2. User inspects `GET /api/sessions` and `GET /api/sessions/{id}` for direct
+   runtime state.
+3. User inspects `GET /api/apps/{id}/sources` for route bindings, latest
+   session ids, and route-level errors.
+
+### 9. Change Routing At Runtime
+
+1. User replaces the URI bound to one route without deleting the app.
+2. User may also attach a different existing logical session to that route.
+3. Backend validates the replacement, updates the durable binding, and stops
+   obsolete route-owned runtime when appropriate.
+
+### 10. Stop Capture
+
+1. User stops a direct session or app-owned source.
+2. Durable app and route declarations remain.
+3. Restart later creates a fresh runtime session rather than reviving stale
+   OS handles.
 
 ## Route Expectation Model
 
@@ -159,10 +251,6 @@ Recommended expectation shape:
 - optional channel constraint:
   - `left`
   - `right`
-- optional source-group constraint:
-  - `same_group_as`
-- optional alignment constraint:
-  - `alignment_required`
 
 Examples:
 
@@ -170,13 +258,35 @@ Examples:
   - `media = video`
 - `scene-depth`:
   - `media = depth`
-  - `same_group_as = scene-color`
-  - `alignment_required = true`
 - `stereo-left-detector`:
   - `media = video`
   - `channel = left`
 
+Important rule:
+
+- route expectations reject incompatible URIs
+- route expectations do not auto-upgrade `depth-400p_30` into
+  `depth-480p_30`, or infer `left` versus `right`, behind the user’s back
+- if delivered caps differ, that difference must already be visible in the
+  discovery catalog and canonical URI choice
+
 ## Public API Direction
+
+### Device APIs
+
+- `GET /api/health`
+- `GET /api/devices`
+- `GET /api/devices/{device}`
+- `POST /api/devices/{device}/alias`
+
+### Direct Session APIs
+
+- `POST /api/sessions`
+- `GET /api/sessions`
+- `GET /api/sessions/{id}`
+- `POST /api/sessions/{id}/start`
+- `POST /api/sessions/{id}/stop`
+- `DELETE /api/sessions/{id}`
 
 ### App APIs
 
@@ -191,6 +301,8 @@ Examples:
 - `GET /api/apps/{id}/sources`
 - `POST /api/apps/{id}/sources/{source_id}/start`
 - `POST /api/apps/{id}/sources/{source_id}/stop`
+- `POST /api/apps/{id}/sources/{source_id}/rebind`
+- `POST /api/apps/{id}/routes/{route}/attach-session`
 
 ### Route Creation Request
 
@@ -203,15 +315,13 @@ Examples:
 }
 ```
 
-Example with dependent-source constraints:
+Example depth route request:
 
 ```json
 {
   "route_name": "scene-depth",
   "expect": {
-    "media": "depth",
-    "same_group_as": "scene-color",
-    "alignment_required": true
+    "media": "depth"
   }
 }
 ```
@@ -220,8 +330,16 @@ Example with dependent-source constraints:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/720p_30/mjpeg",
+  "input": "insightos://localhost/front-camera/video-720p_30/mjpeg",
   "route": "yolov5"
+}
+```
+
+### Attach Existing Session Request
+
+```json
+{
+  "session_id": 42
 }
 ```
 
@@ -230,9 +348,13 @@ Example with dependent-source constraints:
 - source identity
 - canonical URI
 - route name
-- resolved source id
-- resolved source member
+- resolved stream id
+- resolved source variant id
+- resolved member kind
+- resolved channel when present
 - resolved source group id when present
+- delivered caps
+- capture policy metadata
 - source state
 - last error
 - embedded session metadata when a logical session exists
@@ -257,9 +379,7 @@ app.route("scene-color")
     .on_frame(handle_color);
 
 app.route("scene-depth")
-    .expect(insightos::Depth{}
-                .same_group_as("scene-color")
-                .require_alignment())
+    .expect(insightos::Depth{})
     .on_frame(handle_depth);
 ```
 
@@ -279,6 +399,8 @@ Required SDK changes:
 - `RouteScope::on_frame(...)`
 - `RouteScope::on_stop(...)`
 - `App::connect(route_name, input)` for explicit startup source connection
+- `App::attach(route_name, session_id)` for reverse-order binding to an already
+  running direct session
 
 For command-line startup:
 
@@ -295,9 +417,9 @@ Example:
 
 ```bash
 ./build/bin/multi_route_app \
-  yolov5=insightos://localhost/front-camera/720p_30/mjpeg \
-  scene-color='insightos://localhost/desk-rgbd/480p_30?source=color' \
-  scene-depth='insightos://localhost/desk-rgbd/480p_30?source=depth'
+  yolov5=insightos://localhost/front-camera/video-720p_30/mjpeg \
+  scene-color=insightos://localhost/desk-rgbd/color-480p_30 \
+  scene-depth=insightos://localhost/desk-rgbd/depth-480p_30
 ```
 
 Backend Handshake:
@@ -318,8 +440,15 @@ Backend Handshake:
 ### Product
 
 - users no longer manage runtime stream names when declaring routes
-- one connected URI feeds one route
+- one canonical URI means one delivered stream
+- discovery exposes 400p and 480p depth as separate user-visible choices when
+  D2C changes delivered caps
+- optional `/channel/<name>` exists for channel-disambiguated devices, but most
+  users consume the fully generated discovery URI without hand-editing it
 - dependent sources can be related through source-group metadata
+- direct-session-first and app-first flows are both supported
+- identical exact URIs can be reused safely across multiple consumers
+- different delivery suffixes remain distinct delivery sessions
 - backend restart preserves apps, routes, and sources while runtime state is
   normalized back to `stopped`
 
@@ -327,8 +456,10 @@ Backend Handshake:
 
 - schema is defined in SQL migrations, not only inline C++
 - app/route/source persistence is DB-backed
-- related-source constraints such as `same_group_as` and alignment are
-  expressible
+- grouped-source metadata and channel distinctions are preserved without
+  leaking hardware pairing policy into the public route contract
+- the resolved exact stream identity is persisted explicitly enough to survive
+  restart without ambiguity
 - existing logical/capture/delivery session reuse remains intact
 - feature tracker exists and can be updated mechanically as implementation
   advances

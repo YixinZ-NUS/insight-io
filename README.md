@@ -1,18 +1,20 @@
 # insight-io
 
-`insight-io` is a fresh standalone project scaffold for the DB-first
-intent-routing architecture that was being prototyped in `insightos`.
+`insight-io` is the docs-only design home for the DB-first route-based rebuild
+that was previously being prototyped in `insightos`.
 
-This repo is intentionally narrower than the original codebase:
+This repository intentionally keeps only the product and architecture contract:
 
-- backend-first CMake C++20 project under `backend/`
-- explicit docs for PRD, architecture, data model, tasks, and feature status
-- no inherited git history from the original repo
-- feature progress tracked in JSON and expected to drive implementation order
+- PRD, architecture, data model, REST contract, and runtime diagrams
+- interaction and end-to-end feature trackers
+- past-task notes that record design decisions and future verification paths
+
+The obsolete implementation scaffold has been removed on purpose. Future code
+work should restart only after reading and accepting the current doc set.
 
 ## Grounding Order
 
-Before proposing or implementing changes, read these files in order:
+Before proposing or reintroducing implementation, read these files in order:
 
 1. `AGENTS.md`
 2. `docs/prd/fullstack-intent-routing-prd.md`
@@ -24,28 +26,25 @@ Before proposing or implementing changes, read these files in order:
 
 ## Current Scope
 
-This repo currently includes:
+The current design contract is built around these choices:
 
-- durable backend app, target, and source persistence in SQLite
-- target-aware REST scaffolding for app target CRUD and source injection
-- backend tests covering restart persistence and target validation
-- a checked-in schema artifact under `backend/schema/`
+- discovery publishes exact canonical URIs where one URI maps to one delivered
+  stream
+- a main product objective is to mask heterogeneous hardware details, such as
+  D2C on/off behavior, from users and from LLM-based app builders so audio and
+  video apps stay easy to develop and reuse
+- route declarations stay purpose-first and validate compatibility, but do not
+  choose hidden stream variants
+- RGBD depth modes whose delivered caps differ are split at discovery time
+  into separate user-visible choices such as `depth-400p_30` and
+  `depth-480p_30`
+- stereo or dual-eye channel disambiguation may use an optional
+  `/channel/<name>` path segment, but discovery should normally emit the full
+  final URI so users rarely type it by hand
+- direct sessions, app-routed sessions, reuse, rebind, and restart are all part
+  of the intended lifecycle
 
-Still pending:
+## Status
 
-- high-level SDK target API
-- frontend builder flows
-- remaining feature tracker items marked `passes: false`
-
-## Build
-
-```bash
-cmake -S . -B build
-cmake --build build -j4 --target \
-  device_store_test \
-  rest_server_test
-```
-
-The backend continues to use the same donor-grounded media/runtime design that
-motivated the original prototype, but this repo is the new standalone home for
-the target-routing project.
+This repo is not currently buildable. The checked-in state is the design
+baseline for the next implementation round.

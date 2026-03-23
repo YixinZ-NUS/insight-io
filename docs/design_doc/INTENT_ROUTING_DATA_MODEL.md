@@ -6,6 +6,35 @@ This document defines the durable data model for the route-based rebuild. The
 goal is to make SQL schema and runtime ownership explicit before the code is
 refactored.
 
+## Discovery Catalog Model
+
+Discovery is not an app table, but it defines the exact stream identity that
+app and session records must persist.
+
+Each discoverable stream entry should expose:
+
+- `canonical_uri`
+- `exact_stream_id`
+- `source_variant_id`
+- `source_group_id`
+- `member_kind`
+- `channel`
+- `delivered_caps_json`
+- `capture_policy_json`
+- `supported_deliveries`
+
+Important rule:
+
+- one `canonical_uri` maps to one delivered stream
+
+Examples:
+
+- `color-480p_30`
+- `depth-400p_30`
+- `depth-480p_30`
+- `video-720p_30/channel/left`
+- `video-720p_30/channel/right`
+
 ## Durable Tables
 
 ### `schema_migrations`
@@ -49,18 +78,24 @@ Constraints:
 
 ### `app_sources`
 
-One connected source URI per app.
+One bound source per route.
 
 Suggested fields:
 
 - `source_id`
 - `app_id`
 - `route_name`
-- `input`
+- `source_mode`
+- `input_uri`
 - `canonical_uri`
-- `resolved_source_id`
-- `resolved_source_member`
+- `attached_session_id`
+- `resolved_exact_stream_id`
+- `resolved_source_variant_id`
 - `resolved_source_group_id`
+- `resolved_member_kind`
+- `resolved_channel`
+- `delivered_caps_json`
+- `capture_policy_json`
 - `request_json`
 - `state`
 - `last_error`
@@ -70,9 +105,17 @@ Suggested fields:
 
 Constraints:
 
-- unique `(app_id, canonical_uri)`
+- unique `(app_id, route_name)`
 - foreign key to `apps`
 - `route_name` must resolve to an `app_routes` row in the same app
+
+Notes:
+
+- `source_mode = managed_uri` means the app binding owns a URI-driven session
+- `source_mode = attached_session` means the route points at an existing direct
+  logical session
+- `canonical_uri` remains the exact stream identity even when the route is
+  attached from an existing `session_id`
 
 ## Existing Durable Runtime Graph
 
@@ -101,7 +144,7 @@ The current runtime graph remains valid and stays durable:
 
 - durable source connection intent
 - references the latest logical session by id
-- stores the latest resolved source identity
+- stores the latest resolved exact stream identity
 - does not own low-level OS handles
 
 ### `logical_sessions`
@@ -128,18 +171,24 @@ On backend startup:
 
 ## Source Identity Model
 
-Every app-level source connection resolves to one concrete source identity.
+Every app-level source connection resolves to one concrete exact stream
+identity.
 
 That resolved identity may carry:
 
-- `resolved_source_id`
-- `resolved_source_member`
+- `resolved_exact_stream_id`
+- `resolved_source_variant_id`
 - `resolved_source_group_id`
+- `resolved_member_kind`
+- `resolved_channel`
+- `delivered_caps_json`
+- `capture_policy_json`
 
 This allows the backend to model:
 
 - one video source
-- one depth source
+- one native depth source
+- one aligned depth source
 - one stereo-left source
 - one stereo-right source
 - two or more related sources that belong to the same source group
@@ -155,13 +204,35 @@ Some sources are independent. Others are related:
 - left + right from one stereo device
 
 For those cases, the data model must preserve source-group information so the
-backend can enforce:
+backend can preserve and use:
 
-- same-group constraints
 - channel constraints
-- alignment constraints such as D2C requirements
+- grouped-source metadata for discovery, inspection, and runtime orchestration
+
+Alignment is no longer a route-level selector.
+
+If D2C changes the delivered caps, discovery must split that into separate
+exact stream entries, for example:
+
+- `depth-400p_30`
+- `depth-480p_30`
 
 These are route-to-source validation rules, not callback-shape rules.
+
+## Reuse And Reverse-Order Binding
+
+The durable app model must also represent:
+
+- identical canonical URIs reused across multiple routes or apps
+- a route attached to an already-running direct session
+- route rebind from one exact URI or `session_id` to another
+
+Those flows rely on:
+
+- non-unique `canonical_uri` across `app_sources`
+- `source_mode`
+- `attached_session_id`
+- `latest_session_id`
 
 ## Why This Shape
 
@@ -169,5 +240,6 @@ These are route-to-source validation rules, not callback-shape rules.
 - preserves the existing session graph instead of inventing a second one
 - keeps source intent queryable after restart
 - avoids pushing raw runtime stream names into route declarations
-- leaves room for grouped-source constraints without making the URI path deeper
+- preserves exact stream identity across restart without ambiguity
+- leaves room for optional `/channel/<name>` disambiguation only when needed
 - makes the schema explicit and migration-friendly

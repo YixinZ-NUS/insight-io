@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -26,21 +26,43 @@
       "passes": false
     },
     {
-      "id": "catalog-lists-single-stream-uris",
+      "id": "catalog-lists-exact-stream-uris",
       "category": "functional",
-      "description": "The device catalog lists canonical URIs where each URI represents exactly one stream",
+      "description": "The device catalog lists exact canonical URIs where each URI represents exactly one delivered stream",
       "steps": [
         "Call GET /api/devices",
         "Inspect listed URI entries",
-        "Verify each URI corresponds to one stream",
-        "Verify separate color and depth streams are listed as separate URIs when both exist"
+        "Verify each URI corresponds to one delivered stream",
+        "Verify route expectations are not required to disambiguate the URI"
+      ],
+      "passes": false
+    },
+    {
+      "id": "catalog-lists-rgbd-depth-400-and-480",
+      "category": "functional",
+      "description": "RGBD discovery exposes separate depth outputs when D2C changes delivered caps",
+      "steps": [
+        "Call GET /api/devices for an RGBD camera",
+        "Verify exact URIs are listed for `depth-400p_30` and `depth-480p_30`",
+        "Verify their metadata reports different delivered caps or capture policy"
+      ],
+      "passes": false
+    },
+    {
+      "id": "catalog-lists-stereo-channel-uris",
+      "category": "functional",
+      "description": "Stereo or dual-eye devices can expose left and right exact URIs, optionally using `/channel/<name>`",
+      "steps": [
+        "Call GET /api/devices for a stereo device",
+        "Verify left and right channel URIs are listed",
+        "Verify the full final URI is available without manual composition"
       ],
       "passes": false
     },
     {
       "id": "device-alias-produces-human-usable-uri",
       "category": "functional",
-      "description": "An operator can alias a discovered device and then use the aliased name in canonical URIs for direct sessions or app routes",
+      "description": "An operator can alias a discovered device and then use the aliased name in exact URIs for direct sessions or app routes",
       "steps": [
         "Inspect the catalog for a discovered device default name",
         "Call the device alias endpoint",
@@ -54,34 +76,34 @@
       "category": "functional",
       "description": "A user can create a direct logical session through POST /api/sessions without going through the app layer",
       "steps": [
-        "Call POST /api/sessions with a listed device name, preset, and delivery",
+        "Call POST /api/sessions with one listed exact URI",
         "Verify the session response is active",
-        "Verify the returned payload includes session and stream metadata",
+        "Verify the returned payload includes session and exact stream metadata",
         "Verify the session can be inspected through GET /api/sessions/{id}"
-      ],
-      "passes": false
-    },
-    {
-      "id": "shared-capture-rtsp-and-ipc-reuse",
-      "category": "functional",
-      "description": "Two same-preset sessions can reuse shared capture while exposing separate delivery intents",
-      "steps": [
-        "Create an RTSP session for a listed camera preset",
-        "Create an IPC-oriented session for the same camera preset",
-        "Inspect runtime status",
-        "Verify shared capture reuse is visible while each logical session remains distinct"
       ],
       "passes": false
     },
     {
       "id": "insightos-open-equivalent-session-flow",
       "category": "functional",
-      "description": "A thin opener command can still create a direct session from one canonical URI",
+      "description": "A thin opener command can still create a direct session from one exact canonical URI",
       "steps": [
         "Run the opener binary with one canonical URI",
         "Observe the created session id",
         "Inspect the created session through REST",
         "Verify the same flow is representable through POST /api/sessions"
+      ],
+      "passes": false
+    },
+    {
+      "id": "shared-capture-rtsp-and-ipc-reuse",
+      "category": "functional",
+      "description": "Two direct sessions can reuse shared capture while exposing separate delivery intents",
+      "steps": [
+        "Create an RTSP session for one listed exact source",
+        "Create an IPC-oriented session for the same exact source",
+        "Inspect runtime status",
+        "Verify shared capture reuse is visible while each logical session remains distinct"
       ],
       "passes": false
     },
@@ -127,11 +149,11 @@
     {
       "id": "idle-app-adds-related-routes-later",
       "category": "functional",
-      "description": "A running idle app can declare related routes with grouped-source expectations after startup",
+      "description": "A running idle app can declare related routes for grouped hardware after startup",
       "steps": [
         "Create or locate an idle app",
         "Create route scene-color with media expectation video",
-        "Create route scene-depth with media expectation depth and same_group_as scene-color",
+        "Create route scene-depth with media expectation depth",
         "List app routes",
         "Verify both routes are present and distinct"
       ],
@@ -140,10 +162,10 @@
     {
       "id": "late-connect-frame-source-to-declared-route",
       "category": "functional",
-      "description": "A running idle app can receive a later video URI connection bound to a declared route",
+      "description": "A running idle app can receive a later exact video URI connection bound to a declared route",
       "steps": [
         "Start an idle app and declare route yolov5",
-        "Connect a listed compatible video URI with route yolov5",
+        "Connect a listed compatible exact video URI with route yolov5",
         "Verify the source record is created",
         "Verify a logical session is linked",
         "Verify the app receives route-scoped callbacks"
@@ -151,26 +173,26 @@
       "passes": false
     },
     {
-      "id": "late-connect-color-source-to-declared-route",
+      "id": "late-connect-depth-source-to-declared-route",
       "category": "functional",
-      "description": "A running idle app can receive a later grouped-source URI connection bound to a declared route",
+      "description": "A running idle app can receive a later exact depth URI connection bound to a declared route",
       "steps": [
-        "Start an idle app and declare route scene-color",
-        "Connect a listed URI such as insightos://host/desk-rgbd/480p_30?source=color with route scene-color",
-        "Verify the source record stores the resolved source stream identity",
+        "Start an idle app and declare route scene-depth",
+        "Connect a listed URI such as insightos://host/desk-rgbd/depth-480p_30 with route scene-depth",
+        "Verify the source record stores the resolved exact stream identity",
         "Verify the app receives route-scoped callbacks"
       ],
       "passes": false
     },
     {
-      "id": "late-connect-depth-source-to-declared-route",
+      "id": "attach-existing-session-to-running-app-route",
       "category": "functional",
-      "description": "A running idle app can receive a later grouped-source URI connection bound to a declared route",
+      "description": "A running app can bind one declared route to an already-running direct session",
       "steps": [
-        "Start an idle app and declare route scene-depth",
-        "Connect a listed URI such as insightos://host/desk-rgbd/480p_30?source=depth with route scene-depth",
-        "Verify the source record stores the resolved source stream identity",
-        "Verify the app receives route-scoped callbacks"
+        "Create a direct session",
+        "Create or locate an idle app with a compatible route",
+        "Attach the existing session id to the route",
+        "Verify the app receives route-scoped callbacks without recreating the session"
       ],
       "passes": false
     },
@@ -187,12 +209,36 @@
       "passes": false
     },
     {
+      "id": "identical-uri-fanout-same-frames",
+      "category": "functional",
+      "description": "The same exact URI can be reused across multiple consumers and should deliver the same frame sequence when shared delivery is reused",
+      "steps": [
+        "Bind the same exact URI into multiple consumers",
+        "Inspect runtime status",
+        "Verify shared delivery reuse is visible when applicable",
+        "Verify the consumers observe the same frame sequence"
+      ],
+      "passes": false
+    },
+    {
+      "id": "different-delivery-shared-capture",
+      "category": "functional",
+      "description": "Two URIs that differ only by delivery format remain distinct delivery sessions while sharing capture when possible",
+      "steps": [
+        "Create one `/mjpeg` session and one `/rtsp` session for the same exact stream",
+        "Inspect runtime status",
+        "Verify separate delivery sessions exist",
+        "Verify shared capture reuse is visible"
+      ],
+      "passes": false
+    },
+    {
       "id": "single-uri-launch-still-works-for-single-route-apps",
       "category": "functional",
-      "description": "A single-route app can launch with one bare URI argument and immediately consume from it",
+      "description": "A single-route app can launch with one bare exact URI argument and immediately consume from it",
       "steps": [
         "Build or run an app binary that declares exactly one route",
-        "Pass one canonical URI as a CLI argument",
+        "Pass one exact canonical URI as a CLI argument",
         "Verify the CLI connects that URI to the declared route",
         "Verify the app receives the expected route callbacks"
       ],
@@ -201,7 +247,7 @@
     {
       "id": "multi-uri-launch-supports-explicit-route-connections",
       "category": "functional",
-      "description": "A multi-route app can launch from CLI by connecting URIs to route names explicitly",
+      "description": "A multi-route app can launch from CLI by connecting exact URIs to route names explicitly",
       "steps": [
         "Build or run an app that declares multiple routes",
         "Launch it with explicit route-to-URI CLI connections",
@@ -211,14 +257,14 @@
       "passes": false
     },
     {
-      "id": "source-response-exposes-route-and-source-stream",
+      "id": "source-response-exposes-exact-stream-identity",
       "category": "functional",
-      "description": "App-source responses expose route metadata and resolved source identity clearly enough for the SDK to attach",
+      "description": "App-source responses expose route metadata and resolved exact stream identity clearly enough for the SDK to attach",
       "steps": [
         "Create an app and declare a route",
         "Connect a compatible source",
         "Inspect the source response",
-        "Verify route, resolved_source_id, resolved_source_member, resolved_source_group_id when present, and session metadata are present"
+        "Verify route, resolved_exact_stream_id, resolved_source_variant_id, resolved_source_group_id when present, and session metadata are present"
       ],
       "passes": false
     },
@@ -236,12 +282,24 @@
       "passes": false
     },
     {
+      "id": "app-route-rebind-at-runtime",
+      "category": "functional",
+      "description": "A route binding can be changed at runtime without destroying the durable app record",
+      "steps": [
+        "Create an app, route, and initial source",
+        "Call the route rebind endpoint with a replacement URI",
+        "Verify the durable route binding points at the replacement",
+        "Verify status and callbacks reflect the new source"
+      ],
+      "passes": false
+    },
+    {
       "id": "browser-catalog-to-route-builder-flow",
       "category": "functional",
-      "description": "The browser UI lets a user move from catalog inspection to app creation, route declaration, and source connection",
+      "description": "The browser UI lets a user move from exact stream catalog inspection to app creation, route declaration, and source connection",
       "steps": [
         "Open the browser UI",
-        "Inspect the listed canonical URIs",
+        "Inspect the listed exact URIs",
         "Create an app",
         "Create one or more routes",
         "Connect a listed URI to a selected route",

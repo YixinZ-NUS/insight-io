@@ -5,6 +5,10 @@ connect it to an app-declared route. Route declarations are purpose-first. They
 may include semantic expectations, but they do not use raw runtime stream names
 as the primary contract.
 
+Important rule:
+
+- one canonical URI maps to one delivered stream
+
 ## Current API Index
 
 | Method | Path | Purpose |
@@ -12,6 +16,13 @@ as the primary contract.
 | `GET` | `/api/health` | liveness and version |
 | `GET` | `/api/devices` | list public devices, presets, and canonical URIs |
 | `GET` | `/api/devices/{device}` | full detail for one public device |
+| `POST` | `/api/devices/{device}/alias` | change the public device alias |
+| `POST` | `/api/sessions` | create one direct logical session from an exact URI |
+| `GET` | `/api/sessions` | list logical sessions |
+| `GET` | `/api/sessions/{id}` | inspect one logical session |
+| `POST` | `/api/sessions/{id}/start` | rehydrate one persisted logical session |
+| `POST` | `/api/sessions/{id}/stop` | stop one logical session |
+| `DELETE` | `/api/sessions/{id}` | destroy one logical session |
 | `POST` | `/api/apps` | create one durable app record |
 | `GET` | `/api/apps` | list durable apps |
 | `GET` | `/api/apps/{id}` | inspect one app |
@@ -23,11 +34,8 @@ as the primary contract.
 | `POST` | `/api/apps/{id}/sources` | connect one canonical URI to one app route |
 | `POST` | `/api/apps/{id}/sources/{source_id}/start` | restart one persisted app source |
 | `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop one running app source |
-| `GET` | `/api/sessions` | list logical sessions |
-| `GET` | `/api/sessions/{id}` | inspect one logical session |
-| `POST` | `/api/sessions/{id}/start` | rehydrate one persisted logical session |
-| `POST` | `/api/sessions/{id}/stop` | stop one logical session |
-| `DELETE` | `/api/sessions/{id}` | destroy one logical session |
+| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | replace one route binding at runtime |
+| `POST` | `/api/apps/{id}/routes/{route}/attach-session` | bind one existing session to a route |
 | `GET` | `/api/status` | inspect shared capture and delivery state |
 
 ## App Route Contract
@@ -47,8 +55,6 @@ Semantic expectation keys may include:
 
 - `media`
 - `channel`
-- `same_group_as`
-- `alignment_required`
 
 Example:
 
@@ -56,9 +62,7 @@ Example:
 {
   "route_name": "scene-depth",
   "expect": {
-    "media": "depth",
-    "same_group_as": "scene-color",
-    "alignment_required": true
+    "media": "depth"
   }
 }
 ```
@@ -69,17 +73,16 @@ Connect a listed canonical URI to a declared route:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/720p_30/mjpeg",
+  "input": "insightos://localhost/front-camera/video-720p_30/mjpeg",
   "route": "yolov5"
 }
 ```
 
-For grouped devices, the URI may select a member source while keeping the base
-device alias readable:
+For grouped devices, discovery must still provide exact stream URIs:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/480p_30?source=depth",
+  "input": "insightos://localhost/desk-rgbd/depth-480p_30",
   "route": "scene-depth"
 }
 ```
@@ -88,25 +91,89 @@ Rules:
 
 - `route` is required
 - `input` must be a canonical URI already exposed by the catalog
-- if the URI includes `source=...`, the selector must resolve to a valid listed
-  source member
+- the URI itself must already identify the exact delivered stream
 - route expectations are checked against resolved source metadata
-- duplicate canonical URIs within one app are rejected
-- app-source routing is local IPC oriented in v1; remote hosts and `rtsp`-only
-  sources are rejected
+- duplicate canonical URIs are allowed across routes and apps
+- one route may own at most one active binding at a time
+- identical canonical URIs should reuse runtime where possible
+- URIs that differ only by delivery, such as `/mjpeg` and `/rtsp`, should stay
+  separate delivery sessions while still being eligible for shared capture reuse
+
+Optional advanced channel disambiguation is allowed:
+
+```text
+insightos://<host>/<device>/<stream-preset>/channel/<channel>
+insightos://<host>/<device>/<stream-preset>/channel/<channel>/<delivery>
+```
+
+Discovery should normally emit the final full URI so users rarely type this
+manually.
+
+## Direct Session Contract
+
+Direct sessions use the same exact canonical URI contract:
+
+```json
+{
+  "input": "insightos://localhost/desk-rgbd/depth-400p_30/rtsp"
+}
+```
+
+This flow is the basis for:
+
+- `insightos-open`
+- RTSP monitoring
+- session-first workflows that later attach to app routes
+
+## Attach Existing Session Contract
+
+Attach an already-running direct session to an app route:
+
+```json
+{
+  "session_id": 42
+}
+```
+
+Rules:
+
+- the existing session must still be valid
+- the existing session must satisfy the route expectation
+- the durable app-source record stores the attached session relation as well as
+  the resolved exact stream identity
+
+## Runtime Rebind Contract
+
+Replace the exact URI bound to one route:
+
+```json
+{
+  "input": "insightos://localhost/desk-rgbd/depth-400p_30"
+}
+```
+
+Rules:
+
+- rebind validates the replacement before switching durable state
+- rebind may stop obsolete route-owned runtime after the replacement succeeds
+- rebind must preserve app and route identity
 
 ## Source Response Notes
 
 App-source responses include:
 
 - `route`
-- `resolved_source_id`
-- `resolved_source_member`
+- `resolved_exact_stream_id`
+- `resolved_source_variant_id`
 - `resolved_source_group_id` when present
+- `resolved_member_kind`
+- `resolved_channel` when present
+- `delivered_caps_json`
+- `capture_policy_json`
 
 The backend still uses the existing session graph under the routing layer. A
 successful app-source connect creates one ordinary logical session and records
-which resolved source was connected to the route.
+which resolved exact stream was connected to the route.
 
 ## Restart Behavior
 
@@ -114,5 +181,8 @@ which resolved source was connected to the route.
 - startup normalizes persisted source runtime state back to `stopped`
 - `POST /api/apps/{id}/sources/{source_id}/start` creates a fresh runtime
   session for that persisted source intent
+- the same durable pattern applies to attached-session routes, but restart must
+  revalidate the referenced session rather than assuming the old runtime still
+  exists
 - the same durable pattern applies to logical sessions through
   `POST /api/sessions/{id}/start`

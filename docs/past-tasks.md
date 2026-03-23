@@ -1,5 +1,60 @@
 # Past Tasks
 
+## 2026-03-23 – Convert Repo To Docs-Only Exact-Stream Design Baseline
+
+### What Changed
+
+- rewrote the core design docs so the project contract is now explicitly:
+  - one canonical URI maps to one delivered stream
+  - discovery publishes exact stream choices up front
+  - route expectations validate compatibility instead of choosing hidden stream
+    variants
+- adopted the RGBD depth decision that D2C-sensitive outputs are exposed at
+  discovery time as separate user choices, for example:
+  - `depth-400p_30`
+  - `depth-480p_30`
+- adopted optional `/channel/<name>` URI disambiguation for stereo or dual-eye
+  devices, while keeping discovery responsible for emitting the final full URI
+- expanded the lifecycle contract in the PRD, REST reference, and feature
+  trackers to cover:
+  - direct sessions through REST and `insightos-open`
+  - app-first routing
+  - session-first attach
+  - identical-URI fan-out
+  - different-delivery shared-capture behavior
+  - runtime rebind
+  - runtime and session inspection
+- reset the implementation trackers so previously scaffold-backed runtime
+  features are no longer marked as passing
+- converted the repository to docs-only and removed the outdated checked-in
+  implementation scaffold
+
+### Why
+
+- the old scaffold and the current design docs had diverged enough that keeping
+  both in one repo created false confidence
+- the grouped-source writeup exposed a deeper contract issue:
+  route expectations and backend policy were both trying to decide which stream
+  the user meant
+- for RGBD depth, the D2C choice materially changes the delivered output, so it
+  belongs in discovery-visible user choice rather than hidden route policy
+- for stereo and dual-eye devices, channel distinction needs an explicit but
+  uncommon escape hatch; optional `/channel/<name>` is enough
+- deleting the stale implementation makes the repository honest again and turns
+  it into a clean baseline for the next implementation round
+
+### Verification
+
+- reviewed and aligned:
+  - [fullstack-intent-routing-prd.md](/home/yixin/Coding/insight-io/docs/prd/fullstack-intent-routing-prd.md)
+  - [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [GROUPED_SOURCE_SELECTION_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+- inspected the repository tree after deletion to confirm that only docs remain
+
 ## 2026-03-23 – Write Up Grouped Source Selection Problems
 
 ### What Changed
