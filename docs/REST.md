@@ -105,6 +105,8 @@ Rules:
 - route expectations are checked against resolved source metadata
 - the request does not override grouped-device behavior beyond choosing a
   different canonical URI
+- if a catalog entry needs extra explanation, discovery may include a short
+  human-readable comment, but clients must treat that as informational only
 - duplicate canonical URIs are allowed across routes and apps
 - one route may own at most one active binding at a time
 - identical canonical URIs should reuse runtime where possible
@@ -201,8 +203,12 @@ Current boundary:
 
 - grouped-device dependency behavior remains documented through existing source
   group and capture policy metadata only
-- exact Orbbec aligned-depth-only behavior remains an investigation item, not a
-  finalized API field contract
+- tested Orbbec aligned depth confirms the API can keep one-stream delivery
+  while relying on capture policy rather than a literal native `480p` depth
+  profile lookup
+- the same device did not expose a compatible `1280x720` D2C depth path and did
+  not show a distinct aligned `1280x800` output, so the API should not invent
+  those aligned variants for that unit
 
 ## Restart Behavior
 

@@ -1,5 +1,99 @@
 # Past Tasks
 
+## 2026-03-23 – Extend Orbbec Probe For 720p And 800p Depth Modes
+
+### What Changed
+
+- extended `experiments/orbbec_depth_probe/probe.cpp` to:
+  - print D2C-compatible depth-profile lists for selected color modes
+  - distinguish strict profile matches from fallback selection
+  - probe `1280x800` native depth plus forced D2C cases
+  - probe whether `1280x720` aligned depth exists through D2C
+- recorded the expanded raw output on branch `orbbec-depth-480p-probe` in
+  `2026-03-23-orbbec-depth-probe-extended.txt`
+- updated the grouped-source writeup, PRD, architecture note, data-model note,
+  REST reference, and runtime feature tracker to reflect the new device result
+
+### Why
+
+- the earlier real-device probe only settled the `480p` aligned-depth case
+- the design still needed evidence for whether this device supports aligned
+  `720p` depth or a separate aligned `800p` mode
+- discovery should not publish new exact-stream variants without device proof
+
+### Results
+
+- the connected device exposes native `1280x800` depth profiles but no native
+  `1280x720` depth profile
+- `getD2CDepthProfileList` returned no compatible depth profiles for color
+  `1280x720@30` in either software or hardware D2C mode
+- forcing software or hardware D2C on depth-only `1280x800@30` still delivered
+  `1280x800` `y16` depth frames
+- no distinct aligned `720p` or aligned `800p` depth output was observed on
+  the tested device
+- the docs now treat `depth-480p_30` as the only proven special aligned depth
+  choice on this Orbbec unit and allow, at most, a short discovery comment for
+  operator context rather than new dependency-specific fields
+
+### Verification
+
+- verified feature id `orbbec-depth-720p-800p-sdk-probe`
+- built and ran on branch `orbbec-depth-480p-probe`:
+
+```bash
+cmake -S experiments/orbbec_depth_probe -B build/orbbec_depth_probe
+cmake --build build/orbbec_depth_probe -j4
+ORBBEC_SDK_CONFIG=$PWD/experiments/orbbec_depth_probe/vendor/orbbec_sdk/config/OrbbecSDKConfig_v1.0.xml \
+  ./build/orbbec_depth_probe/orbbec_depth_probe
+```
+
+## 2026-03-23 – Run Real Orbbec Depth-480 Probe And Redesign The Contract
+
+### What Changed
+
+- created the isolated branch `orbbec-depth-480p-probe`
+- copied a minimal Orbbec SDK subset into `experiments/orbbec_depth_probe` and
+  added a standalone probe harness plus build files
+- ran the probe against the connected Orbbec device and recorded the raw output
+  on branch `orbbec-depth-480p-probe` in `2026-03-23-orbbec-depth-probe.txt`
+- updated the grouped-source writeup, PRD, architecture note, data-model note,
+  REST reference, and runtime feature tracker to reflect the real-device result
+
+### Why
+
+- the previous docs still treated aligned-depth-only Orbbec behavior as an open
+  question
+- the current donor worker disables D2C unless both color and depth are
+  user-requested, but that turns out to be stricter than the tested hardware
+  requires
+- the backend design now needs to encode `depth-480p_30` as a capture-policy
+  mapping from native `640x400` depth plus forced D2C, not as a literal native
+  `640x480` depth profile lookup
+
+### Results
+
+- the connected device reported color `640x480@30` profiles and native depth
+  `640x400@30` profiles, but no native `640x480` depth profile
+- depth-only native capture delivered `640x400` `y16` depth frames
+- depth-only forced software D2C delivered `640x480` `y16` depth frames with
+  zero delivered color frames
+- depth-only forced hardware D2C delivered `640x480` `y16` depth frames with
+  zero delivered color frames
+- color+depth software and hardware D2C also delivered `640x480` `y16` depth
+  frames
+
+### Verification
+
+- verified feature id `orbbec-depth-480-sdk-probe`
+- built and ran on branch `orbbec-depth-480p-probe`:
+
+```bash
+cmake -S experiments/orbbec_depth_probe -B build/orbbec_depth_probe
+cmake --build build/orbbec_depth_probe -j4
+ORBBEC_SDK_CONFIG=$PWD/experiments/orbbec_depth_probe/vendor/orbbec_sdk/config/OrbbecSDKConfig_v1.0.xml \
+  ./build/orbbec_depth_probe/orbbec_depth_probe
+```
+
 ## 2026-03-23 – Tighten Grouped Runtime, Route Validation, And Join/Pair Docs
 
 ### What Changed

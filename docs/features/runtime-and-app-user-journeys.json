@@ -86,6 +86,32 @@
       "passes": false
     },
     {
+      "id": "orbbec-depth-480-sdk-probe",
+      "category": "functional",
+      "description": "A standalone Orbbec SDK probe verifies whether aligned `480p` depth can be produced from a depth-only request on the connected device",
+      "steps": [
+        "On probe branch `orbbec-depth-480p-probe`, build the standalone Orbbec probe",
+        "Run the probe against the connected Orbbec device",
+        "Verify no native `640x480` depth profile is listed",
+        "Verify depth-only forced software and hardware D2C both produce `640x480` depth frames with zero delivered color frames",
+        "Verify color+depth D2C cases also produce `640x480` depth"
+      ],
+      "passes": true
+    },
+    {
+      "id": "orbbec-depth-720p-800p-sdk-probe",
+      "category": "functional",
+      "description": "A standalone Orbbec SDK probe verifies whether the connected device exposes aligned `720p` depth or a distinct aligned `800p` depth mode",
+      "steps": [
+        "On probe branch `orbbec-depth-480p-probe`, build the standalone Orbbec probe",
+        "Run the extended probe against the connected Orbbec device",
+        "Verify the native depth profile list contains `1280x800` but not `1280x720`",
+        "Verify `getD2CDepthProfileList` returns no depth profiles for color `1280x720@30` in software and hardware D2C modes",
+        "Verify forced software and hardware D2C on depth-only `1280x800@30` still deliver `1280x800` depth frames rather than a distinct aligned output"
+      ],
+      "passes": true
+    },
+    {
       "id": "device-alias-produces-human-usable-uri",
       "category": "functional",
       "description": "An operator can alias a discovered device and then use the aliased name in exact URIs for direct sessions or app routes",

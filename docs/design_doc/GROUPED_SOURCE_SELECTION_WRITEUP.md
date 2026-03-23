@@ -59,50 +59,62 @@ Implications:
 - the resolved metadata still records the capture policy that produced that
   stream
 
-Current boundary:
+Real-device result:
 
-- the public docs do not yet promise whether a real Orbbec device can produce
-  aligned `depth-480p_30` without any internal grouped runtime dependency
-- normal use still treats the discovered entry as backend-fixed behavior
-- no new dependency-specific discovery or source-response fields are added yet
+- a probe run on 2026-03-23 against device `AY27552002M` found no native
+  `640x480` or `1280x720` depth profile; the native depth families were
+  `640x400` and `1280x800`
+- forcing software or hardware D2C on a depth-only `640x400@30` request still
+  produced `640x480` `y16` depth frames
+- those depth-only `480p` D2C cases delivered zero color frames, even though
+  aligned `640x480` depth was produced
+- color+depth D2C for `640x480` also produced `640x480` depth, using a native
+  `640x400` depth profile under the hood
+- no D2C depth profiles were returned for color `1280x720@30` in either
+  software or hardware D2C mode
+- forcing D2C on depth-only `1280x800@30` still delivered `1280x800` depth
+  frames, so no distinct aligned `800p` output was observed on this device
 
-### 2A. Real Orbbec Experiment Plan For Depth-480p-Only Use
+Raw output was recorded in:
 
-Goal:
+- the probe branch `orbbec-depth-480p-probe`, in files named
+  `2026-03-23-orbbec-depth-probe.txt` and
+  `2026-03-23-orbbec-depth-probe-extended.txt`
 
-- determine whether `depth-480p_30` can be started and kept healthy when it is
-  the only user-requested stream
-- determine whether the backend must still activate grouped RGBD runtime under
-  the hood to realize that output
-- determine whether `depth-480p_30` remains compatible with simultaneous
-  `color-480p_30` use without changing what either URI means
+### 2A. Redesign After Real Orbbec Probe
 
-Planned experiment:
+The probe changes the design in an important way:
 
-1. Connect one real Orbbec RGBD device and confirm discovery lists
-   `color-480p_30`, `depth-400p_30`, and `depth-480p_30`.
-2. Start only `depth-480p_30` through the direct-session API or opener tool.
-3. Inspect delivered caps, frame continuity, and runtime status while no color
-   route or direct color session is present.
-4. Stop that session, then start only `depth-400p_30` and compare startup
-   behavior, delivered caps, and runtime shape.
-5. Start `depth-480p_30` and `color-480p_30` together and inspect whether the
-   runtime resolves them onto one compatible grouped backend mode.
-6. Stop color first while keeping `depth-480p_30` alive, then repeat in the
-   reverse order, to learn whether one stream implicitly depends on the other
-   continuing to exist.
-7. Repeat the same checks across backend restart to confirm whether persisted
-   direct sessions preserve the same visible contract.
+- `depth-480p_30` should remain a valid public exact-stream choice
+- the backend must not implement that URI by naively looking for a native
+  `640x480` depth sensor profile
+- instead, the backend should treat `depth-480p_30` as a capture-policy-driven
+  output: request the native `640x400` depth stream, force D2C mode, and
+  deliver the resulting `640x480` aligned depth frames
+- `depth-720p_30` should not be published for the tested device, because no
+  compatible `1280x720` D2C depth path was observed
+- `depth-800p_30` may still be published as native depth when the device
+  supports it, but it should not be relabeled as an aligned-depth variant on
+  the current evidence
+- the current donor worker guard that ignores D2C unless both color and depth
+  are user-requested is therefore an implementation limitation, not a proven
+  hardware requirement
 
-Evidence to record:
+What remains unknown:
 
-- exact discovery entries shown by the device catalog
-- exact session requests sent
-- `GET /api/status` and `GET /api/sessions/{id}` snapshots for each run
-- whether any hidden grouped runtime is visible indirectly through reuse or
-  capture state
-- whether `depth-480p_30` ever fails, downgrades, or changes behavior when
-  color is absent
+- whether the device internally activates color hardware as a hidden helper when
+  depth-only D2C is enabled
+- whether every Orbbec model behaves the same way as the tested device
+
+Those unknowns do not block the public contract:
+
+- one canonical URI still delivers one stream
+- normal use can still treat `depth-480p_30` as backend-fixed behavior
+- no new dependency-specific discovery or source-response fields are required
+  for this contract
+- if operator explanation is useful, discovery may surface a short
+  human-readable comment on unusual entries such as `depth-480p_30`; that note
+  is informative only and must not become new structured dependency metadata
 
 ### 3. Keep Path-Based Channel Disambiguation
 
@@ -158,6 +170,8 @@ That preserves:
 - restart-safe exact stream identity
 - route rejection when the user picks the wrong stream
 - grouped-runtime compatibility decisions
+- capture-policy-driven delivered caps that differ from the underlying native
+  sensor profile
 
 ## Why Earlier Options Were Rejected
 
@@ -295,6 +309,14 @@ app.route("depth-overlay").expect(insightos::Depth{})
 - expose channel-qualified URIs when left/right are both present
 - persist the resolved exact stream identity and delivered caps
 - treat grouped runtime behavior as fixed per discovered entry in normal use
+- for tested Orbbec aligned depth, map delivered `480p` depth to a native
+  `400p` depth request plus forced D2C in backend capture policy
+- do not invent a `720p` aligned depth URI for the tested Orbbec unit; no
+  compatible `1280x720` D2C depth path was observed
+- treat `800p` depth as native on the tested Orbbec unit unless future
+  device-specific evidence proves a separate aligned `800p` variant
+- if helpful, discovery can show a short comment on `depth-480p_30` explaining
+  that it is aligned depth realized from native `640x400` plus D2C
 
 ### Keep Advanced Channel Selection Optional
 

@@ -29,6 +29,12 @@ Current boundary:
   `source_group_id`, `member_kind`, and `capture_policy_json` fields
 - the public model does not add dependency-specific fields until real-device
   investigation justifies them
+- `capture_policy_json` must be able to describe cases where delivered caps
+  differ from the underlying native sensor profile, such as tested Orbbec
+  aligned depth
+- the tested Orbbec unit only justifies a capture-policy-backed
+  `depth-480p_30` entry; it does not justify a discovered `depth-720p_30` or a
+  separate aligned `depth-800p_30` entry on current evidence
 
 Important rule:
 

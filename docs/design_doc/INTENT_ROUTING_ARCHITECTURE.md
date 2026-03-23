@@ -170,8 +170,15 @@ Dependent-source boundary:
 - grouped-source relationships remain visible through existing metadata such as
   `source_group_id`, `member_kind`, and `capture_policy`
 - the public contract does not add dependency-specific discovery fields yet
-- exact Orbbec aligned-depth-only behavior remains under investigation, so the
-  docs only commit that the chosen catalog entry owns the backend behavior
+- the tested Orbbec device produced aligned `640x480` depth from a depth-only
+  request, so the key remaining backend task is capture-plan encoding rather
+  than proving the public one-stream contract
+- the same device exposed no compatible `1280x720` D2C depth path and no
+  distinct aligned `1280x800` output, so discovery should not publish those as
+  aligned-depth variants on that unit
+- if special-case explanation helps operators, discovery may surface a short
+  human-readable comment for an entry such as `depth-480p_30`; that comment is
+  informative only and does not replace the exact URI contract
 
 ## Grouped Runtime Rule
 
@@ -219,6 +226,10 @@ The app layer must also support:
   delivered caps
 - keep grouped-device behavior fixed per catalog entry in normal use until
   device-specific investigation justifies a richer public contract
+- allow one discovered entry to map delivered caps to a different underlying
+  native sensor profile through capture policy when the backend can prove it
+- avoid synthesizing aligned-depth variants that the device-specific evidence
+  does not support, such as `1280x720` on the tested Orbbec unit
 
 ### Session manager
 

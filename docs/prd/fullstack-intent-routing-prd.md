@@ -146,9 +146,18 @@ implicitly through the route contract.
 Current design boundary:
 
 - `depth-480p_30` remains one delivered depth stream
-- whether a specific backend internally needs grouped device mode to realize
-  that output remains a backend concern for the chosen catalog entry
-- exact Orbbec behavior for aligned-depth-only use remains under investigation
+- on the tested Orbbec device, aligned `480p` depth was produced from a
+  depth-only request with forced D2C and no delivered color frames
+- the same device exposed no compatible `1280x720` D2C depth path and no
+  distinct aligned `1280x800` depth output
+- backend planning for `depth-480p_30` must therefore be capture-policy-driven,
+  not a literal search for a native `480p` depth sensor profile
+- discovery should therefore keep `depth-480p_30` as the special aligned choice
+  on that device, avoid inventing `depth-720p_30`, and treat `depth-800p_30`
+  as native depth unless future evidence proves otherwise
+- if extra explanation is useful, discovery may show a short operator-facing
+  comment on unusual entries such as `depth-480p_30`; that note is informative
+  only and does not introduce new dependency-specific fields
 
 ### 2. Create Direct Sessions
 
@@ -516,6 +525,10 @@ Backend Handshake:
   leaking hardware pairing policy into the public route contract
 - normal use does not change grouped capture policy at bind time; a different
   behavior must come from a different discovered URI
+- capture policy may legitimately map delivered caps to a different underlying
+  native sensor profile, as in the tested Orbbec `depth-480p_30` case
+- discovery does not synthesize aligned variants that the device has not proven,
+  such as `depth-720p_30` on the tested Orbbec unit
 - non-debug routes declare enough expectation metadata to reject obvious
   misroutes such as depth into a video detector
 - the resolved exact stream identity is persisted explicitly enough to survive
