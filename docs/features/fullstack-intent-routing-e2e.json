@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "features": [
+    {
+      "id": "docs-prd-grounding",
+      "category": "functional",
+      "description": "Repo contains a grounded PRD, architecture note, data-model note, diagram, and ordered task list for the target-routing rebuild",
+      "steps": [
+        "Open the PRD and verify the target-routing product story is defined",
+        "Open the architecture note and verify app, target, source, and session boundaries are documented",
+        "Open the data-model note and verify durable tables and ownership rules are defined",
+        "Open the diagram and verify the runtime relationship is documented",
+        "Open the task list and verify the implementation order is documented"
+      ],
+      "passes": true
+    },
+    {
+      "id": "persistent-app-records",
+      "category": "functional",
+      "description": "Backend persists apps and lists them after backend restart",
+      "steps": [
+        "Create an app through the REST API",
+        "Verify the app appears in GET /api/apps",
+        "Restart the backend with the same database",
+        "Verify the app still appears in GET /api/apps"
+      ],
+      "passes": true
+    },
+    {
+      "id": "declare-video-target-yolov5",
+      "category": "functional",
+      "description": "App can declare a video target named yolov5",
+      "steps": [
+        "Create an app",
+        "Create a target named yolov5 with kind video",
+        "List targets for the app",
+        "Verify yolov5 appears with target kind video"
+      ],
+      "passes": true
+    },
+    {
+      "id": "declare-video-target-yolov8",
+      "category": "functional",
+      "description": "App can declare a second video target named yolov8",
+      "steps": [
+        "Create an app",
+        "Create a target named yolov8 with kind video",
+        "List targets for the app",
+        "Verify yolov8 appears with target kind video"
+      ],
+      "passes": false
+    },
+    {
+      "id": "declare-rgbd-target-rgbd-view",
+      "category": "functional",
+      "description": "App can declare an rgbd target named rgbd-view",
+      "steps": [
+        "Create an app",
+        "Create a target named rgbd-view with kind rgbd",
+        "List targets for the app",
+        "Verify rgbd-view appears with target kind rgbd"
+      ],
+      "passes": true
+    },
+    {
+      "id": "declare-rgbd-target-orbbec-pointcloud",
+      "category": "functional",
+      "description": "App can declare an rgbd target named orbbec-pointcloud",
+      "steps": [
+        "Create an app",
+        "Create a target named orbbec-pointcloud with kind rgbd",
+        "List targets for the app",
+        "Verify orbbec-pointcloud appears with target kind rgbd"
+      ],
+      "passes": false
+    },
+    {
+      "id": "browse-listed-uri-no-stream-management",
+      "category": "functional",
+      "description": "User can pick a listed canonical URI without handling raw stream names",
+      "steps": [
+        "Open the frontend or device catalog API",
+        "Inspect a listed device preset entry",
+        "Verify a canonical insightos:// URI is shown",
+        "Verify no app-source binding flow asks for a stream name"
+      ],
+      "passes": false
+    },
+    {
+      "id": "inject-yolov5-source",
+      "category": "functional",
+      "description": "Injecting a camera URI with target yolov5 routes primary frames to the app",
+      "steps": [
+        "Create an app and declare target yolov5",
+        "Inject a camera URI with target yolov5",
+        "Verify the backend creates a logical session",
+        "Verify the SDK receives primary target callbacks"
+      ],
+      "passes": false
+    },
+    {
+      "id": "inject-yolov8-source",
+      "category": "functional",
+      "description": "Injecting a second camera URI with target yolov8 routes independent primary frames to the app",
+      "steps": [
+        "Create an app and declare target yolov8",
+        "Inject a camera URI with target yolov8",
+        "Verify a second source is attached independently",
+        "Verify the SDK receives primary target callbacks for yolov8"
+      ],
+      "passes": false
+    },
+    {
+      "id": "inject-rgbd-view-source",
+      "category": "functional",
+      "description": "Injecting an RGBD URI with target rgbd-view routes color and depth callbacks",
+      "steps": [
+        "Create an app and declare target rgbd-view",
+        "Inject an RGBD URI with target rgbd-view",
+        "Verify the backend computes color and depth bindings",
+        "Verify the SDK receives color and depth target callbacks"
+      ],
+      "passes": false
+    },
+    {
+      "id": "inject-orbbec-pointcloud-source",
+      "category": "functional",
+      "description": "Injecting an RGBD URI with target orbbec-pointcloud routes color and depth callbacks for pointcloud logic",
+      "steps": [
+        "Create an app and declare target orbbec-pointcloud",
+        "Inject an RGBD URI with target orbbec-pointcloud",
+        "Verify the backend computes color and depth bindings",
+        "Verify the SDK receives color and depth target callbacks"
+      ],
+      "passes": false
+    },
+    {
+      "id": "reject-missing-or-unknown-target",
+      "category": "functional",
+      "description": "Source injection rejects requests with a missing or unknown target",
+      "steps": [
+        "Create an app",
+        "Attempt to inject a source without target",
+        "Verify the API rejects the request",
+        "Attempt to inject a source with an unknown target",
+        "Verify the API rejects the request"
+      ],
+      "passes": true
+    },
+    {
+      "id": "reject-incompatible-target-kind",
+      "category": "functional",
+      "description": "Source injection rejects a source whose resolved stream set cannot satisfy the target kind",
+      "steps": [
+        "Create an app and declare an rgbd target",
+        "Inject a single-stream camera URI into that target",
+        "Verify the backend rejects the request with a compatibility error"
+      ],
+      "passes": true
+    },
+    {
+      "id": "persist-stopped-sources-across-restart",
+      "category": "functional",
+      "description": "Apps, targets, and sources survive backend restart while runtime state is normalized to stopped",
+      "steps": [
+        "Create an app, target, and source",
+        "Restart the backend with the same database",
+        "List the app sources",
+        "Verify the source is still present and its state is stopped"
+      ],
+      "passes": true
+    },
+    {
+      "id": "restart-persisted-source-explicitly",
+      "category": "functional",
+      "description": "Explicitly restarting a persisted source creates fresh runtime sessions",
+      "steps": [
+        "Create an app, target, and source",
+        "Restart the backend with the same database",
+        "Call source start on the persisted source",
+        "Verify a fresh runtime session is created"
+      ],
+      "passes": true
+    },
+    {
+      "id": "browser-app-target-source-flow",
+      "category": "functional",
+      "description": "Browser UI supports create-target-bind-start-stop flow end to end",
+      "steps": [
+        "Open the frontend",
+        "Create an app",
+        "Create a target",
+        "Bind a listed URI to that target",
+        "Start the source",
+        "Stop the source",
+        "Verify status updates are visible in the UI"
+      ],
+      "passes": false
+    }
+  ]
+}
