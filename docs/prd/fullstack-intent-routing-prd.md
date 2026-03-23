@@ -74,8 +74,8 @@ quirks first.
 
 ### Application Developer
 
-Needs to declare processing routes such as `yolov5`, `scene-color`,
-`scene-depth`, `stereo-left-detector`, or `stereo-right-detector`, then attach
+Needs to declare processing routes such as `yolov5`, `orbbec-color`,
+`orbbec-depth`, `stereo-left-detector`, or `stereo-right-detector`, then attach
 backend-routed frames without managing runtime stream names directly.
 
 ### Operator / User
@@ -157,7 +157,7 @@ implicitly through the route contract.
 Examples:
 
 - `yolov5` expects video
-- `scene-depth` expects depth
+- `orbbec-depth` expects depth
 - `stereo-left-detector` expects video from the `left` channel
 
 ### 4. Start App First, Then Connect Exact URI To Route
@@ -177,7 +177,7 @@ or:
 ```json
 {
   "input": "insightos://localhost/desk-rgbd/depth-480p_30",
-  "route": "scene-depth"
+  "route": "orbbec-depth"
 }
 ```
 
@@ -256,7 +256,7 @@ Examples:
 
 - `yolov5`:
   - `media = video`
-- `scene-depth`:
+- `orbbec-depth`:
   - `media = depth`
 - `stereo-left-detector`:
   - `media = video`
@@ -319,7 +319,7 @@ Example depth route request:
 
 ```json
 {
-  "route_name": "scene-depth",
+  "route_name": "orbbec-depth",
   "expect": {
     "media": "depth"
   }
@@ -374,11 +374,11 @@ app.route("yolov5")
     .on_caps([](const insightos::Caps& caps) { /* video */ })
     .on_frame([](const insightos::Frame& frame) { /* video */ });
 
-app.route("scene-color")
+app.route("orbbec-color")
     .expect(insightos::Video{})
     .on_frame(handle_color);
 
-app.route("scene-depth")
+app.route("orbbec-depth")
     .expect(insightos::Depth{})
     .on_frame(handle_depth);
 ```
@@ -418,8 +418,8 @@ Example:
 ```bash
 ./build/bin/multi_route_app \
   yolov5=insightos://localhost/front-camera/video-720p_30/mjpeg \
-  scene-color=insightos://localhost/desk-rgbd/color-480p_30 \
-  scene-depth=insightos://localhost/desk-rgbd/depth-480p_30
+  orbbec-color=insightos://localhost/desk-rgbd/color-480p_30 \
+  orbbec-depth=insightos://localhost/desk-rgbd/depth-480p_30
 ```
 
 Backend Handshake:

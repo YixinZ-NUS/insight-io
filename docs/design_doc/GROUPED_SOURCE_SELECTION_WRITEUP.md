@@ -140,7 +140,7 @@ Problems:
 Example:
 
 ```cpp
-app.route("scene-depth")
+app.route("orbbec-depth")
     .expect(insightos::Depth{})
 ```
 
@@ -209,7 +209,7 @@ metadata, even if users do not usually type it manually.
 
 ```cpp
 app.route("yolov5").expect(insightos::Video{})
-app.route("scene-depth").expect(insightos::Depth{})
+app.route("orbbec-depth").expect(insightos::Depth{})
 app.route("stereo-left-detector").expect(insightos::Video{}.channel("left"))
 ```
 

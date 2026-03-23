@@ -57,7 +57,7 @@ In the donor repo, the app workflow looks like:
 In `insight-io`, the same workflow becomes:
 
 1. Start or create an app record
-2. Declare routes such as `yolov5`, `scene-color`, `scene-depth`,
+2. Declare routes such as `yolov5`, `orbbec-color`, `orbbec-depth`,
    `stereo-left-detector`
 3. Describe route expectations only when needed
 4. Connect a source with `input` plus `route`
@@ -78,14 +78,14 @@ Grouped-source example:
 ```json
 {
   "input": "insightos://localhost/desk-rgbd/depth-480p_30",
-  "route": "scene-depth"
+  "route": "orbbec-depth"
 }
 ```
 
 Recommended SDK shape:
 
 ```cpp
-app.route("scene-depth")
+app.route("orbbec-depth")
     .expect(insightos::Depth{})
     .on_caps([](const insightos::Caps& caps) { /* unchanged */ })
     .on_frame([](const insightos::Frame& frame) { /* unchanged */ });

@@ -60,7 +60,7 @@ Example:
 
 ```json
 {
-  "route_name": "scene-depth",
+  "route_name": "orbbec-depth",
   "expect": {
     "media": "depth"
   }
@@ -83,7 +83,7 @@ For grouped devices, discovery must still provide exact stream URIs:
 ```json
 {
   "input": "insightos://localhost/desk-rgbd/depth-480p_30",
-  "route": "scene-depth"
+  "route": "orbbec-depth"
 }
 ```
 

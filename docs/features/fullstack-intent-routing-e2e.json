@@ -51,26 +51,26 @@
       "passes": false
     },
     {
-      "id": "declare-route-scene-color",
+      "id": "declare-route-orbbec-color",
       "category": "functional",
-      "description": "App can declare a route named scene-color with a video expectation",
+      "description": "App can declare a route named orbbec-color with a video expectation",
       "steps": [
         "Create an app",
-        "Create a route named scene-color with media expectation video",
+        "Create a route named orbbec-color with media expectation video",
         "List routes for the app",
-        "Verify scene-color appears with the declared expectation"
+        "Verify orbbec-color appears with the declared expectation"
       ],
       "passes": false
     },
     {
-      "id": "declare-route-scene-depth",
+      "id": "declare-route-orbbec-depth",
       "category": "functional",
-      "description": "App can declare a route named scene-depth with a depth expectation",
+      "description": "App can declare a route named orbbec-depth with a depth expectation",
       "steps": [
         "Create an app",
-        "Create a route named scene-depth with media expectation depth",
+        "Create a route named orbbec-depth with media expectation depth",
         "List routes for the app",
-        "Verify scene-depth appears with the declared expectation"
+        "Verify orbbec-depth appears with the declared expectation"
       ],
       "passes": false
     },
@@ -123,10 +123,10 @@
     {
       "id": "inject-depth-source",
       "category": "functional",
-      "description": "Injecting an exact depth URI with route scene-depth routes callbacks",
+      "description": "Injecting an exact depth URI with route orbbec-depth routes callbacks",
       "steps": [
-        "Create an app and declare route scene-depth",
-        "Inject a compatible URI such as insightos://host/desk-rgbd/depth-480p_30 with route scene-depth",
+        "Create an app and declare route orbbec-depth",
+        "Inject a compatible URI such as insightos://host/desk-rgbd/depth-480p_30 with route orbbec-depth",
         "Verify the backend records the resolved exact stream identity",
         "Verify the SDK receives route-scoped callbacks"
       ],

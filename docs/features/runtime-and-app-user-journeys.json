@@ -152,8 +152,8 @@
       "description": "A running idle app can declare related routes for grouped hardware after startup",
       "steps": [
         "Create or locate an idle app",
-        "Create route scene-color with media expectation video",
-        "Create route scene-depth with media expectation depth",
+        "Create route orbbec-color with media expectation video",
+        "Create route orbbec-depth with media expectation depth",
         "List app routes",
         "Verify both routes are present and distinct"
       ],
@@ -177,8 +177,8 @@
       "category": "functional",
       "description": "A running idle app can receive a later exact depth URI connection bound to a declared route",
       "steps": [
-        "Start an idle app and declare route scene-depth",
-        "Connect a listed URI such as insightos://host/desk-rgbd/depth-480p_30 with route scene-depth",
+        "Start an idle app and declare route orbbec-depth",
+        "Connect a listed URI such as insightos://host/desk-rgbd/depth-480p_30 with route orbbec-depth",
         "Verify the source record stores the resolved exact stream identity",
         "Verify the app receives route-scoped callbacks"
       ],
@@ -202,7 +202,7 @@
       "description": "One app can run a video route plus related grouped-source routes at the same time with independent routing",
       "steps": [
         "Create one app",
-        "Declare one video route, one scene-color route, and one scene-depth route",
+        "Declare one video route, one orbbec-color route, and one orbbec-depth route",
         "Connect one video URI plus grouped-source URIs for color and depth",
         "Verify all routed sources remain active independently"
       ],
