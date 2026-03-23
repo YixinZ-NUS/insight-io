@@ -51,11 +51,37 @@
     {
       "id": "catalog-lists-stereo-channel-uris",
       "category": "functional",
-      "description": "Stereo or dual-eye devices can expose left and right exact URIs, optionally using `/channel/<name>`",
+      "description": "Stereo or dual-eye devices can expose selector-disambiguated exact URIs using `/channel/<name>` when needed",
       "steps": [
         "Call GET /api/devices for a stereo device",
-        "Verify left and right channel URIs are listed",
+        "Verify disambiguated channel URIs are listed",
         "Verify the full final URI is available without manual composition"
+      ],
+      "passes": false
+    },
+    {
+      "id": "grouped-runtime-compatible-or-rejected",
+      "category": "functional",
+      "description": "Related exact URIs from one source group either resolve to one compatible grouped runtime or the newer request is rejected",
+      "steps": [
+        "Create one grouped-source session or route binding",
+        "Create a second related grouped-source request",
+        "Inspect runtime status",
+        "Verify the backend either reuses one compatible grouped runtime or rejects the newer request with a compatibility error"
+      ],
+      "passes": false
+    },
+    {
+      "id": "orbbec-depth-480-direct-session-investigation",
+      "category": "functional",
+      "description": "A real Orbbec device is tested to determine whether `depth-480p_30` can run as the only user-requested stream and how grouped runtime behaves underneath",
+      "steps": [
+        "Connect one real Orbbec RGBD device",
+        "Verify discovery lists `color-480p_30`, `depth-400p_30`, and `depth-480p_30`",
+        "Start only `depth-480p_30` through a direct session",
+        "Inspect delivered caps and runtime status",
+        "Repeat with `depth-400p_30` and then with `depth-480p_30` plus `color-480p_30`",
+        "Record whether aligned depth-only use works, fails, or requires grouped runtime under the hood"
       ],
       "passes": false
     },
@@ -205,6 +231,19 @@
         "Declare one video route, one orbbec-color route, and one orbbec-depth route",
         "Connect one video URI plus grouped-source URIs for color and depth",
         "Verify all routed sources remain active independently"
+      ],
+      "passes": false
+    },
+    {
+      "id": "rgbd-join-helper-over-ordinary-routes",
+      "category": "functional",
+      "description": "One app can declare ordinary color and depth routes separately and optionally consume them together through an SDK join/pair helper",
+      "steps": [
+        "Create one app with a video route and a depth route",
+        "Connect exact URIs to those routes independently",
+        "Enable the SDK join/pair helper over those route names",
+        "Verify ordinary route callbacks still fire independently",
+        "Verify the combined callback fires only when both sides have frames within the configured timestamp tolerance"
       ],
       "passes": false
     },

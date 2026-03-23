@@ -147,6 +147,8 @@ donor repo, but with clearer contracts:
 
 - multiple independent video routes in one app
 - related routes such as color + depth in one app
+- optional `join()` / `pair()` helpers above those ordinary routes when one app
+  wants combined callbacks without encoding hardware knowledge into the routes
 - separate depth choices such as `depth-400p_30` and `depth-480p_30`
 - stereo left + right routes in one app
 - explicit rejection when a source cannot satisfy a route's semantic
@@ -182,6 +184,9 @@ That means:
 - optional `/channel/<name>` disambiguation is available for stereo or dual-eye
   devices, but discovery should emit the full final URI so users do not need to
   compose it manually
+- grouped-device runtime behavior remains fixed by the chosen catalog entry in
+  normal use; the current docs do not add richer dependency metadata until
+  device investigation completes
 
 ## Why The Feature Trackers Need To Be Broader
 

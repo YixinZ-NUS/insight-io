@@ -2,8 +2,8 @@
 
 `insight-io` exposes a DB-first route-based API. Users choose a listed URI and
 connect it to an app-declared route. Route declarations are purpose-first. They
-may include semantic expectations, but they do not use raw runtime stream names
-as the primary contract.
+should include semantic expectations for normal use, but they do not use raw
+runtime stream names as the primary contract.
 
 Important rule:
 
@@ -38,7 +38,11 @@ Important rule:
 | `POST` | `/api/apps/{id}/routes/{route}/attach-session` | bind one existing session to a route |
 | `GET` | `/api/status` | inspect shared capture and delivery state |
 
-## App Route Contract
+## App Route Request Contract
+
+This section describes the REST payload for `POST /api/apps/{id}/routes`.
+It is not an alternative to the SDK `app.route(...)` API. In the normal SDK
+flow, `app.route(...).expect(...)` serializes into this request shape.
 
 Create routes before connecting sources:
 
@@ -55,6 +59,12 @@ Semantic expectation keys may include:
 
 - `media`
 - `channel`
+
+Rules:
+
+- non-debug routes should include `media`
+- route expectations exist to reject obvious misroutes such as depth into a
+  video-only route
 
 Example:
 
@@ -93,13 +103,19 @@ Rules:
 - `input` must be a canonical URI already exposed by the catalog
 - the URI itself must already identify the exact delivered stream
 - route expectations are checked against resolved source metadata
+- the request does not override grouped-device behavior beyond choosing a
+  different canonical URI
 - duplicate canonical URIs are allowed across routes and apps
 - one route may own at most one active binding at a time
 - identical canonical URIs should reuse runtime where possible
 - URIs that differ only by delivery, such as `/mjpeg` and `/rtsp`, should stay
   separate delivery sessions while still being eligible for shared capture reuse
+- when multiple entries from one source group are active, the backend must
+  resolve them to one compatible grouped runtime or reject the newer request
+- the public contract does not add dependency-specific source metadata until
+  device investigation justifies it
 
-Optional advanced channel disambiguation is allowed:
+Optional advanced channel disambiguation stays in the path:
 
 ```text
 insightos://<host>/<device>/<stream-preset>/channel/<channel>
@@ -107,7 +123,8 @@ insightos://<host>/<device>/<stream-preset>/channel/<channel>/<delivery>
 ```
 
 Discovery should normally emit the final full URI so users rarely type this
-manually.
+manually. The channel stays in the path rather than in a query param because it
+identifies the exact stream, not an optional filter.
 
 ## Direct Session Contract
 
@@ -124,6 +141,11 @@ This flow is the basis for:
 - `insightos-open`
 - RTSP monitoring
 - session-first workflows that later attach to app routes
+
+Normal-use rule:
+
+- the chosen canonical URI fixes the backend behavior for that direct session
+- advanced grouped-device overrides are not part of the direct-session request
 
 ## Attach Existing Session Contract
 
@@ -174,6 +196,13 @@ App-source responses include:
 The backend still uses the existing session graph under the routing layer. A
 successful app-source connect creates one ordinary logical session and records
 which resolved exact stream was connected to the route.
+
+Current boundary:
+
+- grouped-device dependency behavior remains documented through existing source
+  group and capture policy metadata only
+- exact Orbbec aligned-depth-only behavior remains an investigation item, not a
+  finalized API field contract
 
 ## Restart Behavior
 

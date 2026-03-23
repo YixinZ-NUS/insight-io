@@ -27,6 +27,28 @@
       "passes": true
     },
     {
+      "id": "docs-grouped-runtime-rule",
+      "category": "functional",
+      "description": "The design docs state that grouped-source requests must resolve to one compatible grouped runtime or reject, without bind-time override of canonical URI meaning",
+      "steps": [
+        "Open the PRD and verify the grouped runtime rule is documented",
+        "Open the architecture note and verify grouped conflicts reject instead of silently mutating runtime meaning",
+        "Open the REST reference and verify normal use stays backend-fixed per discovered URI"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-channel-path-and-join-pair-contract",
+      "category": "functional",
+      "description": "The design docs keep channel selection in the URI path and define join/pair as SDK helpers above ordinary routes",
+      "steps": [
+        "Open the grouped-source writeup and verify `/channel/<name>` is preferred over query-param selection for usage reasons",
+        "Open the PRD and verify join/pair are documented above independently declared routes",
+        "Open the architecture diagram and verify the join/pair helper sits above route callbacks"
+      ],
+      "passes": true
+    },
+    {
       "id": "persistent-app-records",
       "category": "functional",
       "description": "Backend persists apps and lists them after backend restart",

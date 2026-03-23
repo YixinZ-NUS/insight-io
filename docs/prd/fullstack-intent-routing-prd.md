@@ -35,6 +35,9 @@ The key product rules are:
 - if backend processing changes delivered caps, discovery must expose separate
   user-visible stream choices rather than hiding that difference behind route
   policy
+- in normal use, grouped-device runtime behavior is fixed by the discovered
+  catalog entry; users choose a different URI rather than overriding capture
+  policy at bind time
 - identical canonical URIs may fan out to multiple consumers through reuse
 - different delivery suffixes such as `/mjpeg` and `/rtsp` create distinct
   delivery sessions while still being eligible for shared capture reuse
@@ -140,6 +143,13 @@ For RGBD depth, the delivered shape is discovery-visible:
 The user chooses between those outputs directly instead of toggling D2C
 implicitly through the route contract.
 
+Current design boundary:
+
+- `depth-480p_30` remains one delivered depth stream
+- whether a specific backend internally needs grouped device mode to realize
+  that output remains a backend concern for the chosen catalog entry
+- exact Orbbec behavior for aligned-depth-only use remains under investigation
+
 ### 2. Create Direct Sessions
 
 1. User takes one exact URI from the catalog.
@@ -236,6 +246,20 @@ or:
 3. Restart later creates a fresh runtime session rather than reviving stale
    OS handles.
 
+### 11. Grouped Runtime Rule
+
+1. Some exact URIs are independent. Others belong to grouped devices such as
+   RGBD or stereo hardware.
+2. One canonical URI still delivers one stream, but multiple active URIs from
+   the same source group may need one compatible grouped backend mode.
+3. When grouped URIs are compatible, the session manager should resolve them to
+   one compatible grouped runtime.
+4. When grouped URIs would require conflicting runtime behavior, the backend
+   should reject the newer request instead of silently changing what an already
+   selected canonical URI means.
+5. Normal use does not expose a bind-time override for grouped capture policy.
+   Users select a different discovered URI instead.
+
 ## Route Expectation Model
 
 Route declarations should stay purpose-first, but the system still needs
@@ -252,6 +276,10 @@ Recommended expectation shape:
   - `left`
   - `right`
 
+Baseline rule:
+
+- non-debug routes should declare `media`
+
 Examples:
 
 - `yolov5`:
@@ -265,6 +293,7 @@ Examples:
 Important rule:
 
 - route expectations reject incompatible URIs
+- non-debug routes without `media` are underspecified and should be avoided
 - route expectations do not auto-upgrade `depth-400p_30` into
   `depth-480p_30`, or infer `left` versus `right`, behind the user’s back
 - if delivered caps differ, that difference must already be visible in the
@@ -381,6 +410,13 @@ app.route("orbbec-color")
 app.route("orbbec-depth")
     .expect(insightos::Depth{})
     .on_frame(handle_depth);
+
+app.join("rgbd")
+    .inputs("orbbec-color", "orbbec-depth")
+    .on_frames(handle_rgbd);
+
+app.pair("orbbec-color", "orbbec-depth")
+    .on_frames(handle_rgbd);
 ```
 
 This keeps the callback chain compact:
@@ -398,9 +434,27 @@ Required SDK changes:
 - `RouteScope::on_caps(...)`
 - `RouteScope::on_frame(...)`
 - `RouteScope::on_stop(...)`
+- `App::join(name)` for a named multi-route join helper
+- `App::pair(left_route, right_route)` as two-input sugar over `join`
+- `JoinScope::inputs(route_a, route_b, ...)`
+- `JoinScope::on_frames(...)`
 - `App::connect(route_name, input)` for explicit startup source connection
 - `App::attach(route_name, session_id)` for reverse-order binding to an already
   running direct session
+
+Expected joined behavior:
+
+- routes are still declared and connected independently
+- `join()` and `pair()` are SDK helpers above ordinary routes, not new source
+  identities
+- apps can set up generic `video` and `depth` routes without prior hardware
+  knowledge, then join them by route name later
+- the joined callback waits until each named route has an active source
+- the joined callback emits when frames from the named routes are close enough
+  in `pts_ns`, using a default tolerance of one frame interval
+- if matching frames are not available, ordinary per-route callbacks still fire
+  independently
+- `pair(a, b)` is shorthand for a two-input `join()`
 
 For command-line startup:
 
@@ -446,6 +500,8 @@ Backend Handshake:
 - optional `/channel/<name>` exists for channel-disambiguated devices, but most
   users consume the fully generated discovery URI without hand-editing it
 - dependent sources can be related through source-group metadata
+- grouped sources either share one compatible grouped runtime or reject with a
+  compatibility error
 - direct-session-first and app-first flows are both supported
 - identical exact URIs can be reused safely across multiple consumers
 - different delivery suffixes remain distinct delivery sessions
@@ -458,6 +514,10 @@ Backend Handshake:
 - app/route/source persistence is DB-backed
 - grouped-source metadata and channel distinctions are preserved without
   leaking hardware pairing policy into the public route contract
+- normal use does not change grouped capture policy at bind time; a different
+  behavior must come from a different discovered URI
+- non-debug routes declare enough expectation metadata to reject obvious
+  misroutes such as depth into a video detector
 - the resolved exact stream identity is persisted explicitly enough to survive
   restart without ambiguity
 - existing logical/capture/delivery session reuse remains intact

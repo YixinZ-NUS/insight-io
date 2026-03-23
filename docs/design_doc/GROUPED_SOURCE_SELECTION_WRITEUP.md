@@ -12,8 +12,8 @@ The adopted choices are:
 - keep the contract that one canonical URI maps to one delivered stream
 - treat route expectations as validation, not hidden stream selection
 - move D2C-sensitive depth differences into discovery-visible choices
-- allow an optional `/channel/<channel>` path suffix only when channel
-  disambiguation is required
+- keep channel disambiguation in the URI path rather than in query params when
+  it is required
 
 One main objective is to mask heterogeneous hardware details from users,
 including LLMs that use `insight-io` as a development substrate for reusable
@@ -59,12 +59,57 @@ Implications:
 - the resolved metadata still records the capture policy that produced that
   stream
 
-### 3. Channel Disambiguation May Use `/channel/<name>`
+Current boundary:
+
+- the public docs do not yet promise whether a real Orbbec device can produce
+  aligned `depth-480p_30` without any internal grouped runtime dependency
+- normal use still treats the discovered entry as backend-fixed behavior
+- no new dependency-specific discovery or source-response fields are added yet
+
+### 2A. Real Orbbec Experiment Plan For Depth-480p-Only Use
+
+Goal:
+
+- determine whether `depth-480p_30` can be started and kept healthy when it is
+  the only user-requested stream
+- determine whether the backend must still activate grouped RGBD runtime under
+  the hood to realize that output
+- determine whether `depth-480p_30` remains compatible with simultaneous
+  `color-480p_30` use without changing what either URI means
+
+Planned experiment:
+
+1. Connect one real Orbbec RGBD device and confirm discovery lists
+   `color-480p_30`, `depth-400p_30`, and `depth-480p_30`.
+2. Start only `depth-480p_30` through the direct-session API or opener tool.
+3. Inspect delivered caps, frame continuity, and runtime status while no color
+   route or direct color session is present.
+4. Stop that session, then start only `depth-400p_30` and compare startup
+   behavior, delivered caps, and runtime shape.
+5. Start `depth-480p_30` and `color-480p_30` together and inspect whether the
+   runtime resolves them onto one compatible grouped backend mode.
+6. Stop color first while keeping `depth-480p_30` alive, then repeat in the
+   reverse order, to learn whether one stream implicitly depends on the other
+   continuing to exist.
+7. Repeat the same checks across backend restart to confirm whether persisted
+   direct sessions preserve the same visible contract.
+
+Evidence to record:
+
+- exact discovery entries shown by the device catalog
+- exact session requests sent
+- `GET /api/status` and `GET /api/sessions/{id}` snapshots for each run
+- whether any hidden grouped runtime is visible indirectly through reuse or
+  capture state
+- whether `depth-480p_30` ever fails, downgrades, or changes behavior when
+  color is absent
+
+### 3. Keep Path-Based Channel Disambiguation
 
 Dual-eye and stereo devices still need an explicit way to separate left and
 right when the stream preset alone is not enough.
 
-That is allowed through an optional path suffix:
+The preferred shape is an optional path suffix:
 
 ```text
 insightos://<host>/<device>/<stream-preset>/channel/<channel>
@@ -84,6 +129,16 @@ Preferred behavior:
 - the frontend shows it as a ready-made choice
 - users rarely type `/channel/...` manually
 
+Usage-based decision:
+
+- keep `/channel/<name>` in the path because the channel is part of the exact
+  stream identity
+- do not move this to a query parameter such as
+  `insightos://host/device/preset?source=left`, because query syntax reads like
+  an optional filter instead of part of the canonical stream choice
+- the path form composes more cleanly with the optional delivery suffix and
+  keeps URI equality easier to reason about in copy/paste flows
+
 ### 4. Source Groups Stay In Metadata
 
 The grouped relationship remains metadata, not a required visible path layer.
@@ -102,6 +157,7 @@ That preserves:
 - left/right validation
 - restart-safe exact stream identity
 - route rejection when the user picks the wrong stream
+- grouped-runtime compatibility decisions
 
 ## Why Earlier Options Were Rejected
 
@@ -153,6 +209,18 @@ Problems:
 - it makes the route declaration visibly configuration-heavy
 - it forces application code to care about pairing and alignment policy
 - it leaks backend grouping logic into the normal SDK flow
+
+### Query params such as `?source=left`
+
+This is not a good default either.
+
+Problems:
+
+- it makes exact stream identity look like an optional modifier
+- it complicates canonical URI equality checks in common copy/paste flows
+- it composes less cleanly with the optional delivery suffix
+- users already rely on discovery-generated final URIs, so the path form is not
+  meaningfully harder to use
 
 ## Hard Requirements The Final Design Satisfies
 
@@ -213,11 +281,20 @@ app.route("orbbec-depth").expect(insightos::Depth{})
 app.route("stereo-left-detector").expect(insightos::Video{}.channel("left"))
 ```
 
+Routes for known processing logic should also stay explicit enough to reject
+obvious misroutes:
+
+```cpp
+app.route("yolov5").expect(insightos::Video{})
+app.route("depth-overlay").expect(insightos::Depth{})
+```
+
 ### Keep Discovery Exact
 
 - expose separate 400p and 480p depth URIs
 - expose channel-qualified URIs when left/right are both present
 - persist the resolved exact stream identity and delivered caps
+- treat grouped runtime behavior as fixed per discovered entry in normal use
 
 ### Keep Advanced Channel Selection Optional
 
@@ -230,3 +307,19 @@ That is acceptable because:
 - discovery can emit the final URI so manual typing is uncommon
 
 It should remain optional, not the default path shape for every device.
+
+### Keep `join()` / `pair()` Above Ordinary Routes
+
+Expected SDK behavior:
+
+- apps still declare ordinary routes such as `color` and `depth`
+- the user or frontend still connects those routes separately using exact URIs
+- `join(name)` combines already-declared route names into one higher-level
+  callback
+- `pair(a, b)` is shorthand for a two-route join
+- these helpers do not choose hardware, infer D2C policy, or replace route
+  expectations
+- apps can stay hardware-agnostic by declaring only `Video{}` and `Depth{}`
+  expectations, then combining those routes later by name
+- the combined callback fires only when both sides have frames close enough in
+  `pts_ns`; otherwise the ordinary route callbacks continue independently

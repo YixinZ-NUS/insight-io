@@ -17,6 +17,8 @@ The public app model is:
 - the discovery catalog exposes exact stream choices up front
 - grouped devices expose related source identities through catalog metadata
 - the backend validates route expectations against resolved source metadata
+- grouped-device runtime behavior remains fixed per discovered catalog entry in
+  normal use
 
 ## Top-Level Structure
 
@@ -154,13 +156,33 @@ The recommended approach is:
 
 - discovery publishes separate exact stream entries
 - the catalog marks related entries with `source_group_id`
-- dual-eye channel disambiguation may use an optional `/channel/<channel>`
-  suffix when needed
+- dual-eye channel disambiguation should stay in the URI path with an optional
+  `/channel/<channel>` suffix when needed, because it identifies the exact
+  stream rather than acting like an optional query filter
 - most users should copy the full discovery-generated URI rather than compose
   selectors manually
 
 This keeps the URI readable while still letting the backend prove exact stream
 identity.
+
+Dependent-source boundary:
+
+- grouped-source relationships remain visible through existing metadata such as
+  `source_group_id`, `member_kind`, and `capture_policy`
+- the public contract does not add dependency-specific discovery fields yet
+- exact Orbbec aligned-depth-only behavior remains under investigation, so the
+  docs only commit that the chosen catalog entry owns the backend behavior
+
+## Grouped Runtime Rule
+
+When multiple exact URIs from the same source group are active:
+
+- the session manager must try to place them onto one compatible grouped
+  backend mode
+- if that is not possible without changing what an existing canonical URI means,
+  the backend must reject the newer request
+- bind-time overrides are out of scope for normal use; selecting a different
+  discovered URI is the supported way to ask for different runtime behavior
 
 ## Reuse, Fan-Out, And Reroute
 
@@ -195,6 +217,8 @@ The app layer must also support:
 - surface channel, source-group, caps, and capture-policy metadata
 - split depth choices into separate discoverable outputs when D2C changes the
   delivered caps
+- keep grouped-device behavior fixed per catalog entry in normal use until
+  device-specific investigation justifies a richer public contract
 
 ### Session manager
 
@@ -204,6 +228,10 @@ The app layer must also support:
 - enforce channel constraints when declared
 - preserve grouped-source relationships as internal metadata for discovery,
   inspection, and runtime orchestration
+- resolve compatible grouped source requests onto one backend mode when
+  possible, and reject conflicting grouped requests otherwise
+- do not accept bind-time policy overrides that would change the meaning of an
+  existing canonical URI
 - create and stop ordinary sessions
 - attach existing logical sessions to routes
 - rebind routes at runtime
@@ -238,6 +266,8 @@ The frontend remains a control-plane client. It does not own capture state.
 - declare routes
 - describe route expectations
 - connect exact URIs with `route`
+- provide SDK-only `join()` / `pair()` helpers above named routes for combined
+  processing
 - attach existing `session_id` values to routes when needed
 - attach returned stream identities through the existing low-level client
 - present one callback chain per route to applications

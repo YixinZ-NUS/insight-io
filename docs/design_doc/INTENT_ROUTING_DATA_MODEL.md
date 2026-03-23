@@ -23,6 +23,13 @@ Each discoverable stream entry should expose:
 - `capture_policy_json`
 - `supported_deliveries`
 
+Current boundary:
+
+- grouped dependency behavior is described through the existing
+  `source_group_id`, `member_kind`, and `capture_policy_json` fields
+- the public model does not add dependency-specific fields until real-device
+  investigation justifies them
+
 Important rule:
 
 - one `canonical_uri` maps to one delivered stream
@@ -75,6 +82,10 @@ Suggested fields:
 Constraints:
 
 - unique `(app_id, route_name)`
+
+Notes:
+
+- non-debug routes should include `media` in `expect_json`
 
 ### `app_sources`
 
@@ -208,6 +219,7 @@ backend can preserve and use:
 
 - channel constraints
 - grouped-source metadata for discovery, inspection, and runtime orchestration
+- grouped runtime compatibility rules
 
 Alignment is no longer a route-level selector.
 
@@ -218,6 +230,16 @@ exact stream entries, for example:
 - `depth-480p_30`
 
 These are route-to-source validation rules, not callback-shape rules.
+
+Grouped runtime rule:
+
+- one canonical URI still maps to one delivered stream
+- multiple active entries from one source group may still need one compatible
+  backend mode
+- if grouped requests conflict, the backend should reject rather than mutate the
+  meaning of an existing canonical URI
+- normal use does not add a bind-time override layer on top of the chosen
+  catalog entry
 
 ## Reuse And Reverse-Order Binding
 
@@ -242,4 +264,6 @@ Those flows rely on:
 - avoids pushing raw runtime stream names into route declarations
 - preserves exact stream identity across restart without ambiguity
 - leaves room for optional `/channel/<name>` disambiguation only when needed
+- keeps the current public data model stable while Orbbec grouped-device
+  behavior is still being investigated
 - makes the schema explicit and migration-friendly

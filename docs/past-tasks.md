@@ -1,5 +1,62 @@
 # Past Tasks
 
+## 2026-03-23 – Tighten Grouped Runtime, Route Validation, And Join/Pair Docs
+
+### What Changed
+
+- documented the grouped runtime rule across the PRD, architecture note,
+  data-model note, REST reference, and runtime diagram:
+  - one canonical URI still maps to one delivered stream
+  - related URIs from one source group must either resolve to one compatible
+    grouped backend mode or reject
+  - normal use remains backend-fixed per discovered catalog entry, with no
+    bind-time override layer
+- tightened wrong-route protection by documenting that non-debug routes should
+  declare `media` expectations so obvious misroutes such as depth into a video
+  detector are rejected by contract
+- reevaluated channel disambiguation from usage only and kept
+  `/channel/<name>` in the path instead of moving source selection into a query
+  parameter
+- documented SDK-level `join()` / `pair()` behavior as helpers above ordinary
+  routes so apps can declare color and depth separately, then combine them by
+  route name without hardware-specific route setup
+- added a real-device Orbbec experiment plan for testing whether
+  `depth-480p_30` can run as the only user-requested stream and how grouped
+  runtime behaves underneath
+- updated the feature trackers to record the new doc-grounding checks and the
+  pending runtime investigations
+
+### Why
+
+- the earlier docs described source groups and aligned depth as catalog choices,
+  but they still left grouped-runtime conflict handling too implicit
+- wrong-route rejection needs a slightly stronger contract than "optional
+  expectations" if common app routes are supposed to be safe by default
+- from usage alone, channel choice behaves like part of stream identity rather
+  than like an optional URI filter
+- combined color+depth consumption is easier for app authors if the SDK offers
+  a helper above named routes instead of turning paired hardware into a new
+  public routing primitive
+- exact Orbbec aligned-depth-only behavior still needs real-device evidence, so
+  the docs should frame that as an investigation rather than pretending the
+  dependency shape is already settled
+
+### Verification
+
+- verified feature ids:
+  - `docs-grouped-runtime-rule`
+  - `docs-channel-path-and-join-pair-contract`
+- reviewed and aligned:
+  - [fullstack-intent-routing-prd.md](/home/yixin/Coding/insight-io/docs/prd/fullstack-intent-routing-prd.md)
+  - [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [GROUPED_SOURCE_SELECTION_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [INTERACTION_CONTEXT.md](/home/yixin/Coding/insight-io/docs/features/INTERACTION_CONTEXT.md)
+  - [intent-routing-runtime.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-runtime.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+
 ## 2026-03-23 – Convert Repo To Docs-Only Exact-Stream Design Baseline
 
 ### What Changed

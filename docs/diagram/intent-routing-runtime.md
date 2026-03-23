@@ -14,10 +14,12 @@ flowchart LR
     Catalog --> Normalize
     Normalize --> Request[SessionRequest]
     Request --> Validate{exact stream and route-compatible?}
+    Validate --> Grouped{grouped runtime compatible?}
     AttachExisting --> ValidateExisting{session-compatible?}
     Validate -->|no| Reject[last_error + stopped]
     ValidateExisting -->|no| Reject
-    Validate -->|yes| Create[create or reuse logical session]
+    Grouped -->|no| Reject
+    Grouped -->|yes| Create[create or reuse logical session]
     ValidateExisting -->|yes| Link[link existing logical session]
 
     Create --> Logical[logical_sessions]
@@ -30,9 +32,11 @@ flowchart LR
     Create --> Stream[resolved exact stream id + stream name]
     Link --> Stream
     Stream --> Attach[SDK local attach<br/>session_id + stream_name]
+    Attach --> RouteCallbacks[per-route callbacks]
+    RouteCallbacks --> Join[SDK join/pair helper<br/>above named routes]
 
     classDef durable fill:#eef7ef,stroke:#3d7a4a,color:#17351f;
     classDef runtime fill:#eef2ff,stroke:#4361aa,color:#16233f;
     class Apps,Routes,Sources,Sessions,Logical,Bindings,Delivery,Capture,Runs durable;
-    class Discovery,Catalog,Normalize,Request,AttachExisting,Stream,Attach runtime;
+    class Discovery,Catalog,Normalize,Request,AttachExisting,Stream,Attach,RouteCallbacks,Join,Grouped runtime;
 ```
