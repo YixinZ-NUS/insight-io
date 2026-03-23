@@ -11,7 +11,7 @@
 5. Add route CRUD and `route`-based source injection to the REST API.
 6. Add route-kind validation and role-binding computation in the backend.
 7. Refactor the high-level SDK to route-scoped stream registration plus
-   explicit startup binding.
+   explicit startup source connection.
 8. Update examples and SDK tests to use route-based routing instead of
    stream-name
    routing.

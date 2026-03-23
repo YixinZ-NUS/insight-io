@@ -221,7 +221,7 @@ Required SDK changes:
 
 - `App::route(name)` as the new app-intent scope
 - `RouteScope::on_stream(name)`
-- `App::bind(route_name, input)` for explicit startup binding
+- `App::connect(route_name, input)` for explicit startup source connection
 - optional `App::route(name).device(device_name).on_stream(name)` only if
   route-local device disambiguation is still needed
 
@@ -229,11 +229,12 @@ For command-line startup:
 
 1. App declares its routes in code.
 2. The CLI parser reads argv after route declaration.
-3. If exactly one route exists, one bare URI argument binds to that route.
-4. If more than one route exists, each startup binding must be spelled
+3. If exactly one route exists, one bare URI argument connects to that route.
+4. If more than one route exists, each startup source connection must be
+   spelled
    `route_name=insightos://...`.
 5. Unknown route names fail before backend interaction.
-6. Duplicate route bindings fail before backend interaction.
+6. Duplicate route connections fail before backend interaction.
 7. Missing routes leave the app idle; they do not guess a fallback.
 
 Example:
@@ -247,13 +248,15 @@ Example:
 Backend Handshake:
 
 1. SDK creates the app record with `POST /api/apps`.
-2. SDK declares the full route manifest before binding any sources.
-3. SDK validates the CLI bindings against that declared route manifest.
-4. SDK posts one source-bind request per startup binding.
+2. SDK declares the full route manifest before connecting any sources.
+3. SDK validates the CLI route connections against that declared route
+   manifest.
+4. SDK posts one source-connect request per startup route connection.
 5. SDK fetches the resolved source records and role bindings.
 6. SDK attaches through the existing `session_id + stream_name` IPC contract.
-7. If one startup bind fails, the SDK reports which route failed and keeps the
-   app process alive unless the app explicitly requested fail-fast startup.
+7. If one startup route connection fails, the SDK reports which route failed
+   and keeps the app process alive unless the app explicitly requested
+   fail-fast startup.
 
 ## Success Criteria
 
