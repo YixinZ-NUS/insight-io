@@ -29,108 +29,108 @@
     {
       "id": "declare-video-target-yolov5",
       "category": "functional",
-      "description": "App can declare a video target named yolov5",
+      "description": "App can declare a video route named yolov5",
       "steps": [
         "Create an app",
-        "Create a target named yolov5 with kind video",
-        "List targets for the app",
-        "Verify yolov5 appears with target kind video"
+        "Create a route named yolov5 with kind video",
+        "List routes for the app",
+        "Verify yolov5 appears with route kind video"
       ],
       "passes": true
     },
     {
       "id": "declare-video-target-yolov8",
       "category": "functional",
-      "description": "App can declare a second video target named yolov8",
+      "description": "App can declare a second video route named yolov8",
       "steps": [
         "Create an app",
-        "Create a target named yolov8 with kind video",
-        "List targets for the app",
-        "Verify yolov8 appears with target kind video"
+        "Create a route named yolov8 with kind video",
+        "List routes for the app",
+        "Verify yolov8 appears with route kind video"
       ],
       "passes": false
     },
     {
       "id": "declare-rgbd-target-rgbd-view",
       "category": "functional",
-      "description": "App can declare an rgbd target named rgbd-view",
+      "description": "App can declare an rgbd route named rgbd-view",
       "steps": [
         "Create an app",
-        "Create a target named rgbd-view with kind rgbd",
-        "List targets for the app",
-        "Verify rgbd-view appears with target kind rgbd"
+        "Create a route named rgbd-view with kind rgbd",
+        "List routes for the app",
+        "Verify rgbd-view appears with route kind rgbd"
       ],
       "passes": true
     },
     {
       "id": "declare-rgbd-target-orbbec-pointcloud",
       "category": "functional",
-      "description": "App can declare an rgbd target named orbbec-pointcloud",
+      "description": "App can declare an rgbd route named orbbec-pointcloud",
       "steps": [
         "Create an app",
-        "Create a target named orbbec-pointcloud with kind rgbd",
-        "List targets for the app",
-        "Verify orbbec-pointcloud appears with target kind rgbd"
+        "Create a route named orbbec-pointcloud with kind rgbd",
+        "List routes for the app",
+        "Verify orbbec-pointcloud appears with route kind rgbd"
       ],
       "passes": false
     },
     {
       "id": "browse-listed-uri-no-stream-management",
       "category": "functional",
-      "description": "User can pick a listed canonical URI without handling raw stream names",
+      "description": "User can pick a listed canonical URI without handling raw device stream selection",
       "steps": [
         "Open the frontend or device catalog API",
         "Inspect a listed device preset entry",
         "Verify a canonical insightos:// URI is shown",
-        "Verify no app-source binding flow asks for a stream name"
+        "Verify no app-source binding flow asks the user to choose raw device streams"
       ],
       "passes": false
     },
     {
       "id": "inject-yolov5-source",
       "category": "functional",
-      "description": "Injecting a camera URI with target yolov5 routes primary frames to the app",
+      "description": "Injecting a camera URI with route yolov5 routes frame callbacks to the app",
       "steps": [
-        "Create an app and declare target yolov5",
-        "Inject a camera URI with target yolov5",
+        "Create an app and declare route yolov5",
+        "Inject a camera URI with route yolov5",
         "Verify the backend creates a logical session",
-        "Verify the SDK receives primary target callbacks"
+        "Verify the SDK receives route-scoped frame callbacks"
       ],
       "passes": false
     },
     {
       "id": "inject-yolov8-source",
       "category": "functional",
-      "description": "Injecting a second camera URI with target yolov8 routes independent primary frames to the app",
+      "description": "Injecting a second camera URI with route yolov8 routes independent frame callbacks to the app",
       "steps": [
-        "Create an app and declare target yolov8",
-        "Inject a camera URI with target yolov8",
+        "Create an app and declare route yolov8",
+        "Inject a camera URI with route yolov8",
         "Verify a second source is attached independently",
-        "Verify the SDK receives primary target callbacks for yolov8"
+        "Verify the SDK receives route-scoped frame callbacks for yolov8"
       ],
       "passes": false
     },
     {
       "id": "inject-rgbd-view-source",
       "category": "functional",
-      "description": "Injecting an RGBD URI with target rgbd-view routes color and depth callbacks",
+      "description": "Injecting an RGBD URI with route rgbd-view routes color and depth callbacks",
       "steps": [
-        "Create an app and declare target rgbd-view",
-        "Inject an RGBD URI with target rgbd-view",
+        "Create an app and declare route rgbd-view",
+        "Inject an RGBD URI with route rgbd-view",
         "Verify the backend computes color and depth bindings",
-        "Verify the SDK receives color and depth target callbacks"
+        "Verify the SDK receives route-scoped color and depth callbacks"
       ],
       "passes": false
     },
     {
       "id": "inject-orbbec-pointcloud-source",
       "category": "functional",
-      "description": "Injecting an RGBD URI with target orbbec-pointcloud routes color and depth callbacks for pointcloud logic",
+      "description": "Injecting an RGBD URI with route orbbec-pointcloud routes color and depth callbacks for pointcloud logic",
       "steps": [
-        "Create an app and declare target orbbec-pointcloud",
-        "Inject an RGBD URI with target orbbec-pointcloud",
+        "Create an app and declare route orbbec-pointcloud",
+        "Inject an RGBD URI with route orbbec-pointcloud",
         "Verify the backend computes color and depth bindings",
-        "Verify the SDK receives color and depth target callbacks"
+        "Verify the SDK receives route-scoped color and depth callbacks"
       ],
       "passes": false
     },

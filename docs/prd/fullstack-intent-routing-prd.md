@@ -58,6 +58,37 @@ managing device stream names.
 Needs to browse listed URIs, bind a source to a target from the frontend or
 REST, start or stop it, and recover that configuration after backend restart.
 
+## Interaction Baseline
+
+The proposed `insight-io` experience is not a greenfield UX invention. It is a
+reframing of the already-audited user interactions from the donor workflow into
+a persistent target-routing product.
+
+The baseline comes from three existing references:
+
+- `demo_command.md`: full operator flow for build, runtime start, catalog
+  inspection, aliasing, session creation, RTSP verification, restart, and
+  recovery
+- `demo_command_3min.md`: short operator flow for aliasing, mixed monitoring,
+  `insightos-open`, restart, idle app injection, and rename edge cases
+- `sdk/tests/app_integration_test.cpp`: test-level flow for idle app startup,
+  later source injection, mixed-source attach, and callback selection behavior
+
+In `insight-io`, those same interaction families remain, but the app-facing
+portion changes shape:
+
+- operator/runtime flows still begin with build, backend startup, health, and
+  device catalog inspection
+- device aliases still matter because they produce stable, human-usable
+  canonical URIs
+- direct session flows still exist for `insightos-open`, RTSP, AAC, restart,
+  and low-level debugging
+- app flows become target-based, so users bind `input + target` instead of
+  picking a stream name
+- idle apps still expose an `app_id`, but source injection now lands on
+  declared targets such as `yolov5`, `yolov8`, `rgbd-view`, and
+  `orbbec-pointcloud`
+
 ## Core User Flows
 
 ### 1. Create App And Targets
@@ -87,11 +118,12 @@ REST, start or stop it, and recover that configuration after backend restart.
 5. Backend returns role bindings that tell the SDK how the source was mapped to
    the target.
 
-### 3. Run Target Logic
+### 3. Run Routed App Logic
 
-1. App declares target callbacks.
+1. App declares route-scoped stream callbacks.
 2. SDK attaches using the existing `session_id + stream_name` IPC contract.
-3. SDK surfaces target-aware callbacks with target name and role metadata.
+3. SDK surfaces route-aware callbacks while keeping the familiar stream-role
+   callback shape.
 
 ## Target Contract Rules
 
@@ -134,7 +166,7 @@ REST, start or stop it, and recover that configuration after backend restart.
 ```json
 {
   "input": "insightos://localhost/front-camera/720p_30/mjpeg",
-  "target": "yolov5"
+  "route": "yolov5"
 }
 ```
 
@@ -154,27 +186,59 @@ REST, start or stop it, and recover that configuration after backend restart.
 
 ## SDK Direction
 
-The high-level SDK will pivot from stream-name matching to target matching:
+The high-level SDK should stay visually close to the current examples. The new
+concept should be introduced one level above `on_stream(...)`, not by replacing
+`Caps`, `Frame`, or the callback chain.
+
+Recommended shape:
 
 ```cpp
 insightos::App app;
-app.target("yolov5")
-    .on_frame([](const insightos::TargetFrame& frame) { /* video */ });
 
-app.target("rgbd-view", insightos::TargetKind::kRgbd)
-    .on_frame([](const insightos::TargetFrame& frame) { /* color/depth */ });
+app.route("yolov5")
+    .on_stream("frame")
+    .on_frame([](const insightos::Frame& frame) { /* video */ });
+
+app.route("rgbd-view")
+    .on_stream("color")
+    .on_frame([](const insightos::Frame& frame) { /* color */ });
+
+app.route("rgbd-view")
+    .on_stream("depth")
+    .on_frame([](const insightos::Frame& frame) { /* depth */ });
 ```
+
+This keeps the current callback look:
+
+- `on_stream("frame")`
+- `on_stream("color")`
+- `on_stream("depth")`
+- `on_caps(const insightos::Caps&)`
+- `on_frame(const insightos::Frame&)`
+- `on_stop()`
 
 Required SDK changes:
 
-- `App::target(name, kind = video)`
-- `App::add_source(input, target)`
-- `TargetScope`
-- `TargetCaps`
-- `TargetFrame`
+- `App::route(name)` as the new app-intent scope
+- `RouteScope::on_stream(name)`
+- `App::add_source(input, route)`
+- optional `App::route(name).device(device_name).on_stream(name)` only if
+  route-local device disambiguation is still needed
 
-Legacy `on_stream(...)` and `device(...)` may remain as transition shims but
-are removed from docs and examples.
+Compatibility direction:
+
+- keep top-level `App::on_stream(...)` as an implicit default route
+- keep `App(std::string source)` and `App::add_source(std::string source)` for
+  single-source convenience
+- add explicit multi-source forms that bind URIs to routes
+
+Recommended CLI behavior:
+
+- single-route apps should still launch with one URI argument
+- multi-route apps should accept named route bindings such as
+  `yolov5=insightos://...`
+- bare positional URI arguments may be accepted only when the number and order
+  of declared routes make the binding unambiguous
 
 ## Success Criteria
 
