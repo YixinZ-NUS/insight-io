@@ -1,5 +1,45 @@
 # Past Tasks
 
+## 2026-03-23 – Write Up Grouped Source Selection Problems
+
+### What Changed
+
+- added the focused design note
+  [GROUPED_SOURCE_SELECTION_WRITEUP.md](design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md)
+  to document the unresolved complexity around:
+  - left/right source separation
+  - native versus D2C-aligned depth
+  - grouped-source pairing
+  - keeping route declarations simple
+- recorded why fake flat names such as `desk-rgbd-color` and a visible
+  `<group>` URI path layer are both poor defaults
+- documented the recommended direction:
+  - keep the base URI readable
+  - move left/right and aligned/native distinction into catalog source-variant
+    metadata
+  - keep `route.expect(...)` semantic
+  - let the backend auto-resolve source variants in the common path
+
+### Why
+
+- the current design discussion has a real unresolved tension:
+  - users should not need to configure pairing and alignment manually
+  - the backend still has to distinguish variants whose caps differ
+- aligned depth is not just another label; it can change the delivered caps, so
+  the backend must preserve that distinction even if the app API stays simple
+- writing the problem down in one focused note is better than encoding a
+  premature answer directly into the PRD
+
+### Verification
+
+- reviewed donor grounding for grouped RGBD behavior and D2C policy:
+  - [standalone-project-plan.md](/home/yixin/Coding/insightos/docs/plan/standalone-project-plan.md#L179)
+  - [TECH_REPORT.md](/home/yixin/Coding/insightos/docs/design_doc/TECH_REPORT.md#L808)
+  - [request_support_test.cpp](/home/yixin/Coding/insightos/backend/tests/request_support_test.cpp#L93)
+  - [orbbec_discovery.cpp](/home/yixin/Coding/insightos/backend/src/discovery/orbbec_discovery.cpp#L223)
+- verified the new repo now contains
+  [GROUPED_SOURCE_SELECTION_WRITEUP.md](design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md)
+
 ## 2026-03-23 – Add Interaction Context And Broader User-Journey Trackers
 
 ### What Changed
@@ -10,7 +50,7 @@
   audited donor flows instead of describing the product only in abstract terms
 - added [INTERACTION_CONTEXT.md](features/INTERACTION_CONTEXT.md) to explain
   how the old operator demos and SDK integration test map onto the new
-  DB-first target-routing project
+  DB-first route-based project
 - added the broader tracker
   [runtime-and-app-user-journeys.json](features/runtime-and-app-user-journeys.json)
   to cover:
@@ -25,17 +65,17 @@
   - stream rename and delivery reuse edge cases
   - browser recovery flows
 - revised the public naming direction so the new concept is a route above the
-  existing stream-role callbacks instead of a full replacement for
-  `on_stream(...)`
+  existing callback chain instead of a full replacement for the SDK callback
+  surface
 - added explicit feature requirements for:
   - single-URI app launch continuity
-  - multi-route CLI launch with named bindings
-  - implicit default-route compatibility for existing simple apps
+  - multi-route CLI launch with named connections
+  - explicit route declaration before startup
 
 ### Why
 
 - the original feature tracker in this repo captured the new persistence and
-  target-binding core, but it did not yet represent the full user interaction
+  route-connection core, but it did not yet represent the full user interaction
   surface that the donor repo already demonstrates
 - the donor demos and the SDK integration test are the best available source of
   truth for what real operator and developer workflows should remain possible
@@ -44,7 +84,7 @@
 - keeping the app surface visually close to the current SDK lowers migration
   cost and preserves the sample-app style already used across the donor repo
 - a route-above-stream model is closer to `dora-rs`, which uses named inputs
-  and outputs rather than removing data-role names like `frame`, `color`, or
+  and outputs rather than removing stream names like `frame`, `color`, or
   `depth` from app-facing code
 
 ### Verification
@@ -64,7 +104,7 @@
 
 ### What Changed
 
-- created a new standalone repository root for the DB-first target-routing
+- created a new standalone repository root for the DB-first route-based
   project under `insight-io`
 - added repo grounding documents:
   - [fullstack-intent-routing-prd.md](prd/fullstack-intent-routing-prd.md)
@@ -78,9 +118,9 @@
   scoreboard
 - carried over the backend-first scaffold needed to continue implementation:
   - explicit schema in [001_initial.sql](../backend/schema/001_initial.sql)
-  - durable app, target, and source persistence in the backend store
-  - target-aware REST routes for app target CRUD and source binding
-  - focused backend tests for persistence and target validation
+  - durable app, route, and source persistence in the backend store
+  - route-aware REST routes for app route CRUD and source connection
+  - focused backend tests for persistence and route validation
 - replaced copied repo docs with standalone versions of [README.md](../README.md)
   and [REST.md](REST.md) so the new repository is self-contained
 
@@ -89,7 +129,7 @@
 - the work had to move from an incremental prototype inside `insightos` into a
   clean standalone project with its own git history
 - the new repository needs to be grounded by docs first so implementation stays
-  aligned with the target-routing product framing
+  aligned with the route-based product framing
 - the feature tracker has to remain the single pass/fail scoreboard for future
   implementation slices
 
