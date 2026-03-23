@@ -149,7 +149,7 @@ The donor demos show an important edge case:
 - the renamed stream appears only after the old delivery is stopped and a fresh
   delivery is created
 
-`insight-io` should keep this behavior documented because target routing sits
+`insight-io` should keep this behavior documented because route-based routing sits
 above it and does not erase the underlying session and publication semantics.
 
 ## Why The Feature Trackers Need To Be Broader

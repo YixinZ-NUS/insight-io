@@ -122,6 +122,6 @@ The frontend remains a control-plane client. It does not own capture state.
 ## Compatibility Direction
 
 - low-level `Client` stays stream-based
-- high-level `App` becomes target-based
+- high-level `App` becomes route-based
 - legacy `on_stream(...)` remains only as a temporary migration shim if kept at
   all

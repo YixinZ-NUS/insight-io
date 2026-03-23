@@ -31,7 +31,7 @@ The project remains grounded on the current standalone contract:
 
 1. Replace the runtime-only app registry with a durable app/target/source model
    backed by an explicit SQL schema.
-2. Replace stream-name-based high-level app routing with target-based routing.
+2. Replace stream-name-based high-level app routing with route-based routing.
 3. Give the frontend a first-class persistent application model instead of a
    thin session launcher.
 4. Preserve the existing donor-grounded media engine, local IPC path, and RTSP
@@ -83,7 +83,7 @@ portion changes shape:
   canonical URIs
 - direct session flows still exist for `insightos-open`, RTSP, AAC, restart,
   and low-level debugging
-- app flows become target-based, so users bind `input + target` instead of
+- app flows become route-based, so users bind `input + route` instead of
   picking a stream name
 - idle apps still expose an `app_id`, but source injection now lands on
   declared targets such as `yolov5`, `yolov8`, `rgbd-view`, and
@@ -221,24 +221,39 @@ Required SDK changes:
 
 - `App::route(name)` as the new app-intent scope
 - `RouteScope::on_stream(name)`
-- `App::add_source(input, route)`
+- `App::bind(route_name, input)` for explicit startup binding
 - optional `App::route(name).device(device_name).on_stream(name)` only if
   route-local device disambiguation is still needed
 
-Compatibility direction:
+For command-line startup:
 
-- keep top-level `App::on_stream(...)` as an implicit default route
-- keep `App(std::string source)` and `App::add_source(std::string source)` for
-  single-source convenience
-- add explicit multi-source forms that bind URIs to routes
+1. App declares its routes in code.
+2. The CLI parser reads argv after route declaration.
+3. If exactly one route exists, one bare URI argument binds to that route.
+4. If more than one route exists, each startup binding must be spelled
+   `route_name=insightos://...`.
+5. Unknown route names fail before backend interaction.
+6. Duplicate route bindings fail before backend interaction.
+7. Missing routes leave the app idle; they do not guess a fallback.
 
-Recommended CLI behavior:
+Example:
 
-- single-route apps should still launch with one URI argument
-- multi-route apps should accept named route bindings such as
-  `yolov5=insightos://...`
-- bare positional URI arguments may be accepted only when the number and order
-  of declared routes make the binding unambiguous
+```bash
+./build/bin/multi_route_app \
+  yolov5=insightos://localhost/front-camera/720p_30/mjpeg \
+  rgbd-view=insightos://localhost/desk-rgbd/480p_30/mjpeg
+```
+
+Backend Handshake:
+
+1. SDK creates the app record with `POST /api/apps`.
+2. SDK declares the full route manifest before binding any sources.
+3. SDK validates the CLI bindings against that declared route manifest.
+4. SDK posts one source-bind request per startup binding.
+5. SDK fetches the resolved source records and role bindings.
+6. SDK attaches through the existing `session_id + stream_name` IPC contract.
+7. If one startup bind fails, the SDK reports which route failed and keeps the
+   app process alive unless the app explicitly requested fail-fast startup.
 
 ## Success Criteria
 

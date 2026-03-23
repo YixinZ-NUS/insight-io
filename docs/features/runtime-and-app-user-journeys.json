@@ -203,11 +203,11 @@
     {
       "id": "single-uri-launch-still-works-for-simple-apps",
       "category": "functional",
-      "description": "A simple app can still launch with one URI argument and immediately consume from it",
+      "description": "A single-route app can launch with one bare URI argument and immediately consume from it",
       "steps": [
-        "Build or run a simple app binary that expects one source",
+        "Build or run an app binary that declares exactly one route",
         "Pass one canonical URI as a CLI argument",
-        "Verify the app starts without separate route configuration",
+        "Verify the CLI binds that URI to the declared route",
         "Verify the app receives the expected stream-role callbacks"
       ],
       "passes": false
@@ -221,18 +221,6 @@
         "Launch it with explicit route-to-URI CLI bindings",
         "Verify each route receives the correct source",
         "Verify no post-launch REST injection is required for that startup path"
-      ],
-      "passes": false
-    },
-    {
-      "id": "default-route-shim-preserves-old-app-shape",
-      "category": "functional",
-      "description": "Top-level on_stream usage remains available through an implicit default route for compatibility and simple examples",
-      "steps": [
-        "Write or run an app that uses top-level app.on_stream without an explicit route scope",
-        "Start the app with one compatible source",
-        "Verify the source binds to the implicit default route",
-        "Verify the existing Caps and Frame callback shape still works"
       ],
       "passes": false
     },
@@ -253,7 +241,7 @@
       "category": "functional",
       "description": "Stopping and restarting an app source preserves the durable app-source declaration while recreating runtime state",
       "steps": [
-        "Create an app, target, and source",
+        "Create an app, route, and source",
         "Call the app-source stop endpoint",
         "Verify the app-source row remains present and moves to stopped",
         "Call the app-source start endpoint",
