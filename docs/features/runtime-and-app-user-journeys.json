@@ -26,14 +26,14 @@
       "passes": false
     },
     {
-      "id": "catalog-lists-canonical-uris",
+      "id": "catalog-lists-single-stream-uris",
       "category": "functional",
-      "description": "The device catalog lists canonical URIs that can later be bound to app routes",
+      "description": "The device catalog lists canonical URIs where each URI represents exactly one stream",
       "steps": [
         "Call GET /api/devices",
-        "Inspect a listed device and preset entry",
-        "Verify the device has a stable public name",
-        "Verify a canonical insightos:// URI can be formed from the listing"
+        "Inspect listed URI entries",
+        "Verify each URI corresponds to one stream",
+        "Verify separate color and depth streams are listed as separate URIs when both exist"
       ],
       "passes": false
     },
@@ -86,30 +86,6 @@
       "passes": false
     },
     {
-      "id": "rtsp-output-verification",
-      "category": "functional",
-      "description": "An RTSP session exposes a consumable RTSP URL with the expected stream parameters",
-      "steps": [
-        "Create an RTSP session for a video source",
-        "Read the rtsp_url from the session response",
-        "Probe the RTSP URL with an RTSP-capable client",
-        "Verify codec and frame dimensions match the promised delivery"
-      ],
-      "passes": false
-    },
-    {
-      "id": "audio-output-verification",
-      "category": "functional",
-      "description": "An audio session can run alongside a video session and remain independently inspectable",
-      "steps": [
-        "Create a direct audio session for a listed microphone source",
-        "Verify the session is active",
-        "Inspect the session through REST",
-        "Verify the video and audio sessions can be stopped independently"
-      ],
-      "passes": false
-    },
-    {
       "id": "persisted-session-restart-after-backend-exit",
       "category": "functional",
       "description": "A stopped direct session can survive backend exit and be rehydrated explicitly after restart",
@@ -126,113 +102,123 @@
     {
       "id": "idle-app-registers-and-exposes-app-id",
       "category": "functional",
-      "description": "An idle app can connect without initial sources and expose an app id for later route binding",
+      "description": "An idle app can connect without initial sources and expose an app id for later route connection",
       "steps": [
         "Start an app without any initial source URI",
         "Call GET /api/apps",
         "Find the running app record",
-        "Verify the app id can be used for later target and source operations"
+        "Verify the app id can be used for later route and source operations"
       ],
       "passes": false
     },
     {
-      "id": "idle-app-adds-video-targets-later",
+      "id": "idle-app-adds-frame-routes-later",
       "category": "functional",
-      "description": "A running idle app can declare multiple independent video routes after startup",
+      "description": "A running idle app can declare multiple independent video-purpose routes after startup",
       "steps": [
         "Create or locate an idle app",
-        "Create route yolov5 with kind video",
-        "Create route yolov8 with kind video",
+        "Create route yolov5 with media expectation video",
+        "Create route yolov8 with media expectation video",
         "List app routes",
         "Verify both routes are present and distinct"
       ],
       "passes": false
     },
     {
-      "id": "idle-app-adds-rgbd-targets-later",
+      "id": "idle-app-adds-related-routes-later",
       "category": "functional",
-      "description": "A running idle app can declare RGBD processing routes after startup",
+      "description": "A running idle app can declare related routes with grouped-source expectations after startup",
       "steps": [
         "Create or locate an idle app",
-        "Create route rgbd-view with kind rgbd",
-        "Create route orbbec-pointcloud with kind rgbd",
+        "Create route scene-color with media expectation video",
+        "Create route scene-depth with media expectation depth and same_group_as scene-color",
         "List app routes",
-        "Verify both RGBD routes are present and distinct"
+        "Verify both routes are present and distinct"
       ],
       "passes": false
     },
     {
-      "id": "late-bind-video-source-to-declared-target",
+      "id": "late-connect-frame-source-to-declared-route",
       "category": "functional",
-      "description": "A running idle app can receive a later video source injection bound to a declared route",
+      "description": "A running idle app can receive a later video URI connection bound to a declared route",
       "steps": [
         "Start an idle app and declare route yolov5",
-        "Inject a listed camera URI with route yolov5",
+        "Connect a listed compatible video URI with route yolov5",
         "Verify the source record is created",
         "Verify a logical session is linked",
-        "Verify the app receives route-scoped frame callbacks"
+        "Verify the app receives route-scoped callbacks"
       ],
       "passes": false
     },
     {
-      "id": "late-bind-rgbd-source-to-declared-target",
+      "id": "late-connect-color-source-to-declared-route",
       "category": "functional",
-      "description": "A running idle app can receive a later RGBD source injection bound to a declared RGBD route",
+      "description": "A running idle app can receive a later grouped-source URI connection bound to a declared route",
       "steps": [
-        "Start an idle app and declare route rgbd-view",
-        "Inject a listed RGBD URI with route rgbd-view",
-        "Verify the source record is created",
-        "Verify bindings include color and depth roles",
-        "Verify the app receives route-scoped color and depth callbacks"
+        "Start an idle app and declare route scene-color",
+        "Connect a listed URI such as insightos://host/desk-rgbd/480p_30?source=color with route scene-color",
+        "Verify the source record stores the resolved source stream identity",
+        "Verify the app receives route-scoped callbacks"
       ],
       "passes": false
     },
     {
-      "id": "mixed-app-video-plus-rgbd-routing",
+      "id": "late-connect-depth-source-to-declared-route",
       "category": "functional",
-      "description": "One app can run a video route and an RGBD route at the same time with independent routing",
+      "description": "A running idle app can receive a later grouped-source URI connection bound to a declared route",
+      "steps": [
+        "Start an idle app and declare route scene-depth",
+        "Connect a listed URI such as insightos://host/desk-rgbd/480p_30?source=depth with route scene-depth",
+        "Verify the source record stores the resolved source stream identity",
+        "Verify the app receives route-scoped callbacks"
+      ],
+      "passes": false
+    },
+    {
+      "id": "mixed-app-video-plus-related-group-routing",
+      "category": "functional",
+      "description": "One app can run a video route plus related grouped-source routes at the same time with independent routing",
       "steps": [
         "Create one app",
-        "Declare one video route and one RGBD route",
-        "Inject a camera URI into the video route",
-        "Inject an RGBD URI into the RGBD route",
-        "Verify both routed sources remain active independently"
+        "Declare one video route, one scene-color route, and one scene-depth route",
+        "Connect one video URI plus grouped-source URIs for color and depth",
+        "Verify all routed sources remain active independently"
       ],
       "passes": false
     },
     {
-      "id": "single-uri-launch-still-works-for-simple-apps",
+      "id": "single-uri-launch-still-works-for-single-route-apps",
       "category": "functional",
       "description": "A single-route app can launch with one bare URI argument and immediately consume from it",
       "steps": [
         "Build or run an app binary that declares exactly one route",
         "Pass one canonical URI as a CLI argument",
-        "Verify the CLI binds that URI to the declared route",
-        "Verify the app receives the expected stream-role callbacks"
+        "Verify the CLI connects that URI to the declared route",
+        "Verify the app receives the expected route callbacks"
       ],
       "passes": false
     },
     {
-      "id": "multi-uri-launch-supports-explicit-route-binding",
+      "id": "multi-uri-launch-supports-explicit-route-connections",
       "category": "functional",
-      "description": "A multi-route app can still launch from CLI by binding URIs to route names explicitly",
+      "description": "A multi-route app can launch from CLI by connecting URIs to route names explicitly",
       "steps": [
         "Build or run an app that declares multiple routes",
-        "Launch it with explicit route-to-URI CLI bindings",
+        "Launch it with explicit route-to-URI CLI connections",
         "Verify each route receives the correct source",
         "Verify no post-launch REST injection is required for that startup path"
       ],
       "passes": false
     },
     {
-      "id": "source-response-exposes-target-bindings",
+      "id": "source-response-exposes-route-and-source-stream",
       "category": "functional",
-      "description": "App-source responses expose route metadata and resolved role bindings clearly enough for the SDK to attach",
+      "description": "App-source responses expose route metadata and resolved source identity clearly enough for the SDK to attach",
       "steps": [
         "Create an app and declare a route",
-        "Inject a compatible source",
+        "Connect a compatible source",
         "Inspect the source response",
-        "Verify route, route_kind, bindings, and session metadata are present"
+        "Verify route, resolved_source_id, resolved_source_member, resolved_source_group_id when present, and session metadata are present"
       ],
       "passes": false
     },
@@ -250,40 +236,15 @@
       "passes": false
     },
     {
-      "id": "stream-alias-rename-does-not-rewrite-live-attachment",
+      "id": "browser-catalog-to-route-builder-flow",
       "category": "functional",
-      "description": "Renaming a public stream alias does not rewrite an already running delivery or already attached app path in place",
-      "steps": [
-        "Start a live delivery or routed app source",
-        "Rename the public stream alias",
-        "Inspect the running consumer behavior",
-        "Verify the old public attachment name stays in effect until the delivery is drained and recreated"
-      ],
-      "passes": false
-    },
-    {
-      "id": "new-delivery-sees-renamed-stream-after-drain",
-      "category": "functional",
-      "description": "After the old delivery is stopped, a fresh session reflects the new public stream alias",
-      "steps": [
-        "Create a live delivery for a source",
-        "Rename the public stream alias",
-        "Stop the original delivery",
-        "Create a fresh delivery for the same source",
-        "Verify the fresh session exposes the renamed public stream name"
-      ],
-      "passes": false
-    },
-    {
-      "id": "browser-catalog-to-target-builder-flow",
-      "category": "functional",
-      "description": "The browser UI lets a user move from catalog inspection to app creation, route declaration, and source binding",
+      "description": "The browser UI lets a user move from catalog inspection to app creation, route declaration, and source connection",
       "steps": [
         "Open the browser UI",
         "Inspect the listed canonical URIs",
         "Create an app",
         "Create one or more routes",
-        "Bind a listed URI to a selected route",
+        "Connect a listed URI to a selected route",
         "Verify the routed source appears in the app detail view"
       ],
       "passes": false
