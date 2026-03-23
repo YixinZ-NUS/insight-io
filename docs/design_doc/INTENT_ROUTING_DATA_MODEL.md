@@ -2,8 +2,8 @@
 
 ## Summary
 
-This document defines the durable data model for the target-routing rebuild.
-The goal is to make SQL schema and runtime ownership explicit before the code is
+This document defines the durable data model for the route-based rebuild. The
+goal is to make SQL schema and runtime ownership explicit before the code is
 refactored.
 
 ## Durable Tables
@@ -29,35 +29,38 @@ Suggested fields:
 - `created_at_ms`
 - `updated_at_ms`
 
-### `app_targets`
+### `app_routes`
 
-One declared target per app.
+One declared route per app.
 
 Suggested fields:
 
-- `target_id`
+- `route_id`
 - `app_id`
-- `target_name`
-- `target_kind`
-- `contract_json`
+- `route_name`
+- `expect_json`
+- `config_json`
 - `created_at_ms`
 - `updated_at_ms`
 
 Constraints:
 
-- unique `(app_id, target_name)`
+- unique `(app_id, route_name)`
 
 ### `app_sources`
 
-One bound source URI per app.
+One connected source URI per app.
 
 Suggested fields:
 
 - `source_id`
 - `app_id`
-- `target_name`
+- `route_name`
 - `input`
 - `canonical_uri`
+- `resolved_source_id`
+- `resolved_source_member`
+- `resolved_source_group_id`
 - `request_json`
 - `state`
 - `last_error`
@@ -69,7 +72,7 @@ Constraints:
 
 - unique `(app_id, canonical_uri)`
 - foreign key to `apps`
-- `target_name` must resolve to an `app_targets` row in the same app
+- `route_name` must resolve to an `app_routes` row in the same app
 
 ## Existing Durable Runtime Graph
 
@@ -88,15 +91,17 @@ The current runtime graph remains valid and stays durable:
 - durable application identity
 - no live worker ownership
 
-### `app_targets`
+### `app_routes`
 
 - durable declared intent
+- stores semantic expectations for that route
 - no runtime media ownership
 
 ### `app_sources`
 
-- durable source binding intent
+- durable source connection intent
 - references the latest logical session by id
+- stores the latest resolved source identity
 - does not own low-level OS handles
 
 ### `logical_sessions`
@@ -119,33 +124,50 @@ On backend startup:
 - old `capture_sessions` and `delivery_sessions` are marked stopped
 - `app_sources.state` is normalized to `stopped`
 - `app_sources.latest_session_id` remains as history only until an explicit
-  restart creates a fresh logical session or fresh bindings
+  restart creates a fresh logical session
 
-## Role Binding Model
+## Source Identity Model
 
-Role bindings are computed from `app_targets.target_kind` plus the resolved
-session stream list.
+Every app-level source connection resolves to one concrete source identity.
 
-### `video`
+That resolved identity may carry:
 
-- role `primary`
+- `resolved_source_id`
+- `resolved_source_member`
+- `resolved_source_group_id`
 
-### `audio`
+This allows the backend to model:
 
-- role `audio`
+- one video source
+- one depth source
+- one stereo-left source
+- one stereo-right source
+- two or more related sources that belong to the same source group
 
-### `rgbd`
+The app route itself does not declare raw runtime stream names. It declares
+purpose plus semantic expectations through `expect_json`.
 
-- roles `color` and `depth`
-- optional role `ir`
+## Dependent Sources And Grouped Devices
 
-The durable schema does not need a separate binding table in the first pass.
-Bindings can be derived at runtime from the current target kind and resolved
-session stream set.
+Some sources are independent. Others are related:
+
+- color + depth from one RGBD device
+- left + right from one stereo device
+
+For those cases, the data model must preserve source-group information so the
+backend can enforce:
+
+- same-group constraints
+- channel constraints
+- alignment constraints such as D2C requirements
+
+These are route-to-source validation rules, not callback-shape rules.
 
 ## Why This Shape
 
 - keeps durable app orchestration separate from durable media runtime
 - preserves the existing session graph instead of inventing a second one
 - keeps source intent queryable after restart
+- avoids pushing raw runtime stream names into route declarations
+- leaves room for grouped-source constraints without making the URI path deeper
 - makes the schema explicit and migration-friendly

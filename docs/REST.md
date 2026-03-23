@@ -1,8 +1,9 @@
 # REST API Reference
 
-`insight-io` exposes a DB-first target-routing API. Users choose a listed
-canonical URI and bind it to an app-declared target. They do not manage raw
-stream names in the app-source flow.
+`insight-io` exposes a DB-first route-based API. Users choose a listed URI and
+connect it to an app-declared route. Route declarations are purpose-first. They
+may include semantic expectations, but they do not use raw runtime stream names
+as the primary contract.
 
 ## Current API Index
 
@@ -15,11 +16,11 @@ stream names in the app-source flow.
 | `GET` | `/api/apps` | list durable apps |
 | `GET` | `/api/apps/{id}` | inspect one app |
 | `DELETE` | `/api/apps/{id}` | delete one app and its owned records |
-| `POST` | `/api/apps/{id}/targets` | create one target on an app |
-| `GET` | `/api/apps/{id}/targets` | list one app's targets |
-| `DELETE` | `/api/apps/{id}/targets/{target}` | delete one unused target |
-| `GET` | `/api/apps/{id}/sources` | list one app's sources and routed bindings |
-| `POST` | `/api/apps/{id}/sources` | bind one canonical URI to one app target |
+| `POST` | `/api/apps/{id}/routes` | create one route on an app |
+| `GET` | `/api/apps/{id}/routes` | list one app's routes |
+| `DELETE` | `/api/apps/{id}/routes/{route}` | delete one unused route |
+| `GET` | `/api/apps/{id}/sources` | list one app's sources |
+| `POST` | `/api/apps/{id}/sources` | connect one canonical URI to one app route |
 | `POST` | `/api/apps/{id}/sources/{source_id}/start` | restart one persisted app source |
 | `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop one running app source |
 | `GET` | `/api/sessions` | list logical sessions |
@@ -29,40 +30,68 @@ stream names in the app-source flow.
 | `DELETE` | `/api/sessions/{id}` | destroy one logical session |
 | `GET` | `/api/status` | inspect shared capture and delivery state |
 
-## App Target Contract
+## App Route Contract
 
-Create targets before binding sources:
+Create routes before connecting sources:
 
 ```json
 {
-  "target_name": "yolov5",
-  "target_kind": "video"
+  "route_name": "yolov5",
+  "expect": {
+    "media": "video"
+  }
 }
 ```
 
-Supported target kinds today:
+Semantic expectation keys may include:
 
-- `video`: binds `frame`, else `color`, else the first non-audio stream
-- `audio`: binds `audio`
-- `rgbd`: requires `color` and `depth`, and includes `ir` when available
+- `media`
+- `channel`
+- `same_group_as`
+- `alignment_required`
+
+Example:
+
+```json
+{
+  "route_name": "scene-depth",
+  "expect": {
+    "media": "depth",
+    "same_group_as": "scene-color",
+    "alignment_required": true
+  }
+}
+```
 
 ## App Source Contract
 
-Bind a listed canonical URI to a declared target:
+Connect a listed canonical URI to a declared route:
 
 ```json
 {
   "input": "insightos://localhost/front-camera/720p_30/mjpeg",
-  "target": "yolov5"
+  "route": "yolov5"
+}
+```
+
+For grouped devices, the URI may select a member source while keeping the base
+device alias readable:
+
+```json
+{
+  "input": "insightos://localhost/desk-rgbd/480p_30?source=depth",
+  "route": "scene-depth"
 }
 ```
 
 Rules:
 
-- `target` is required
+- `route` is required
 - `input` must be a canonical URI already exposed by the catalog
+- if the URI includes `source=...`, the selector must resolve to a valid listed
+  source member
+- route expectations are checked against resolved source metadata
 - duplicate canonical URIs within one app are rejected
-- incompatible URI/target-kind pairs are rejected
 - app-source routing is local IPC oriented in v1; remote hosts and `rtsp`-only
   sources are rejected
 
@@ -70,23 +99,18 @@ Rules:
 
 App-source responses include:
 
-- `target`
-- `target_kind`
-- `bindings`
-
-Each binding reports:
-
-- `role`
-- `stream_id`
-- `stream_name`
+- `route`
+- `resolved_source_id`
+- `resolved_source_member`
+- `resolved_source_group_id` when present
 
 The backend still uses the existing session graph under the routing layer. A
-successful app-source bind creates one ordinary logical session and computes
-role bindings above it.
+successful app-source connect creates one ordinary logical session and records
+which resolved source was connected to the route.
 
 ## Restart Behavior
 
-- app, target, and source records are durable
+- app, route, and source records are durable
 - startup normalizes persisted source runtime state back to `stopped`
 - `POST /api/apps/{id}/sources/{source_id}/start` creates a fresh runtime
   session for that persisted source intent
