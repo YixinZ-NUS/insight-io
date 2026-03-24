@@ -1,0 +1,114 @@
+# Intent Routing ER Diagram
+
+## Role
+
+- role: durable-schema entity-relationship diagram for `insight-io`
+- status: active
+- version: 1
+- major changes:
+  - 2026-03-24 added the Mermaid ER diagram for the simplified durable schema
+- past tasks:
+  - `2026-03-24 – Add Mermaid ER Diagram For The Simplified Schema`
+
+```mermaid
+erDiagram
+    devices ||--o{ streams : publishes
+    apps ||--o{ app_routes : declares
+    apps ||--o{ app_sources : owns
+    app_routes ||--o{ app_sources : targets
+    streams ||--o{ app_sources : selects
+    streams ||--o{ sessions : realizes
+    sessions ||--o{ app_sources : source_session
+    sessions ||--o{ app_sources : active_session
+    sessions ||--o{ session_logs : records
+
+    devices {
+        INTEGER device_id PK
+        TEXT device_key UK
+        TEXT public_name UK
+        TEXT driver
+        TEXT status
+        TEXT metadata_json
+        INTEGER last_seen_at_ms
+        INTEGER created_at_ms
+        INTEGER updated_at_ms
+    }
+
+    streams {
+        INTEGER stream_id PK
+        INTEGER device_id FK
+        TEXT canonical_uri UK
+        TEXT selector
+        TEXT media_kind
+        TEXT shape_kind
+        TEXT channel
+        TEXT group_key
+        TEXT caps_json
+        TEXT capture_policy_json
+        TEXT members_json
+        TEXT deliveries_json
+        INTEGER is_present
+        INTEGER created_at_ms
+        INTEGER updated_at_ms
+    }
+
+    apps {
+        INTEGER app_id PK
+        TEXT name UK
+        TEXT description
+        TEXT config_json
+        INTEGER created_at_ms
+        INTEGER updated_at_ms
+    }
+
+    app_routes {
+        INTEGER route_id PK
+        INTEGER app_id FK
+        TEXT route_name
+        TEXT expect_json
+        TEXT config_json
+        INTEGER created_at_ms
+        INTEGER updated_at_ms
+    }
+
+    app_sources {
+        INTEGER source_id PK
+        INTEGER app_id FK
+        INTEGER route_id FK
+        INTEGER stream_id FK
+        INTEGER source_session_id FK
+        INTEGER active_session_id FK
+        TEXT target_kind
+        TEXT route_grouped
+        TEXT source_kind
+        TEXT state
+        TEXT resolved_routes_json
+        TEXT last_error
+        INTEGER created_at_ms
+        INTEGER updated_at_ms
+    }
+
+    sessions {
+        INTEGER session_id PK
+        INTEGER stream_id FK
+        TEXT session_kind
+        TEXT request_json
+        TEXT resolved_stream_name
+        TEXT state
+        TEXT last_error
+        INTEGER started_at_ms
+        INTEGER stopped_at_ms
+        INTEGER created_at_ms
+        INTEGER updated_at_ms
+    }
+
+    session_logs {
+        INTEGER log_id PK
+        INTEGER session_id FK
+        TEXT level
+        TEXT event_type
+        TEXT message
+        TEXT payload_json
+        INTEGER created_at_ms
+    }
+```

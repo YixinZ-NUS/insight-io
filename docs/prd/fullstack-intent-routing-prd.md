@@ -2,25 +2,26 @@
 
 ## Summary
 
-`insight-io` is a DB-first route-based project for routing discoverable exact
-stream URIs into app-defined routes.
+`insight-io` is a DB-first route-based project for routing discoverable source
+URIs into app-defined routes.
 
 The public URI shape remains `insightos://`, but the canonical contract is now
-explicitly exact-stream oriented:
+selector-oriented:
 
 ```text
-insightos://<host>/<device>/<stream-preset>
-insightos://<host>/<device>/<stream-preset>/<delivery>
-insightos://<host>/<device>/<stream-preset>/channel/<channel>
-insightos://<host>/<device>/<stream-preset>/channel/<channel>/<delivery>
+insightos://<host>/<device>/<selector>
+insightos://<host>/<device>/<selector>/<delivery>
+insightos://<host>/<device>/<selector>/channel/<channel>
+insightos://<host>/<device>/<selector>/channel/<channel>/<delivery>
 ```
 
 Examples:
 
 - `insightos://localhost/front-camera/video-720p_30/mjpeg`
-- `insightos://localhost/desk-rgbd/color-480p_30`
-- `insightos://localhost/desk-rgbd/depth-400p_30`
-- `insightos://localhost/desk-rgbd/depth-480p_30`
+- `insightos://localhost/desk-rgbd/orbbec/color/480p_30`
+- `insightos://localhost/desk-rgbd/orbbec/depth/400p_30`
+- `insightos://localhost/desk-rgbd/orbbec/depth/480p_30`
+- `insightos://localhost/desk-rgbd/orbbec/preset/480p_30`
 - `insightos://localhost/stereo-cam/video-720p_30/channel/left`
 - `insightos://localhost/stereo-cam/video-720p_30/channel/right`
 
@@ -28,13 +29,20 @@ The key product rules are:
 
 - discovery publishes the exact canonical URIs that users and apps copy
 - the app declares routes by purpose, not by runtime stream name
-- one canonical URI maps to one delivered stream
+- one canonical URI selects one fixed catalog-published source shape
 - route expectations validate compatibility; they do not choose hidden stream
   variants
-- related exact URIs may belong to the same source group
+- exact-member URIs still map to one delivered stream
+- grouped preset URIs may map to one fixed related stream bundle
+- related URIs may belong to the same source group
+- discovery publishes source-shape choices and metadata; sessions realize them
+  at runtime
 - if backend processing changes delivered caps, discovery must expose separate
   user-visible stream choices rather than hiding that difference behind route
   policy
+- in normal use, grouped-device runtime behavior is fixed by the discovered
+  catalog entry; users choose a different URI rather than overriding capture
+  policy at bind time
 - identical canonical URIs may fan out to multiple consumers through reuse
 - different delivery suffixes such as `/mjpeg` and `/rtsp` create distinct
   delivery sessions while still being eligible for shared capture reuse
@@ -50,8 +58,8 @@ quirks first.
    backed by an explicit SQL schema.
 2. Replace stream-name-first high-level app routing with purpose-first route
    routing.
-3. Make the copied URI itself exact enough that one URI always means one
-   delivered stream.
+3. Make the copied URI exact enough that one URI always means one fixed
+   published source shape.
 4. Mask heterogeneous hardware details from users and LLM-assisted app builders
    by moving device-specific choices into discovery-visible exact stream
    selection.
@@ -69,13 +77,15 @@ quirks first.
   declaration
 - hiding materially different delivered depth modes behind one route-level
   alignment toggle
+- reintroducing a separate SDK-only frame-merge helper layer instead of making
+  grouped preset routing first-class
 
 ## Personas
 
 ### Application Developer
 
-Needs to declare processing routes such as `yolov5`, `orbbec-color`,
-`orbbec-depth`, `stereo-left-detector`, or `stereo-right-detector`, then attach
+Needs to declare processing routes such as `yolov5`, `orbbec/color`,
+`orbbec/depth`, `stereo/left-detector`, or `stereo/right-detector`, then attach
 backend-routed frames without managing runtime stream names directly.
 
 ### Operator / User
@@ -105,11 +115,11 @@ portion changes shape:
   URIs
 - direct session flows still exist for `insightos-open`, RTSP, AAC, restart,
   and low-level debugging
-- discovery must list the exact stream choices up front, including distinct
-  depth outputs when delivered caps differ
+- discovery must list exact member choices up front, and may also list fixed
+  grouped preset choices when the delivered member set is stable and proven
 - app flows become route-based, so users connect `input + route`
 - apps no longer register runtime stream names directly in route declarations
-- the exact URI is authoritative for stream identity; route expectations only
+- the source URI is authoritative for source identity; route expectations only
   validate that choice
 - dual-eye or stereo disambiguation may use an optional `/channel/<name>`
   suffix, but discovery should normally emit the full exact URI so users rarely
@@ -122,23 +132,50 @@ portion changes shape:
 1. User starts the backend and checks health.
 2. User lists discovered devices.
 3. User inspects the catalog entries for one device.
-4. Discovery returns one exact URI per delivered stream choice.
+4. Discovery returns exact member URIs and, when supported, fixed grouped
+   preset URIs.
 
 Examples:
 
-- `color-480p_30`
-- `depth-400p_30`
-- `depth-480p_30`
+- `orbbec/color/480p_30`
+- `orbbec/depth/400p_30`
+- `orbbec/depth/480p_30`
+- `orbbec/preset/480p_30`
 - `video-720p_30/channel/left`
 - `video-720p_30/channel/right`
 
 For RGBD depth, the delivered shape is discovery-visible:
 
-- `depth-400p_30` means native depth output
-- `depth-480p_30` means aligned depth output
+- `orbbec/depth/400p_30` means native depth output
+- `orbbec/depth/480p_30` means aligned depth output
+- `orbbec/preset/480p_30` means the proven bundled color + aligned-depth
+  output for the 480p family
 
 The user chooses between those outputs directly instead of toggling D2C
 implicitly through the route contract.
+
+Current design boundary:
+
+- `orbbec/depth/480p_30` remains one delivered depth stream
+- on the tested Orbbec device, aligned `480p` depth was produced from a
+  depth-only request with forced D2C and no delivered color frames
+- the same device also proved that one grouped RGBD request can deliver color
+  plus aligned depth together through one stable preset flow
+- the same device exposed no compatible `1280x720` D2C depth path and no
+  distinct aligned `1280x800` depth output
+- backend planning for `orbbec/depth/480p_30` must therefore be
+  capture-policy-driven, not a literal search for a native `480p` depth sensor
+  profile
+- discovery should therefore keep `orbbec/depth/480p_30` as the special aligned choice
+  on that device, avoid inventing `depth-720p_30`, and treat `depth-800p_30`
+  as native depth unless future evidence proves otherwise
+- discovery may additionally publish `orbbec/preset/480p_30` as the fixed
+  bundled color + aligned-depth choice because that exact grouped behavior was
+  proven end to end on the sibling `insightos` stack
+- if extra explanation is useful, discovery may show a short operator-facing
+  comment on unusual entries such as `orbbec/depth/480p_30` or
+  `orbbec/preset/480p_30`; that note is informative only and does not
+  introduce new dependency-specific fields
 
 ### 2. Create Direct Sessions
 
@@ -157,13 +194,13 @@ implicitly through the route contract.
 Examples:
 
 - `yolov5` expects video
-- `orbbec-depth` expects depth
-- `stereo-left-detector` expects video from the `left` channel
+- `orbbec/depth` expects depth
+- `stereo/left-detector` expects video from the `left` channel
 
-### 4. Start App First, Then Connect Exact URI To Route
+### 4. Start App First, Then Connect Source URI To Route Intent
 
 1. User picks one listed canonical URI from the catalog.
-2. User connects it to one route with:
+2. For one exact member URI, user connects it to one route with:
 
 ```json
 {
@@ -176,18 +213,28 @@ or:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/depth-480p_30",
-  "route": "orbbec-depth"
+  "input": "insightos://localhost/desk-rgbd/orbbec/depth/480p_30",
+  "route": "orbbec/depth"
 }
 ```
 
-3. Backend normalizes the URI into the existing `SessionRequest`.
-4. Backend resolves one concrete exact stream identity from the URI itself.
-5. Backend validates the route expectations against the resolved source
-   metadata.
-6. Backend creates one ordinary logical session.
-7. Backend returns the resolved source identity and source-group metadata to
-   the SDK.
+3. For one grouped preset URI, user may connect it to a grouped route target with:
+
+```json
+{
+  "input": "insightos://localhost/desk-rgbd/orbbec/preset/480p_30",
+  "route_grouped": "orbbec"
+}
+```
+
+4. Backend normalizes the URI into the existing `SessionRequest`.
+5. Backend resolves either:
+   - one concrete exact stream identity from the URI itself, or
+   - one concrete preset member set from the URI itself
+6. Backend validates route expectations against the resolved source metadata.
+7. Backend creates one ordinary logical session or one grouped logical session.
+8. Backend returns the resolved source identity, member bindings when grouped,
+   and source-group metadata to the SDK.
 
 ### 5. Start Stream First, Then Attach It To A Route
 
@@ -210,7 +257,7 @@ or:
 
 ### 7. Run Routed App Logic
 
-1. App declares route-scoped callbacks.
+1. App declares callbacks on named routes.
 2. SDK attaches using the existing `session_id + stream_name` IPC contract.
 3. SDK surfaces one callback chain per route.
 
@@ -224,10 +271,11 @@ or:
 
 ### 9. Change Routing At Runtime
 
-1. User replaces the URI bound to one route without deleting the app.
-2. User may also attach a different existing logical session to that route.
+1. User replaces the URI bound to one route or grouped target without deleting
+   the app.
+2. User may also attach a different existing logical session to one route.
 3. Backend validates the replacement, updates the durable binding, and stops
-   obsolete route-owned runtime when appropriate.
+   obsolete app-owned runtime when appropriate.
 
 ### 10. Stop Capture
 
@@ -235,6 +283,21 @@ or:
 2. Durable app and route declarations remain.
 3. Restart later creates a fresh runtime session rather than reviving stale
    OS handles.
+
+### 11. Grouped Runtime Rule
+
+1. Some exact URIs are independent. Others belong to grouped devices such as
+   RGBD or stereo hardware.
+2. One canonical URI still means one fixed published source shape, but multiple
+   active URIs from the same source group may need one compatible grouped
+   backend mode.
+3. When grouped URIs are compatible, the session manager should resolve them to
+   one compatible grouped runtime.
+4. When grouped URIs would require conflicting runtime behavior, the backend
+   should reject the newer request instead of silently changing what an already
+   selected canonical URI means.
+5. Normal use does not expose a bind-time override for grouped capture policy.
+   Users select a different discovered URI instead.
 
 ## Route Expectation Model
 
@@ -252,21 +315,27 @@ Recommended expectation shape:
   - `left`
   - `right`
 
+Baseline rule:
+
+- non-debug routes should declare `media`
+
 Examples:
 
 - `yolov5`:
   - `media = video`
-- `orbbec-depth`:
+- `orbbec/depth`:
   - `media = depth`
-- `stereo-left-detector`:
+- `stereo/left-detector`:
   - `media = video`
   - `channel = left`
 
 Important rule:
 
 - route expectations reject incompatible URIs
-- route expectations do not auto-upgrade `depth-400p_30` into
-  `depth-480p_30`, or infer `left` versus `right`, behind the user’s back
+- non-debug routes without `media` are underspecified and should be avoided
+- route expectations do not auto-upgrade `orbbec/depth/400p_30` into
+  `orbbec/depth/480p_30`, infer `left` versus `right`, or silently expand an
+  exact member URI into a grouped preset behind the user’s back
 - if delivered caps differ, that difference must already be visible in the
   discovery catalog and canonical URI choice
 
@@ -319,7 +388,7 @@ Example depth route request:
 
 ```json
 {
-  "route_name": "orbbec-depth",
+  "route_name": "orbbec/depth",
   "expect": {
     "media": "depth"
   }
@@ -374,13 +443,17 @@ app.route("yolov5")
     .on_caps([](const insightos::Caps& caps) { /* video */ })
     .on_frame([](const insightos::Frame& frame) { /* video */ });
 
-app.route("orbbec-color")
+app.route("orbbec/color")
     .expect(insightos::Video{})
     .on_frame(handle_color);
 
-app.route("orbbec-depth")
+app.route("orbbec/depth")
     .expect(insightos::Depth{})
     .on_frame(handle_depth);
+
+app.connect_grouped(
+    "orbbec",
+    "insightos://localhost/desk-rgbd/orbbec/preset/480p_30");
 ```
 
 This keeps the callback chain compact:
@@ -393,14 +466,30 @@ This keeps the callback chain compact:
 
 Required SDK changes:
 
-- `App::route(name)` as the route scope
-- `RouteScope::expect(expectation)`
-- `RouteScope::on_caps(...)`
-- `RouteScope::on_frame(...)`
-- `RouteScope::on_stop(...)`
+- `App::route(name)` returns one `AppRoute` declaration
+- `AppRoute::expect(expectation)`
+- `AppRoute::on_caps(...)`
+- `AppRoute::on_frame(...)`
+- `AppRoute::on_stop(...)`
 - `App::connect(route_name, input)` for explicit startup source connection
+- `App::connect_grouped(route_grouped, input)` for grouped preset startup
+  connection
 - `App::attach(route_name, session_id)` for reverse-order binding to an already
   running direct session
+
+Expected grouped preset behavior:
+
+- routes are still declared independently with ordinary `route(...).expect(...)`
+  chains
+- apps can set up generic `video` and `depth` routes without prior hardware
+  knowledge, then bind one grouped preset URI to a grouped route target such as
+  `orbbec`
+- the grouped preset bind fans out only to declared routes under that grouped
+  target
+  whose expectations match the resolved member metadata
+- ordinary per-route callbacks still fire independently
+- the grouped preset URI itself remains catalog-published and does not require
+  the app to spell pairing or alignment policy in code
 
 For command-line startup:
 
@@ -408,7 +497,8 @@ For command-line startup:
 2. The CLI parser reads argv after route declaration.
 3. If exactly one route exists, one bare URI argument connects to that route.
 4. If more than one route exists, each startup source connection must be
-   spelled `route_name=insightos://...`.
+   spelled `target=insightos://...`, where `target` is either a route name or
+   a grouped route target.
 5. Unknown route names fail before backend interaction.
 6. Duplicate route connections fail before backend interaction.
 7. Missing routes leave the app idle; they do not guess a fallback.
@@ -418,8 +508,7 @@ Example:
 ```bash
 ./build/bin/multi_route_app \
   yolov5=insightos://localhost/front-camera/video-720p_30/mjpeg \
-  orbbec-color=insightos://localhost/desk-rgbd/color-480p_30 \
-  orbbec-depth=insightos://localhost/desk-rgbd/depth-480p_30
+  orbbec=insightos://localhost/desk-rgbd/orbbec/preset/480p_30
 ```
 
 Backend Handshake:
@@ -428,7 +517,8 @@ Backend Handshake:
 2. SDK declares the full route manifest before connecting any sources.
 3. SDK validates the CLI route connections against that declared route
    manifest.
-4. SDK posts one source-connect request per startup route connection.
+4. SDK posts one source-connect request per startup route or grouped-route
+   connection.
 5. SDK fetches the resolved source records.
 6. SDK attaches through the existing `session_id + stream_name` IPC contract.
 7. If one startup route connection fails, the SDK reports which route failed
@@ -440,12 +530,16 @@ Backend Handshake:
 ### Product
 
 - users no longer manage runtime stream names when declaring routes
-- one canonical URI means one delivered stream
-- discovery exposes 400p and 480p depth as separate user-visible choices when
-  D2C changes delivered caps
+- one canonical URI means one fixed published source shape
+- discovery exposes exact depth choices and any proven grouped preset choices
+  when D2C changes delivered caps
 - optional `/channel/<name>` exists for channel-disambiguated devices, but most
   users consume the fully generated discovery URI without hand-editing it
+- grouped preset URIs such as `orbbec/preset/480p_30` can activate multiple
+  intent-first routes without an extra SDK-only frame-merge layer
 - dependent sources can be related through source-group metadata
+- grouped sources either share one compatible grouped runtime or reject with a
+  compatibility error
 - direct-session-first and app-first flows are both supported
 - identical exact URIs can be reused safely across multiple consumers
 - different delivery suffixes remain distinct delivery sessions
@@ -454,10 +548,29 @@ Backend Handshake:
 
 ### Technical
 
-- schema is defined in SQL migrations, not only inline C++
-- app/route/source persistence is DB-backed
+- schema is defined in checked-in SQL, not only inline C++
+- the durable schema stays minimal:
+  - `devices`
+  - `streams`
+  - `apps`
+  - `app_routes`
+  - `app_sources`
+  - `sessions`
+  - `session_logs`
+- device-specific exact-member and grouped preset choices both live in the
+  `streams` table; no separate preset table is required in v1
 - grouped-source metadata and channel distinctions are preserved without
   leaking hardware pairing policy into the public route contract
+- grouped preset fan-out is represented explicitly as a `route_grouped` bind
+  instead of an SDK-only frame-join helper
+- normal use does not change grouped capture policy at bind time; a different
+  behavior must come from a different discovered URI
+- capture policy may legitimately map delivered caps to a different underlying
+  native sensor profile, as in the tested Orbbec `orbbec/depth/480p_30` case
+- discovery does not synthesize aligned variants that the device has not proven,
+  such as `depth-720p_30` on the tested Orbbec unit
+- non-debug routes declare enough expectation metadata to reject obvious
+  misroutes such as depth into a video detector
 - the resolved exact stream identity is persisted explicitly enough to survive
   restart without ambiguity
 - existing logical/capture/delivery session reuse remains intact

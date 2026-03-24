@@ -1,245 +1,421 @@
 # Intent Routing Data Model
 
+## Role
+
+- role: define the minimal durable schema for `insight-io`
+- status: active
+- version: 5
+- major changes:
+  - 2026-03-24 removed migration-history-table and other compatibility
+    requirements from the greenfield schema
+  - 2026-03-24 clarified that per-device presets stay in `streams` rather than
+    a separate preset table
+  - 2026-03-24 simplified the durable schema to catalog, app intent, session,
+    and log tables
+  - 2026-03-24 replaced `route_namespace` with `route_grouped`
+  - 2026-03-24 moved capture, delivery, and worker reuse details out of the
+    SQL model and into runtime/status responsibility
+- past tasks:
+  - `2026-03-24 – Separate Catalog Publication From Runtime Ownership And Rename Route APIs`
+  - `2026-03-24 – Simplify The Durable Data Model And Add A Docs Hub`
+
 ## Summary
 
-This document defines the durable data model for the route-based rebuild. The
-goal is to make SQL schema and runtime ownership explicit before the code is
-refactored.
+The durable schema should stay small.
 
-## Discovery Catalog Model
+Beyond `devices`, `streams`, `sessions`, `session_logs`, and `apps`, the only
+additional business tables needed for the current contract are:
 
-Discovery is not an app table, but it defines the exact stream identity that
-app and session records must persist.
+- `app_routes`
+- `app_sources`
 
-Each discoverable stream entry should expose:
+That gives one minimal durable schema:
 
-- `canonical_uri`
-- `exact_stream_id`
-- `source_variant_id`
-- `source_group_id`
-- `member_kind`
-- `channel`
-- `delivered_caps_json`
-- `capture_policy_json`
-- `supported_deliveries`
+- `devices`
+- `streams`
+- `apps`
+- `app_routes`
+- `app_sources`
+- `sessions`
+- `session_logs`
 
-Important rule:
+Everything lower-level than that, such as grouped capture planning, shared
+delivery reuse, RTSP publisher state, worker processes, and attach handles,
+should stay runtime-only unless a concrete persistence need is proven later.
 
-- one `canonical_uri` maps to one delivered stream
+Because this repo is intended to be implemented fresh, the schema does not need
+a migration-history table or any backward-compatibility scaffolding in v1. One
+checked-in canonical SQL schema is enough to start.
 
-Examples:
+## ER Diagram
 
-- `color-480p_30`
-- `depth-400p_30`
-- `depth-480p_30`
-- `video-720p_30/channel/left`
-- `video-720p_30/channel/right`
+See the dedicated Mermaid ER diagram at
+[intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md).
 
-## Durable Tables
+## Design Rules
 
-### `schema_migrations`
+- one canonical URI selects one fixed catalog-published source shape
+- discovery publishes devices and streams
+- apps declare intent through routes
+- app sources bind either:
+  - one route to one selected stream, or
+  - one `route_grouped` value to one grouped preset stream, or
+  - one route to an existing `session_id`
+- sessions record client-visible session history
+- logs record what happened
+- lower-level capture and delivery internals are runtime structures, not first
+  class SQL tables in v1
 
-Tracks applied SQL migrations.
+## Why The Schema Can Stay Small
 
-Suggested fields:
+The current product has four durable concerns:
 
-- `version`
-- `applied_at_ms`
+1. What can the user select?
+2. What did the user declare for the app?
+3. What session exists or existed?
+4. What happened while it ran?
 
-### `apps`
+Those concerns map cleanly to:
 
-One persistent application record.
+- catalog: `devices`, `streams`
+- app intent: `apps`, `app_routes`, `app_sources`
+- session history: `sessions`
+- audit trail: `session_logs`
 
-Suggested fields:
+There is no current product need for separate durable tables for:
 
-- `app_id`
-- `name`
-- `description`
-- `created_at_ms`
-- `updated_at_ms`
-
-### `app_routes`
-
-One declared route per app.
-
-Suggested fields:
-
-- `route_id`
-- `app_id`
-- `route_name`
-- `expect_json`
-- `config_json`
-- `created_at_ms`
-- `updated_at_ms`
-
-Constraints:
-
-- unique `(app_id, route_name)`
-
-### `app_sources`
-
-One bound source per route.
-
-Suggested fields:
-
-- `source_id`
-- `app_id`
-- `route_name`
-- `source_mode`
-- `input_uri`
-- `canonical_uri`
-- `attached_session_id`
-- `resolved_exact_stream_id`
-- `resolved_source_variant_id`
-- `resolved_source_group_id`
-- `resolved_member_kind`
-- `resolved_channel`
-- `delivered_caps_json`
-- `capture_policy_json`
-- `request_json`
-- `state`
-- `last_error`
-- `latest_session_id`
-- `created_at_ms`
-- `updated_at_ms`
-
-Constraints:
-
-- unique `(app_id, route_name)`
-- foreign key to `apps`
-- `route_name` must resolve to an `app_routes` row in the same app
-
-Notes:
-
-- `source_mode = managed_uri` means the app binding owns a URI-driven session
-- `source_mode = attached_session` means the route points at an existing direct
-  logical session
-- `canonical_uri` remains the exact stream identity even when the route is
-  attached from an existing `session_id`
-
-## Existing Durable Runtime Graph
-
-The current runtime graph remains valid and stays durable:
-
-- `logical_sessions`
 - `session_bindings`
 - `capture_sessions`
 - `delivery_sessions`
 - `daemon_runs`
+- grouped preset members as their own rows
+- route-group declarations as their own rows
 
-## Ownership Rules
+Those all add complexity faster than they add product value. The runtime can
+still expose them through `/api/status`, but they do not need to be the
+authoritative long-lived schema.
+
+## Device Presets Stay In `streams`
+
+Per-device presets do not need their own table in v1.
+
+Why:
+
+- every user-selectable preset is already a catalog-published source shape
+- exact-member presets and grouped presets both need the same core fields:
+  canonical URI, media kind, channel, capture policy, deliveries, and optional
+  grouped members
+- splitting presets into a second table would force either:
+  - duplicated metadata across preset and stream tables, or
+  - an unnecessary preset-to-stream expansion layer before app binding
+
+Decision:
+
+- keep one `streams` row per selectable exact member or grouped preset
+- use `device_id` to scope those rows to one device
+- use `shape_kind` to distinguish exact versus grouped
+- use `members_json` only when one grouped preset row needs to describe its
+  fixed members
+
+This means `streams` is already the single per-device preset table.
+
+## Table Inventory
+
+## Catalog Tables
+
+### `devices`
+
+Purpose:
+
+- stores one discovered device identity and its public alias
+
+Primary key:
+
+- `device_id INTEGER PRIMARY KEY`
+
+Important columns:
+
+- `device_key TEXT NOT NULL UNIQUE`
+- `public_name TEXT NOT NULL UNIQUE`
+- `driver TEXT NOT NULL`
+- `status TEXT NOT NULL`
+- `metadata_json TEXT`
+- `last_seen_at_ms INTEGER`
+- `created_at_ms INTEGER NOT NULL`
+- `updated_at_ms INTEGER NOT NULL`
+
+Notes:
+
+- `device_key` is the stable discovery identity
+- `public_name` is the user-facing alias used inside canonical URIs
+- a separate `device_aliases` table is not needed in v1
+
+### `streams`
+
+Purpose:
+
+- stores one catalog-published selectable source shape
+
+Primary key:
+
+- `stream_id INTEGER PRIMARY KEY`
+
+Foreign keys:
+
+- `device_id INTEGER NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE`
+
+Important columns:
+
+- `canonical_uri TEXT NOT NULL UNIQUE`
+- `selector TEXT NOT NULL`
+- `media_kind TEXT NOT NULL`
+- `shape_kind TEXT NOT NULL`
+- `channel TEXT`
+- `group_key TEXT`
+- `caps_json TEXT NOT NULL`
+- `capture_policy_json TEXT`
+- `members_json TEXT`
+- `deliveries_json TEXT NOT NULL`
+- `is_present INTEGER NOT NULL DEFAULT 1`
+- `created_at_ms INTEGER NOT NULL`
+- `updated_at_ms INTEGER NOT NULL`
+
+Checks:
+
+- `shape_kind IN ('exact', 'grouped')`
+- `members_json IS NULL` for most exact-member entries
+- `members_json IS NOT NULL` only for fixed grouped presets such as
+  `orbbec/preset/480p_30`
+
+Notes:
+
+- `group_key` is enough for RGBD or stereo grouping; a separate `stream_groups`
+  table is not needed yet
+- `streams` is also the only per-device preset table; a separate `presets`
+  table is not needed in v1
+- discovery should upsert by `canonical_uri` so ids stay stable across refresh
+
+## App Tables
 
 ### `apps`
 
-- durable application identity
-- no live worker ownership
+Purpose:
+
+- one durable application record
+
+Primary key:
+
+- `app_id INTEGER PRIMARY KEY`
+
+Important columns:
+
+- `name TEXT NOT NULL UNIQUE`
+- `description TEXT`
+- `config_json TEXT`
+- `created_at_ms INTEGER NOT NULL`
+- `updated_at_ms INTEGER NOT NULL`
 
 ### `app_routes`
 
-- durable declared intent
-- stores semantic expectations for that route
-- no runtime media ownership
+Purpose:
+
+- one declared intent route on one app
+
+Primary key:
+
+- `route_id INTEGER PRIMARY KEY`
+
+Foreign keys:
+
+- `app_id INTEGER NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE`
+
+Important columns:
+
+- `route_name TEXT NOT NULL`
+- `expect_json TEXT`
+- `config_json TEXT`
+- `created_at_ms INTEGER NOT NULL`
+- `updated_at_ms INTEGER NOT NULL`
+
+Indexes and constraints:
+
+- `UNIQUE (app_id, route_name)`
+
+Notes:
+
+- non-debug routes should normally include `media` in `expect_json`
+- route names remain business-facing, for example `yolov5`, `orbbec/color`,
+  or `orbbec/depth`
 
 ### `app_sources`
 
-- durable source connection intent
-- references the latest logical session by id
-- stores the latest resolved exact stream identity
-- does not own low-level OS handles
+Purpose:
 
-### `logical_sessions`
+- one durable binding record for one route or one grouped route target
 
-- durable client-visible session request and resolution
-- still the source of truth for session history and restart intent
+Primary key:
 
-### `capture_sessions` and `delivery_sessions`
+- `source_id INTEGER PRIMARY KEY`
 
-- durable runtime graph nodes
-- still scoped by `daemon_run`
-- still normalized to `stopped` on backend startup
+Foreign keys:
 
-## Startup Normalization
+- `app_id INTEGER NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE`
+- `route_id INTEGER REFERENCES app_routes(route_id) ON DELETE CASCADE`
+- `stream_id INTEGER REFERENCES streams(stream_id)`
+- `source_session_id INTEGER REFERENCES sessions(session_id)`
+- `active_session_id INTEGER REFERENCES sessions(session_id)`
 
-On backend startup:
+Important columns:
 
-- `logical_sessions` stay durable but inactive
-- `session_bindings` are cleared
-- old `capture_sessions` and `delivery_sessions` are marked stopped
-- `app_sources.state` is normalized to `stopped`
-- `app_sources.latest_session_id` remains as history only until an explicit
-  restart creates a fresh logical session
+- `target_kind TEXT NOT NULL`
+- `route_grouped TEXT`
+- `source_kind TEXT NOT NULL`
+- `state TEXT NOT NULL`
+- `resolved_routes_json TEXT`
+- `last_error TEXT`
+- `created_at_ms INTEGER NOT NULL`
+- `updated_at_ms INTEGER NOT NULL`
 
-## Source Identity Model
+Checks:
 
-Every app-level source connection resolves to one concrete exact stream
-identity.
+- `target_kind IN ('route', 'grouped')`
+- `source_kind IN ('stream', 'session')`
+- if `target_kind = 'route'`, then `route_id IS NOT NULL` and
+  `route_grouped IS NULL`
+- if `target_kind = 'grouped'`, then `route_id IS NULL` and
+  `route_grouped IS NOT NULL`
+- if `source_kind = 'stream'`, then `stream_id IS NOT NULL` and
+  `source_session_id IS NULL`
+- if `source_kind = 'session'`, then `source_session_id IS NOT NULL`
 
-That resolved identity may carry:
+Indexes and constraints:
 
-- `resolved_exact_stream_id`
-- `resolved_source_variant_id`
-- `resolved_source_group_id`
-- `resolved_member_kind`
-- `resolved_channel`
-- `delivered_caps_json`
-- `capture_policy_json`
+- partial unique index on `(app_id, route_id)` where `route_id IS NOT NULL`
+- partial unique index on `(app_id, route_grouped)` where `route_grouped IS NOT NULL`
 
-This allows the backend to model:
+Notes:
 
-- one video source
-- one native depth source
-- one aligned depth source
-- one stereo-left source
-- one stereo-right source
-- two or more related sources that belong to the same source group
+- `route_grouped` is the grouped bind target name, for example `orbbec`
+- `resolved_routes_json` records grouped member-to-route resolution for grouped
+  presets
+- `active_session_id` is the latest runtime session currently serving this
+  binding
+- this table replaces the need for a dedicated route-group table in v1
 
-The app route itself does not declare raw runtime stream names. It declares
-purpose plus semantic expectations through `expect_json`.
+## Session And Log Tables
 
-## Dependent Sources And Grouped Devices
+### `sessions`
 
-Some sources are independent. Others are related:
+Purpose:
 
-- color + depth from one RGBD device
-- left + right from one stereo device
+- one durable logical session record
 
-For those cases, the data model must preserve source-group information so the
-backend can preserve and use:
+Primary key:
 
-- channel constraints
-- grouped-source metadata for discovery, inspection, and runtime orchestration
+- `session_id INTEGER PRIMARY KEY`
 
-Alignment is no longer a route-level selector.
+Foreign keys:
 
-If D2C changes the delivered caps, discovery must split that into separate
-exact stream entries, for example:
+- `stream_id INTEGER NOT NULL REFERENCES streams(stream_id)`
 
-- `depth-400p_30`
-- `depth-480p_30`
+Important columns:
 
-These are route-to-source validation rules, not callback-shape rules.
+- `session_kind TEXT NOT NULL`
+- `request_json TEXT NOT NULL`
+- `resolved_stream_name TEXT`
+- `state TEXT NOT NULL`
+- `last_error TEXT`
+- `started_at_ms INTEGER`
+- `stopped_at_ms INTEGER`
+- `created_at_ms INTEGER NOT NULL`
+- `updated_at_ms INTEGER NOT NULL`
 
-## Reuse And Reverse-Order Binding
+Checks:
 
-The durable app model must also represent:
+- `session_kind IN ('direct', 'app')`
 
-- identical canonical URIs reused across multiple routes or apps
-- a route attached to an already-running direct session
-- route rebind from one exact URI or `session_id` to another
+Notes:
 
-Those flows rely on:
+- direct sessions and app-created sessions share one table
+- `app_sources.active_session_id` is enough to answer which binding is using
+  which live session
+- this table does not need to embed capture/delivery worker rows
 
-- non-unique `canonical_uri` across `app_sources`
-- `source_mode`
-- `attached_session_id`
-- `latest_session_id`
+### `session_logs`
 
-## Why This Shape
+Purpose:
 
-- keeps durable app orchestration separate from durable media runtime
-- preserves the existing session graph instead of inventing a second one
-- keeps source intent queryable after restart
-- avoids pushing raw runtime stream names into route declarations
-- preserves exact stream identity across restart without ambiguity
-- leaves room for optional `/channel/<name>` disambiguation only when needed
-- makes the schema explicit and migration-friendly
+- append-only session event and audit trail
+
+Primary key:
+
+- `log_id INTEGER PRIMARY KEY`
+
+Foreign keys:
+
+- `session_id INTEGER NOT NULL REFERENCES sessions(session_id) ON DELETE CASCADE`
+
+Important columns:
+
+- `level TEXT NOT NULL`
+- `event_type TEXT NOT NULL`
+- `message TEXT NOT NULL`
+- `payload_json TEXT`
+- `created_at_ms INTEGER NOT NULL`
+
+Recommended indexes:
+
+- index on `(session_id, created_at_ms)`
+
+Notes:
+
+- a single log table is enough for session lifecycle, runtime failures,
+  rebinds, restarts, and grouped-compatibility rejections
+- separate app logs or worker logs are not needed in the durable schema yet
+
+## PK And FK Strategy
+
+Use surrogate integer primary keys for joins and performance, and keep public
+identifiers as unique business keys.
+
+That means:
+
+- `device_id`, `stream_id`, `app_id`, `route_id`, `source_id`, `session_id`,
+  and `log_id` are integer primary keys
+- `device_key`, `public_name`, and `canonical_uri` stay unique business
+  identifiers
+- route names stay unique only inside one app
+
+Recommended foreign-key graph:
+
+- `streams.device_id -> devices.device_id`
+- `app_routes.app_id -> apps.app_id`
+- `app_sources.app_id -> apps.app_id`
+- `app_sources.route_id -> app_routes.route_id`
+- `app_sources.stream_id -> streams.stream_id`
+- `app_sources.source_session_id -> sessions.session_id`
+- `app_sources.active_session_id -> sessions.session_id`
+- `sessions.stream_id -> streams.stream_id`
+- `session_logs.session_id -> sessions.session_id`
+
+Deletion rules:
+
+- deleting an app cascades to `app_routes` and `app_sources`
+- deleting a device cascades to `streams`
+- deleting a session cascades to `session_logs`
+- deleting a route should cascade only to exact-route `app_sources`; grouped
+  bindings remain controlled by `route_grouped`
+
+## What Stays Runtime-Only
+
+These remain runtime structures or status snapshots, not durable tables:
+
+- grouped compatibility planning
+- shared capture and delivery reuse graphs
+- worker process ids and restart handles
+- RTSP publisher state
+- local IPC attach handles
+- donor-style low-level stream attachment details
+
+The durable DB answers what should exist and what happened. The runtime answers
+how the current process graph is realizing it right now.
