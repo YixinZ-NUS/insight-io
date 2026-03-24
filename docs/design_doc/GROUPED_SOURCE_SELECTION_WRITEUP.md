@@ -1,5 +1,18 @@
 # Grouped Source Selection Writeup
 
+## Role
+
+- role: grouped-source design rationale and real-device evidence
+- status: active
+- version: 2
+- major changes:
+  - 2026-03-24 updated grouped-source wording to use derived `uri` identity
+    with separate durable `delivery_name`
+  - 2026-03-24 aligned grouped preset binds and grouped-session attach under
+    the same grouped target surface
+- past tasks:
+  - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
+
 ## Summary
 
 This note records the resolved design direction for grouped sources in
@@ -10,12 +23,14 @@ The adopted choices are:
 - keep route declarations purpose-first
 - make discovery publish exact member choices up front and grouped preset
   choices when the bundled members are fixed and proven
-- keep the contract that one canonical URI selects one fixed
+- keep the contract that one URI selects one fixed
   catalog-published source shape
 - treat route expectations as validation, not hidden stream selection
 - move D2C-sensitive depth differences into discovery-visible choices
 - keep channel disambiguation in the URI path rather than in query params when
   it is required
+- keep delivery intent separate from URI identity so local IPC attach and
+  future RTSP consumption do not distort source selection
 
 One main objective is to mask heterogeneous hardware details from users,
 including LLMs that use `insight-io` as a development substrate for reusable
@@ -30,7 +45,7 @@ variant the user meant.
 
 Instead:
 
-- discovery publishes the exact canonical URI
+- discovery publishes the exact derived URI
 - discovery publishes the selected source shape and metadata
 - the user copies or selects that URI
 - the backend validates the URI against the route
@@ -127,7 +142,7 @@ What remains unknown:
 
 Those unknowns do not block the public contract:
 
-- one canonical URI still means one fixed published source shape
+- one URI still means one fixed published source shape
 - normal use can still treat `orbbec/depth/480p_30` and
   `orbbec/preset/480p_30` as backend-fixed behavior
 - no new dependency-specific discovery or source-response fields are required
@@ -146,7 +161,6 @@ The preferred shape is an optional path suffix:
 
 ```text
 insightos://<host>/<device>/<stream-preset>/channel/<channel>
-insightos://<host>/<device>/<stream-preset>/channel/<channel>/<delivery>
 ```
 
 Examples:
@@ -168,9 +182,8 @@ Usage-based decision:
   stream identity
 - do not move this to a query parameter such as
   `insightos://host/device/preset?source=left`, because query syntax reads like
-  an optional filter instead of part of the canonical stream choice
-- the path form composes more cleanly with the optional delivery suffix and
-  keeps URI equality easier to reason about in copy/paste flows
+  an optional filter instead of part of the source choice
+- the path form keeps URI equality easier to reason about in copy/paste flows
 
 ### 4. Source Groups Stay In Metadata
 
@@ -252,8 +265,7 @@ This is not a good default either.
 Problems:
 
 - it makes exact stream identity look like an optional modifier
-- it complicates canonical URI equality checks in common copy/paste flows
-- it composes less cleanly with the optional delivery suffix
+- it complicates URI equality checks in common copy/paste flows
 - users already rely on discovery-generated final URIs, so the path form is not
   meaningfully harder to use
 

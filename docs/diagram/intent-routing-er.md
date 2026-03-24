@@ -4,10 +4,16 @@
 
 - role: durable-schema entity-relationship diagram for `insight-io`
 - status: active
-- version: 1
+- version: 2
 - major changes:
+  - 2026-03-24 replaced stored `canonical_uri` with stable `selector_key` plus
+    derived public `uri`
+  - 2026-03-24 made `delivery_name` durable on app-source and session records
+  - 2026-03-24 aligned grouped-session attach metadata with the app-source
+    surface
   - 2026-03-24 added the Mermaid ER diagram for the simplified durable schema
 - past tasks:
+  - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
   - `2026-03-24 – Add Mermaid ER Diagram For The Simplified Schema`
 
 ```mermaid
@@ -37,7 +43,7 @@ erDiagram
     streams {
         INTEGER stream_id PK
         INTEGER device_id FK
-        TEXT canonical_uri UK
+        TEXT selector_key UK
         TEXT selector
         TEXT media_kind
         TEXT shape_kind
@@ -81,6 +87,7 @@ erDiagram
         TEXT target_kind
         TEXT route_grouped
         TEXT source_kind
+        TEXT delivery_name
         TEXT state
         TEXT resolved_routes_json
         TEXT last_error
@@ -92,8 +99,9 @@ erDiagram
         INTEGER session_id PK
         INTEGER stream_id FK
         TEXT session_kind
+        TEXT delivery_name
         TEXT request_json
-        TEXT resolved_stream_name
+        TEXT resolved_members_json
         TEXT state
         TEXT last_error
         INTEGER started_at_ms

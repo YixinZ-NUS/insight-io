@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 4,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -30,11 +30,23 @@
     {
       "id": "docs-grouped-runtime-rule",
       "category": "functional",
-      "description": "The design docs state that grouped-source requests must resolve to one compatible grouped runtime or reject, without bind-time override of canonical URI meaning",
+      "description": "The design docs state that grouped-source requests must resolve to one compatible grouped runtime or reject, without bind-time override of URI meaning",
       "steps": [
         "Open the PRD and verify the grouped runtime rule is documented",
         "Open the architecture note and verify grouped conflicts reject instead of silently mutating runtime meaning",
         "Open the REST reference and verify normal use stays backend-fixed per discovered URI"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-delivery-intent-and-app-source-surface",
+      "category": "functional",
+      "description": "The design docs separate derived URI identity from durable delivery intent and use one app-source surface for connect and attach",
+      "steps": [
+        "Open the data-model note and verify `uri` is derived while `delivery_name` is inferred then stored durably on `app_sources` and `sessions`",
+        "Open the REST reference and verify `POST /api/apps/{id}/sources` accepts exactly one of `input` or `session_id` and exactly one of `route` or `route_grouped`",
+        "Open the PRD and verify local SDK attach is IPC-only in v1",
+        "Open the PRD or REST reference and verify future remote or LAN RTSP consumption is documented as a separate path"
       ],
       "passes": true
     },
@@ -171,21 +183,33 @@
     {
       "id": "attach-existing-session-to-route",
       "category": "functional",
-      "description": "A route can attach to an already-running direct logical session",
+      "description": "A route can attach to an already-running IPC-capable direct logical session through the app-source surface",
       "steps": [
-        "Create a direct session through POST /api/sessions",
+        "Create a direct session through POST /api/sessions from a locally resolved `insightos://` URI so delivery infers to `ipc`",
         "Create an app and declare a compatible route",
-        "Attach the existing session id to the route",
+        "Create one app-source bind using the existing `session_id` plus `route`",
         "Verify the app receives callbacks on the attached route without recreating the stream"
+      ],
+      "passes": false
+    },
+    {
+      "id": "attach-existing-grouped-session-to-grouped-target",
+      "category": "functional",
+      "description": "A grouped target can attach to an already-running grouped logical session through the same app-source surface",
+      "steps": [
+        "Create a grouped direct session through POST /api/sessions from a locally resolved grouped preset URI so delivery infers to `ipc`",
+        "Create an app and declare routes such as orbbec/color and orbbec/depth",
+        "Create one app-source bind using the existing `session_id` plus `route_grouped`",
+        "Verify the app receives callbacks on both declared routes without separately managing `/color` and `/depth`"
       ],
       "passes": false
     },
     {
       "id": "fanout-identical-uri",
       "category": "functional",
-      "description": "The same canonical URI can be used in multiple places while delivering the same frame sequence or fixed grouped member set",
+      "description": "The same URI and delivery intent can be used in multiple places while delivering the same frame sequence or fixed grouped member set",
       "steps": [
-        "Bind the same canonical URI into multiple consumers",
+        "Bind the same URI and delivery intent into multiple consumers",
         "Inspect runtime status",
         "Verify shared delivery reuse is visible when applicable",
         "Verify consumers observe the same frame sequence"
@@ -195,9 +219,9 @@
     {
       "id": "different-delivery-same-capture",
       "category": "functional",
-      "description": "URIs that differ only by delivery format remain distinct delivery sessions while sharing capture when possible",
+      "description": "The same URI with different delivery intents remains distinct delivery sessions while sharing capture when possible",
       "steps": [
-        "Create one `/mjpeg` session and one `/rtsp` session for the same exact source",
+        "Create one `ipc` session and one `rtsp` session for the same exact source",
         "Inspect runtime status",
         "Verify separate delivery intents exist",
         "Verify shared capture reuse is visible"
@@ -230,10 +254,10 @@
     {
       "id": "rebind-route-at-runtime",
       "category": "functional",
-      "description": "A route or grouped route target can change from one canonical URI or attached session to another at runtime",
+      "description": "A route or grouped route target can change from one URI or attached session to another at runtime",
       "steps": [
         "Create an app, route, and initial source binding",
-        "Call the route rebind API with a replacement input",
+        "Call the route rebind API with a replacement `input` or `session_id`",
         "Verify durable state points at the new binding",
         "Verify obsolete route-owned runtime is stopped when appropriate"
       ],

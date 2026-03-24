@@ -4,8 +4,20 @@
 
 - role: define the minimal durable schema for `insight-io`
 - status: active
-- version: 5
+- version: 8
 - major changes:
+  - 2026-03-24 made `delivery_name` normalization output rather than a
+    client-posted field and clarified why `source_session_id` and
+    `active_session_id` both exist
+  - 2026-03-24 separated source `uri` from `delivery_name` so delivery is
+    durable bind/session intent rather than part of source identity
+  - 2026-03-24 removed stored `canonical_uri` from `streams` and made public
+    `uri` values derived from stable catalog identity plus the current device
+    alias
+  - 2026-03-24 made `delivery_name` durable bind/session intent on
+    `app_sources` and `sessions`
+  - 2026-03-24 added grouped-session durable member resolution and aligned
+    session-backed binds with the same app-source surface as URI-backed binds
   - 2026-03-24 removed migration-history-table and other compatibility
     requirements from the greenfield schema
   - 2026-03-24 clarified that per-device presets stay in `streams` rather than
@@ -16,6 +28,7 @@
   - 2026-03-24 moved capture, delivery, and worker reuse details out of the
     SQL model and into runtime/status responsibility
 - past tasks:
+  - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
   - `2026-03-24 – Separate Catalog Publication From Runtime Ownership And Rename Route APIs`
   - `2026-03-24 – Simplify The Durable Data Model And Add A Docs Hub`
 
@@ -45,7 +58,7 @@ should stay runtime-only unless a concrete persistence need is proven later.
 
 Because this repo is intended to be implemented fresh, the schema does not need
 a migration-history table or any backward-compatibility scaffolding in v1. One
-checked-in canonical SQL schema is enough to start.
+checked-in SQL schema is enough to start.
 
 ## ER Diagram
 
@@ -54,13 +67,20 @@ See the dedicated Mermaid ER diagram at
 
 ## Design Rules
 
-- one canonical URI selects one fixed catalog-published source shape
+- one derived `uri` selects one fixed catalog-published source shape
+- derived `uri` values identify source shape only; `delivery_name` identifies
+  how that source is delivered
+- `delivery_name` is inferred during normalization from source locality and
+  scheme, then stored durably for reuse and inspection
 - discovery publishes devices and streams
 - apps declare intent through routes
 - app sources bind either:
-  - one route to one selected stream, or
-  - one `route_grouped` value to one grouped preset stream, or
-  - one route to an existing `session_id`
+  - one route to one selected `uri`, or
+  - one `route_grouped` value to one grouped preset `uri`, or
+  - one route or one `route_grouped` value to an existing `session_id`
+- delivery is durable bind/session intent, not its own durable worker graph
+- local SDK attach uses IPC in v1 even when future remote or LAN RTSP
+  consumption is added later
 - sessions record client-visible session history
 - logs record what happened
 - lower-level capture and delivery internals are runtime structures, not first
@@ -103,8 +123,8 @@ Why:
 
 - every user-selectable preset is already a catalog-published source shape
 - exact-member presets and grouped presets both need the same core fields:
-  canonical URI, media kind, channel, capture policy, deliveries, and optional
-  grouped members
+  stable selector identity, media kind, channel, capture policy, supported
+  deliveries, and optional grouped members
 - splitting presets into a second table would force either:
   - duplicated metadata across preset and stream tables, or
   - an unnecessary preset-to-stream expansion layer before app binding
@@ -113,6 +133,8 @@ Decision:
 
 - keep one `streams` row per selectable exact member or grouped preset
 - use `device_id` to scope those rows to one device
+- keep a stable `selector_key` for each row so durable ids survive device alias
+  changes
 - use `shape_kind` to distinguish exact versus grouped
 - use `members_json` only when one grouped preset row needs to describe its
   fixed members
@@ -147,7 +169,8 @@ Important columns:
 Notes:
 
 - `device_key` is the stable discovery identity
-- `public_name` is the user-facing alias used inside canonical URIs
+- `public_name` is the user-facing alias used inside derived public `uri`
+  values
 - a separate `device_aliases` table is not needed in v1
 
 ### `streams`
@@ -166,7 +189,7 @@ Foreign keys:
 
 Important columns:
 
-- `canonical_uri TEXT NOT NULL UNIQUE`
+- `selector_key TEXT NOT NULL UNIQUE`
 - `selector TEXT NOT NULL`
 - `media_kind TEXT NOT NULL`
 - `shape_kind TEXT NOT NULL`
@@ -189,11 +212,16 @@ Checks:
 
 Notes:
 
+- `uri` is derived from the current device alias plus `selector` and optional
+  `channel`; it is not the durable DB key for this row
+- delivery is not encoded in the stored source identity; discovery can publish
+  one derived `uri` plus `deliveries_json` describing supported delivery names
 - `group_key` is enough for RGBD or stereo grouping; a separate `stream_groups`
   table is not needed yet
 - `streams` is also the only per-device preset table; a separate `presets`
   table is not needed in v1
-- discovery should upsert by `canonical_uri` so ids stay stable across refresh
+- discovery should upsert by `selector_key` so ids stay stable across alias
+  changes and refresh
 
 ## App Tables
 
@@ -270,6 +298,7 @@ Important columns:
 - `target_kind TEXT NOT NULL`
 - `route_grouped TEXT`
 - `source_kind TEXT NOT NULL`
+- `delivery_name TEXT NOT NULL`
 - `state TEXT NOT NULL`
 - `resolved_routes_json TEXT`
 - `last_error TEXT`
@@ -279,14 +308,15 @@ Important columns:
 Checks:
 
 - `target_kind IN ('route', 'grouped')`
-- `source_kind IN ('stream', 'session')`
+- `source_kind IN ('uri', 'session')`
 - if `target_kind = 'route'`, then `route_id IS NOT NULL` and
   `route_grouped IS NULL`
 - if `target_kind = 'grouped'`, then `route_id IS NULL` and
   `route_grouped IS NOT NULL`
-- if `source_kind = 'stream'`, then `stream_id IS NOT NULL` and
+- if `source_kind = 'uri'`, then `stream_id IS NOT NULL` and
   `source_session_id IS NULL`
-- if `source_kind = 'session'`, then `source_session_id IS NOT NULL`
+- if `source_kind = 'session'`, then `source_session_id IS NOT NULL` and
+  `stream_id IS NOT NULL`
 
 Indexes and constraints:
 
@@ -296,11 +326,31 @@ Indexes and constraints:
 Notes:
 
 - `route_grouped` is the grouped bind target name, for example `orbbec`
+- `delivery_name` is the durable bind intent inferred from the chosen `uri` or
+  attached session; locally resolved `insightos://` sources should infer `ipc`,
+  while non-local or `rtsp://` sources should infer `rtsp`
 - `resolved_routes_json` records grouped member-to-route resolution for grouped
-  presets
+  presets and grouped-session attaches
+- `source_session_id` records which existing session the user asked to bind
 - `active_session_id` is the latest runtime session currently serving this
-  binding
+  binding; in v1 it should stay IPC-capable for local SDK attach, and in a
+  future version it may diverge from `source_session_id` when remote or LAN
+  RTSP-backed selection is bridged into a local IPC app session
 - this table replaces the need for a dedicated route-group table in v1
+
+Why both session ids matter:
+
+- `source_session_id` preserves user intent: which existing session was chosen
+  as the upstream source for this bind
+- `active_session_id` records the session currently serving the app bind right
+  now
+- they are equal when an app can attach to the selected session directly
+- they differ when the backend must realize a different serving session for the
+  app, for example a future RTSP-backed selection that is bridged into a local
+  IPC app session
+- they also differ across app-source restart or rebind cycles, because the
+  selected upstream session may stay the same while the currently serving
+  session is replaced
 
 ## Session And Log Tables
 
@@ -321,8 +371,9 @@ Foreign keys:
 Important columns:
 
 - `session_kind TEXT NOT NULL`
+- `delivery_name TEXT NOT NULL`
 - `request_json TEXT NOT NULL`
-- `resolved_stream_name TEXT`
+- `resolved_members_json TEXT`
 - `state TEXT NOT NULL`
 - `last_error TEXT`
 - `started_at_ms INTEGER`
@@ -337,6 +388,11 @@ Checks:
 Notes:
 
 - direct sessions and app-created sessions share one table
+- `stream_id` points at the selected exact-member or grouped-preset catalog row
+- `delivery_name` is the inferred durable delivery intent for restart,
+  inspection, and delivery-session reuse planning
+- `resolved_members_json` records fixed member resolution for grouped sessions
+  and stays `NULL` for most exact-member sessions
 - `app_sources.active_session_id` is enough to answer which binding is using
   which live session
 - this table does not need to embed capture/delivery worker rows
@@ -382,8 +438,9 @@ That means:
 
 - `device_id`, `stream_id`, `app_id`, `route_id`, `source_id`, `session_id`,
   and `log_id` are integer primary keys
-- `device_key`, `public_name`, and `canonical_uri` stay unique business
+- `device_key`, `public_name`, and `selector_key` stay unique business
   identifiers
+- public `uri` values are derived outputs, not stored business identifiers
 - route names stay unique only inside one app
 
 Recommended foreign-key graph:

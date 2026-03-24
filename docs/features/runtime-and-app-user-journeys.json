@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 4,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -28,7 +28,7 @@
     {
       "id": "catalog-lists-exact-stream-uris",
       "category": "functional",
-      "description": "The device catalog lists canonical URIs where each URI represents one fixed published source shape",
+      "description": "The device catalog lists derived URIs where each URI represents one fixed published source shape",
       "steps": [
         "Call GET /api/devices",
         "Inspect listed URI entries",
@@ -139,9 +139,9 @@
     {
       "id": "insightos-open-equivalent-session-flow",
       "category": "functional",
-      "description": "A thin opener command can still create a direct session from one exact canonical URI",
+      "description": "A thin opener command can still create a direct session from one exact URI",
       "steps": [
-        "Run the opener binary with one canonical URI",
+        "Run the opener binary with one exact URI",
         "Observe the created session id",
         "Inspect the created session through REST",
         "Verify the same flow is representable through POST /api/sessions"
@@ -153,8 +153,8 @@
       "category": "functional",
       "description": "Two direct sessions can reuse shared capture while exposing separate delivery intents",
       "steps": [
-        "Create an RTSP session for one listed exact source",
-        "Create an IPC-oriented session for the same exact source",
+        "Create an RTSP-oriented session from a non-local or `rtsp://` source so delivery infers to `rtsp`",
+        "Create an IPC-oriented session for the same locally resolved exact source so delivery infers to `ipc`",
         "Inspect runtime status",
         "Verify shared capture reuse is visible while each logical session remains distinct"
       ],
@@ -240,12 +240,24 @@
     {
       "id": "attach-existing-session-to-running-app-route",
       "category": "functional",
-      "description": "A running app can bind one declared route to an already-running direct session",
+      "description": "A running app can bind one declared route to an already-running IPC-capable direct session",
       "steps": [
-        "Create a direct session",
+        "Create a direct session from a locally resolved `insightos://` URI so delivery infers to `ipc`",
         "Create or locate an idle app with a compatible route",
-        "Attach the existing session id to the route",
+        "Create one app-source bind using the existing `session_id` plus `route`",
         "Verify the app receives callbacks on the attached route without recreating the session"
+      ],
+      "passes": false
+    },
+    {
+      "id": "attach-existing-grouped-session-to-running-app-grouped-target",
+      "category": "functional",
+      "description": "A running app can bind one grouped target to an already-running grouped IPC session",
+      "steps": [
+        "Create a grouped direct session from a locally resolved grouped preset URI so delivery infers to `ipc`",
+        "Create or locate an idle app with routes such as orbbec/color and orbbec/depth",
+        "Create one app-source bind using the existing `session_id` plus `route_grouped`",
+        "Verify the app receives callbacks on both routes without separately managing `/color` and `/depth`"
       ],
       "passes": false
     },
@@ -289,9 +301,9 @@
     {
       "id": "different-delivery-shared-capture",
       "category": "functional",
-      "description": "Two URIs that differ only by delivery format remain distinct delivery sessions while sharing capture when possible",
+      "description": "The same URI with different delivery intents remains distinct delivery sessions while sharing capture when possible",
       "steps": [
-        "Create one `/mjpeg` session and one `/rtsp` session for the same exact stream",
+        "Create one `ipc` session and one `rtsp` session for the same exact stream",
         "Inspect runtime status",
         "Verify separate delivery sessions exist",
         "Verify shared capture reuse is visible"
@@ -304,9 +316,21 @@
       "description": "A single-route app can launch with one bare exact URI argument and immediately consume from it",
       "steps": [
         "Build or run an app binary that declares exactly one route",
-        "Pass one exact canonical URI as a CLI argument",
+        "Pass one exact URI as a CLI argument",
         "Verify the CLI connects that URI to the declared route",
         "Verify the app receives the expected route callbacks"
+      ],
+      "passes": false
+    },
+    {
+      "id": "single-uri-launch-still-works-for-single-grouped-target-apps",
+      "category": "functional",
+      "description": "A single-grouped-target app can launch with one bare grouped preset URI argument and immediately consume from it",
+      "steps": [
+        "Build or run an app binary that declares grouped routes such as orbbec/color and orbbec/depth under one grouped target",
+        "Pass one grouped preset URI such as insightos://host/desk-rgbd/orbbec/preset/480p_30 as a CLI argument",
+        "Verify the CLI connects that URI to the grouped target without requiring separate `/color` and `/depth` inputs",
+        "Verify the app receives the expected grouped route callbacks"
       ],
       "passes": false
     },
@@ -330,7 +354,7 @@
         "Create an app and declare a route",
         "Connect a compatible source",
         "Inspect the source response",
-        "Verify route, resolved_exact_stream_id, resolved_source_variant_id, resolved_source_group_id when present, and session metadata are present"
+        "Verify route, uri, delivery_name, resolved_exact_stream_id, resolved_source_variant_id, resolved_source_group_id when present, and session metadata are present"
       ],
       "passes": false
     },
