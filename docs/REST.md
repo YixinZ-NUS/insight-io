@@ -7,7 +7,7 @@ runtime stream names as the primary contract.
 
 Important rule:
 
-- one canonical URI maps to one delivered stream
+- one canonical URI selects one fixed catalog-published source shape
 
 ## Current API Index
 
@@ -31,10 +31,10 @@ Important rule:
 | `GET` | `/api/apps/{id}/routes` | list one app's routes |
 | `DELETE` | `/api/apps/{id}/routes/{route}` | delete one unused route |
 | `GET` | `/api/apps/{id}/sources` | list one app's sources |
-| `POST` | `/api/apps/{id}/sources` | connect one canonical URI to one app route |
+| `POST` | `/api/apps/{id}/sources` | connect one canonical URI to one app route or grouped route target |
 | `POST` | `/api/apps/{id}/sources/{source_id}/start` | restart one persisted app source |
 | `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop one running app source |
-| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | replace one route binding at runtime |
+| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | replace one route or grouped-route binding at runtime |
 | `POST` | `/api/apps/{id}/routes/{route}/attach-session` | bind one existing session to a route |
 | `GET` | `/api/status` | inspect shared capture and delivery state |
 
@@ -70,7 +70,7 @@ Example:
 
 ```json
 {
-  "route_name": "orbbec-depth",
+  "route_name": "orbbec/depth",
   "expect": {
     "media": "depth"
   }
@@ -92,23 +92,37 @@ For grouped devices, discovery must still provide exact stream URIs:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/depth-480p_30",
-  "route": "orbbec-depth"
+  "input": "insightos://localhost/desk-rgbd/orbbec/depth/480p_30",
+  "route": "orbbec/depth"
+}
+```
+
+When discovery publishes a fixed grouped preset choice, one source bind may fan
+out into a grouped route target:
+
+```json
+{
+  "input": "insightos://localhost/desk-rgbd/orbbec/preset/480p_30",
+  "route_grouped": "orbbec"
 }
 ```
 
 Rules:
 
-- `route` is required
+- exactly one of `route` or `route_grouped` is required
 - `input` must be a canonical URI already exposed by the catalog
-- the URI itself must already identify the exact delivered stream
-- route expectations are checked against resolved source metadata
+- the URI itself must already identify the fixed published source shape
+- the URI selects one catalog entry; a logical session later realizes that
+  selection at runtime
+- exact-member URIs validate against one route's expectation
+- grouped preset URIs validate against the declared routes under the chosen
+  grouped target, for example `orbbec/color` and `orbbec/depth`
 - the request does not override grouped-device behavior beyond choosing a
   different canonical URI
 - if a catalog entry needs extra explanation, discovery may include a short
   human-readable comment, but clients must treat that as informational only
 - duplicate canonical URIs are allowed across routes and apps
-- one route may own at most one active binding at a time
+- one route or grouped target may own at most one active binding at a time
 - identical canonical URIs should reuse runtime where possible
 - URIs that differ only by delivery, such as `/mjpeg` and `/rtsp`, should stay
   separate delivery sessions while still being eligible for shared capture reuse
@@ -134,7 +148,7 @@ Direct sessions use the same exact canonical URI contract:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/depth-400p_30/rtsp"
+  "input": "insightos://localhost/desk-rgbd/orbbec/depth/400p_30/rtsp"
 }
 ```
 
@@ -147,6 +161,8 @@ This flow is the basis for:
 Normal-use rule:
 
 - the chosen canonical URI fixes the backend behavior for that direct session
+- a grouped preset direct session may legitimately surface multiple related
+  members when discovery published that preset as one fixed bundled choice
 - advanced grouped-device overrides are not part of the direct-session request
 
 ## Attach Existing Session Contract
@@ -168,30 +184,32 @@ Rules:
 
 ## Runtime Rebind Contract
 
-Replace the exact URI bound to one route:
+Replace the exact URI bound to one route or grouped target:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/depth-400p_30"
+  "input": "insightos://localhost/desk-rgbd/orbbec/depth/400p_30"
 }
 ```
 
 Rules:
 
 - rebind validates the replacement before switching durable state
-- rebind may stop obsolete route-owned runtime after the replacement succeeds
-- rebind must preserve app and route identity
+- rebind may stop obsolete app-owned runtime after the replacement succeeds
+- rebind must preserve app and target identity
 
 ## Source Response Notes
 
 App-source responses include:
 
 - `route`
+- `route_grouped` when grouped
 - `resolved_exact_stream_id`
 - `resolved_source_variant_id`
 - `resolved_source_group_id` when present
 - `resolved_member_kind`
 - `resolved_channel` when present
+- `resolved_members_json` when grouped
 - `delivered_caps_json`
 - `capture_policy_json`
 
@@ -201,11 +219,15 @@ which resolved exact stream was connected to the route.
 
 Current boundary:
 
-- grouped-device dependency behavior remains documented through existing source
-  group and capture policy metadata only
-- tested Orbbec aligned depth confirms the API can keep one-stream delivery
-  while relying on capture policy rather than a literal native `480p` depth
-  profile lookup
+- grouped-device dependency behavior remains documented through source-group,
+  capture-policy, and grouped-member metadata
+- tested Orbbec aligned depth confirms the API can keep exact member delivery
+  for `orbbec/depth/480p_30` while relying on capture policy rather than a
+  literal native `480p` depth profile lookup
+- the sibling `insightos` live RGBD proximity-capture flow also confirms the
+  API should allow a grouped preset choice such as `orbbec/preset/480p_30`
+  when the bundled color + aligned-depth behavior is fixed and
+  catalog-published
 - the same device did not expose a compatible `1280x720` D2C depth path and did
   not show a distinct aligned `1280x800` output, so the API should not invent
   those aligned variants for that unit

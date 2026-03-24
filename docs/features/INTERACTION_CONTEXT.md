@@ -31,7 +31,7 @@ Those files cover almost all currently exercised user-visible behavior:
 `insight-io` keeps the same lower-level runtime model:
 
 - canonical URIs still look like
-  `insightos://<host>/<device>/<stream-preset>[/<delivery>]`
+  `insightos://<host>/<device>/<selector>[/<delivery>]`
 - devices still come from discovery and catalog listing
 - device aliases still create the human-usable names that appear in the base
   URI
@@ -57,8 +57,8 @@ In the donor repo, the app workflow looks like:
 In `insight-io`, the same workflow becomes:
 
 1. Start or create an app record
-2. Declare routes such as `yolov5`, `orbbec-color`, `orbbec-depth`,
-   `stereo-left-detector`
+2. Declare routes such as `yolov5`, `orbbec/color`, `orbbec/depth`,
+   `stereo/left-detector`
 3. Describe route expectations only when needed
 4. Connect a source with `input` plus `route`
 5. Let the backend resolve one source identity from that URI
@@ -77,15 +77,20 @@ Grouped-source example:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/depth-480p_30",
-  "route": "orbbec-depth"
+  "input": "insightos://localhost/desk-rgbd/orbbec/preset/480p_30",
+  "route_grouped": "orbbec"
 }
 ```
 
 Recommended SDK shape:
 
 ```cpp
-app.route("orbbec-depth")
+app.route("orbbec/color")
+    .expect(insightos::Video{})
+    .on_caps([](const insightos::Caps& caps) { /* unchanged */ })
+    .on_frame([](const insightos::Frame& frame) { /* unchanged */ });
+
+app.route("orbbec/depth")
     .expect(insightos::Depth{})
     .on_caps([](const insightos::Caps& caps) { /* unchanged */ })
     .on_frame([](const insightos::Frame& frame) { /* unchanged */ });
@@ -147,9 +152,11 @@ donor repo, but with clearer contracts:
 
 - multiple independent video routes in one app
 - related routes such as color + depth in one app
-- optional `join()` / `pair()` helpers above those ordinary routes when one app
-  wants combined callbacks without encoding hardware knowledge into the routes
-- separate depth choices such as `depth-400p_30` and `depth-480p_30`
+- grouped preset binds that can activate related routes such as
+  `orbbec/color` and `orbbec/depth` together from one catalog-published preset
+  URI
+- separate depth choices such as `orbbec/depth/400p_30` and
+  `orbbec/depth/480p_30`
 - stereo left + right routes in one app
 - explicit rejection when a source cannot satisfy a route's semantic
   expectation
@@ -171,16 +178,20 @@ The donor demos show an important edge case:
 sits above it and does not erase the underlying session and publication
 semantics.
 
-## Exact Stream Discovery Implications
+## Exact Source Discovery Implications
 
-The discovery catalog is now responsible for exposing exact stream choices up
+The discovery catalog is now responsible for exposing exact member and grouped
+preset choices up
 front.
 
 That means:
 
-- one listed URI always maps to one delivered stream
+- one listed URI always maps to one fixed published source shape
+- discovery publishes that source shape; sessions realize it later
 - if D2C changes depth output from `400p` to `480p`, discovery lists both
   choices separately
+- if a grouped RGBD preset is proven end to end, discovery may also list a
+  fixed grouped preset URI such as `orbbec/preset/480p_30`
 - optional `/channel/<name>` disambiguation is available for stereo or dual-eye
   devices, but discovery should emit the full final URI so users do not need to
   compose it manually

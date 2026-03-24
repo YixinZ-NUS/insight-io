@@ -8,8 +8,10 @@ This note records the resolved design direction for grouped sources in
 The adopted choices are:
 
 - keep route declarations purpose-first
-- make discovery publish exact stream choices up front
-- keep the contract that one canonical URI maps to one delivered stream
+- make discovery publish exact member choices up front and grouped preset
+  choices when the bundled members are fixed and proven
+- keep the contract that one canonical URI selects one fixed
+  catalog-published source shape
 - treat route expectations as validation, not hidden stream selection
 - move D2C-sensitive depth differences into discovery-visible choices
 - keep channel disambiguation in the URI path rather than in query params when
@@ -29,8 +31,10 @@ variant the user meant.
 Instead:
 
 - discovery publishes the exact canonical URI
+- discovery publishes the selected source shape and metadata
 - the user copies or selects that URI
 - the backend validates the URI against the route
+- sessions and workers realize that published choice later
 - the backend does not silently swap one nearby variant for another
 
 This closes the ambiguity that existed when route expectations and backend
@@ -42,22 +46,30 @@ For the targeted 480p family:
 
 - D2C off yields a `400p` depth output
 - D2C on yields a `480p` depth output
+- the grouped 480p flow can also deliver color plus aligned depth together
+  through one stable preset request
 
-That means the user-visible choice should also be split there.
+That means the user-visible choice should be split there, while still allowing
+one grouped preset choice when discovery can prove the full bundled behavior.
 
-Discovery must expose separate exact stream entries such as:
+Discovery must expose separate exact member entries such as:
 
-- `insightos://localhost/desk-rgbd/depth-400p_30`
-- `insightos://localhost/desk-rgbd/depth-480p_30`
+- `insightos://localhost/desk-rgbd/orbbec/depth/400p_30`
+- `insightos://localhost/desk-rgbd/orbbec/depth/480p_30`
 
-This lets the user choose the delivered output directly.
+Discovery may also expose one fixed grouped preset entry:
+
+- `insightos://localhost/desk-rgbd/orbbec/preset/480p_30`
+
+This lets the user choose the delivered output directly, or pick the proven
+bundled color + aligned-depth flow directly.
 
 Implications:
 
-- `Depth{}` validates that the selected URI is a depth stream
+- `Depth{}` validates that the selected exact member URI is a depth stream
 - the route layer no longer needs `require_alignment()`
 - the resolved metadata still records the capture policy that produced that
-  stream
+  stream or grouped preset member set
 
 Real-device result:
 
@@ -74,6 +86,9 @@ Real-device result:
   software or hardware D2C mode
 - forcing D2C on depth-only `1280x800@30` still delivered `1280x800` depth
   frames, so no distinct aligned `800p` output was observed on this device
+- the sibling `insightos` live RGBD proximity-capture flow on 2026-03-24 also
+  proved that one grouped `480p_30` request can deliver color plus aligned
+  depth together in a stable way that is directly useful to applications
 
 Raw output was recorded in:
 
@@ -85,12 +100,16 @@ Raw output was recorded in:
 
 The probe changes the design in an important way:
 
-- `depth-480p_30` should remain a valid public exact-stream choice
+- `orbbec/depth/480p_30` should remain a valid public exact-member choice
 - the backend must not implement that URI by naively looking for a native
   `640x480` depth sensor profile
-- instead, the backend should treat `depth-480p_30` as a capture-policy-driven
-  output: request the native `640x400` depth stream, force D2C mode, and
-  deliver the resulting `640x480` aligned depth frames
+- instead, the backend should treat `orbbec/depth/480p_30` as a
+  capture-policy-driven output: request the native `640x400` depth stream,
+  force D2C mode, and deliver the resulting `640x480` aligned depth frames
+- the backend may additionally treat `orbbec/preset/480p_30` as a
+  capture-policy-driven grouped preset that delivers color plus aligned depth
+  together, because the sibling live app flow proved that exact bundled
+  behavior end to end
 - `depth-720p_30` should not be published for the tested device, because no
   compatible `1280x720` D2C depth path was observed
 - `depth-800p_30` may still be published as native depth when the device
@@ -108,13 +127,15 @@ What remains unknown:
 
 Those unknowns do not block the public contract:
 
-- one canonical URI still delivers one stream
-- normal use can still treat `depth-480p_30` as backend-fixed behavior
+- one canonical URI still means one fixed published source shape
+- normal use can still treat `orbbec/depth/480p_30` and
+  `orbbec/preset/480p_30` as backend-fixed behavior
 - no new dependency-specific discovery or source-response fields are required
   for this contract
 - if operator explanation is useful, discovery may surface a short
-  human-readable comment on unusual entries such as `depth-480p_30`; that note
-  is informative only and must not become new structured dependency metadata
+  human-readable comment on unusual entries such as
+  `orbbec/depth/480p_30` or `orbbec/preset/480p_30`; that note is informative
+  only and must not become new structured dependency metadata
 
 ### 3. Keep Path-Based Channel Disambiguation
 
@@ -210,7 +231,7 @@ Problems:
 Example:
 
 ```cpp
-app.route("orbbec-depth")
+app.route("orbbec/depth")
     .expect(insightos::Depth{})
 ```
 
@@ -250,7 +271,8 @@ Any final design must satisfy all of these:
 7. The public URI stays readable.
 
 The adopted solution satisfies those requirements by making discovery list exact
-stream choices rather than making the route layer infer them.
+member choices and, when the member set is fixed and proven, grouped preset
+choices rather than making the route layer infer them.
 
 ## Better Mental Model
 
@@ -272,17 +294,18 @@ Human-facing capture choice:
 - `480p_30`
 - `stereo`
 
-### 3. Exact stream choice
+### 3. Exact source choice
 
 Concrete selectable source under one device:
 
-- `color-480p_30`
-- `depth-400p_30`
-- `depth-480p_30`
+- `orbbec/color/480p_30`
+- `orbbec/depth/400p_30`
+- `orbbec/depth/480p_30`
+- `orbbec/preset/480p_30`
 - `video-720p_30/channel/left`
 - `video-720p_30/channel/right`
 
-The exact stream choice is real runtime identity. It must exist in catalog
+The exact source choice is the real runtime identity. It must exist in catalog
 metadata, even if users do not usually type it manually.
 
 ## Practical Guidance
@@ -291,8 +314,9 @@ metadata, even if users do not usually type it manually.
 
 ```cpp
 app.route("yolov5").expect(insightos::Video{})
-app.route("orbbec-depth").expect(insightos::Depth{})
-app.route("stereo-left-detector").expect(insightos::Video{}.channel("left"))
+app.route("orbbec/color").expect(insightos::Video{})
+app.route("orbbec/depth").expect(insightos::Depth{})
+app.route("stereo/left-detector").expect(insightos::Video{}.channel("left"))
 ```
 
 Routes for known processing logic should also stay explicit enough to reject
@@ -306,6 +330,8 @@ app.route("depth-overlay").expect(insightos::Depth{})
 ### Keep Discovery Exact
 
 - expose separate 400p and 480p depth URIs
+- expose a grouped preset URI only when the bundled members are fixed and
+  proven useful, as in `orbbec/preset/480p_30`
 - expose channel-qualified URIs when left/right are both present
 - persist the resolved exact stream identity and delivered caps
 - treat grouped runtime behavior as fixed per discovered entry in normal use
@@ -315,8 +341,9 @@ app.route("depth-overlay").expect(insightos::Depth{})
   compatible `1280x720` D2C depth path was observed
 - treat `800p` depth as native on the tested Orbbec unit unless future
   device-specific evidence proves a separate aligned `800p` variant
-- if helpful, discovery can show a short comment on `depth-480p_30` explaining
-  that it is aligned depth realized from native `640x400` plus D2C
+- if helpful, discovery can show a short comment on `orbbec/depth/480p_30` or
+  `orbbec/preset/480p_30` explaining how D2C or grouped capture policy is
+  realized underneath
 
 ### Keep Advanced Channel Selection Optional
 
@@ -330,18 +357,21 @@ That is acceptable because:
 
 It should remain optional, not the default path shape for every device.
 
-### Keep `join()` / `pair()` Above Ordinary Routes
+### Keep Grouped Preset Routing First-Class
 
 Expected SDK behavior:
 
-- apps still declare ordinary routes such as `color` and `depth`
-- the user or frontend still connects those routes separately using exact URIs
-- `join(name)` combines already-declared route names into one higher-level
-  callback
-- `pair(a, b)` is shorthand for a two-route join
-- these helpers do not choose hardware, infer D2C policy, or replace route
-  expectations
+- apps still declare ordinary routes such as `orbbec/color` and
+  `orbbec/depth`
+- the user or frontend may still connect those routes separately using exact
+  member URIs
+- when discovery publishes a fixed grouped preset such as
+  `orbbec/preset/480p_30`, one source bind should fan out to a grouped route target
+  such as `orbbec`
+- ordinary per-route callbacks remain the primary app surface; the SDK does not
+  need a separate SDK-only frame-merge helper for this flow
 - apps can stay hardware-agnostic by declaring only `Video{}` and `Depth{}`
-  expectations, then combining those routes later by name
+  expectations, then binding them through catalog-published preset or exact
+  member choices
 - the combined callback fires only when both sides have frames close enough in
   `pts_ns`; otherwise the ordinary route callbacks continue independently

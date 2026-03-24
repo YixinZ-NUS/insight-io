@@ -2,41 +2,32 @@
 
 ```mermaid
 flowchart LR
-    Discovery[device discovery] --> Catalog[exact stream catalog]
-    UI[Frontend or SDK] --> Catalog
-    UI --> Apps[apps]
+    Discovery[device discovery] --> Devices[devices]
+    Devices --> Streams[streams]
+
+    UI[Frontend or SDK] --> Apps[apps]
     UI --> Routes[app_routes]
     UI --> Sources[app_sources]
-    UI --> Sessions[logical_sessions]
+    UI --> Sessions[sessions]
+    UI --> Status[/api/status]
 
-    Sources --> Normalize[normalize exact URI]
-    Sessions --> AttachExisting[attach existing session]
-    Catalog --> Normalize
-    Normalize --> Request[SessionRequest]
-    Request --> Validate{exact stream and route-compatible?}
-    Validate --> Grouped{grouped runtime compatible?}
-    AttachExisting --> ValidateExisting{session-compatible?}
-    Validate -->|no| Reject[last_error + stopped]
-    ValidateExisting -->|no| Reject
-    Grouped -->|no| Reject
-    Grouped -->|yes| Create[create or reuse logical session]
-    ValidateExisting -->|yes| Link[link existing logical session]
+    Sources --> Resolve[resolve stream or attached session]
+    Streams --> Resolve
+    Sessions --> Resolve
 
-    Create --> Logical[logical_sessions]
-    Link --> Logical
-    Logical --> Bindings[session_bindings]
-    Bindings --> Delivery[delivery_sessions]
-    Delivery --> Capture[capture_sessions]
-    Capture --> Runs[daemon_runs]
+    Resolve --> Validate{route or route_grouped compatible?}
+    Validate -->|no| Reject[last_error]
+    Validate -->|yes| SessionMgr[create attach or reuse logical session]
 
-    Create --> Stream[resolved exact stream id + stream name]
-    Link --> Stream
-    Stream --> Attach[SDK local attach<br/>session_id + stream_name]
-    Attach --> RouteCallbacks[per-route callbacks]
-    RouteCallbacks --> Join[SDK join/pair helper<br/>above named routes]
+    SessionMgr --> Sessions
+    Sessions --> Logs[session_logs]
+    SessionMgr --> Runtime[runtime workers<br/>capture + delivery + reuse]
+    Runtime --> Status
+    Runtime --> Attach[SDK local attach<br/>session_id + stream_name]
+    Attach --> Callbacks[app callbacks]
 
     classDef durable fill:#eef7ef,stroke:#3d7a4a,color:#17351f;
     classDef runtime fill:#eef2ff,stroke:#4361aa,color:#16233f;
-    class Apps,Routes,Sources,Sessions,Logical,Bindings,Delivery,Capture,Runs durable;
-    class Discovery,Catalog,Normalize,Request,AttachExisting,Stream,Attach,RouteCallbacks,Join,Grouped runtime;
+    class Devices,Streams,Apps,Routes,Sources,Sessions,Logs durable;
+    class Discovery,Resolve,Validate,Reject,SessionMgr,Runtime,Attach,Callbacks,Status runtime;
 ```

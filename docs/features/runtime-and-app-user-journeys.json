@@ -28,11 +28,11 @@
     {
       "id": "catalog-lists-exact-stream-uris",
       "category": "functional",
-      "description": "The device catalog lists exact canonical URIs where each URI represents exactly one delivered stream",
+      "description": "The device catalog lists canonical URIs where each URI represents one fixed published source shape",
       "steps": [
         "Call GET /api/devices",
         "Inspect listed URI entries",
-        "Verify each URI corresponds to one delivered stream",
+        "Verify each URI corresponds to one exact member or one fixed grouped preset bundle",
         "Verify route expectations are not required to disambiguate the URI"
       ],
       "passes": false
@@ -43,7 +43,8 @@
       "description": "RGBD discovery exposes separate depth outputs when D2C changes delivered caps",
       "steps": [
         "Call GET /api/devices for an RGBD camera",
-        "Verify exact URIs are listed for `depth-400p_30` and `depth-480p_30`",
+        "Verify exact URIs are listed for `orbbec/depth/400p_30` and `orbbec/depth/480p_30`",
+        "Verify the grouped preset URI `orbbec/preset/480p_30` is listed when the device supports that fixed bundled flow",
         "Verify their metadata reports different delivered caps or capture policy"
       ],
       "passes": false
@@ -74,14 +75,14 @@
     {
       "id": "orbbec-depth-480-direct-session-investigation",
       "category": "functional",
-      "description": "A real Orbbec device is tested to determine whether `depth-480p_30` can run as the only user-requested stream and how grouped runtime behaves underneath",
+      "description": "A real Orbbec device is tested to determine whether `orbbec/depth/480p_30` can run as the only user-requested stream, and whether `orbbec/preset/480p_30` works as a stable grouped preset",
       "steps": [
         "Connect one real Orbbec RGBD device",
-        "Verify discovery lists `color-480p_30`, `depth-400p_30`, and `depth-480p_30`",
-        "Start only `depth-480p_30` through a direct session",
+        "Verify discovery lists `orbbec/color/480p_30`, `orbbec/depth/400p_30`, `orbbec/depth/480p_30`, and `orbbec/preset/480p_30` when supported",
+        "Start only `orbbec/depth/480p_30` through a direct session",
         "Inspect delivered caps and runtime status",
-        "Repeat with `depth-400p_30` and then with `depth-480p_30` plus `color-480p_30`",
-        "Record whether aligned depth-only use works, fails, or requires grouped runtime under the hood"
+        "Repeat with `orbbec/depth/400p_30` and then with `orbbec/preset/480p_30`",
+        "Record whether aligned depth-only use works, and whether the grouped preset delivers stable color plus aligned depth"
       ],
       "passes": false
     },
@@ -204,8 +205,8 @@
       "description": "A running idle app can declare related routes for grouped hardware after startup",
       "steps": [
         "Create or locate an idle app",
-        "Create route orbbec-color with media expectation video",
-        "Create route orbbec-depth with media expectation depth",
+        "Create route orbbec/color with media expectation video",
+        "Create route orbbec/depth with media expectation depth",
         "List app routes",
         "Verify both routes are present and distinct"
       ],
@@ -220,7 +221,7 @@
         "Connect a listed compatible exact video URI with route yolov5",
         "Verify the source record is created",
         "Verify a logical session is linked",
-        "Verify the app receives route-scoped callbacks"
+        "Verify the app receives callbacks on the declared route"
       ],
       "passes": false
     },
@@ -229,10 +230,10 @@
       "category": "functional",
       "description": "A running idle app can receive a later exact depth URI connection bound to a declared route",
       "steps": [
-        "Start an idle app and declare route orbbec-depth",
-        "Connect a listed URI such as insightos://host/desk-rgbd/depth-480p_30 with route orbbec-depth",
+        "Start an idle app and declare route orbbec/depth",
+        "Connect a listed URI such as insightos://host/desk-rgbd/orbbec/depth/480p_30 with route orbbec/depth",
         "Verify the source record stores the resolved exact stream identity",
-        "Verify the app receives route-scoped callbacks"
+        "Verify the app receives callbacks on the declared route"
       ],
       "passes": false
     },
@@ -244,7 +245,7 @@
         "Create a direct session",
         "Create or locate an idle app with a compatible route",
         "Attach the existing session id to the route",
-        "Verify the app receives route-scoped callbacks without recreating the session"
+        "Verify the app receives callbacks on the attached route without recreating the session"
       ],
       "passes": false
     },
@@ -254,22 +255,22 @@
       "description": "One app can run a video route plus related grouped-source routes at the same time with independent routing",
       "steps": [
         "Create one app",
-        "Declare one video route, one orbbec-color route, and one orbbec-depth route",
+        "Declare one video route, one orbbec/color route, and one orbbec/depth route",
         "Connect one video URI plus grouped-source URIs for color and depth",
         "Verify all routed sources remain active independently"
       ],
       "passes": false
     },
     {
-      "id": "rgbd-join-helper-over-ordinary-routes",
+      "id": "rgbd-grouped-preset-over-route-grouped",
       "category": "functional",
-      "description": "One app can declare ordinary color and depth routes separately and optionally consume them together through an SDK join/pair helper",
+      "description": "One app can declare ordinary color and depth routes separately and activate them together through one grouped preset `route_grouped` bind",
       "steps": [
-        "Create one app with a video route and a depth route",
-        "Connect exact URIs to those routes independently",
-        "Enable the SDK join/pair helper over those route names",
-        "Verify ordinary route callbacks still fire independently",
-        "Verify the combined callback fires only when both sides have frames within the configured timestamp tolerance"
+        "Create one app with routes orbbec/color and orbbec/depth",
+        "Connect a grouped preset URI such as insightos://host/desk-rgbd/orbbec/preset/480p_30 with route_grouped orbbec",
+        "Verify the backend records one grouped source bind",
+        "Verify ordinary route callbacks still fire independently on both routes",
+        "Verify no extra SDK-only frame-merge helper is required for the grouped preset flow"
       ],
       "passes": false
     },
