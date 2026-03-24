@@ -88,7 +88,7 @@ Connect a listed canonical URI to a declared route:
 }
 ```
 
-For grouped devices, discovery must still provide exact stream URIs:
+For grouped devices, discovery must still provide exact-member URIs:
 
 ```json
 {
