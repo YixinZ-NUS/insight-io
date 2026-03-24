@@ -47,6 +47,11 @@ Because this repo is intended to be implemented fresh, the schema does not need
 a migration-history table or any backward-compatibility scaffolding in v1. One
 checked-in canonical SQL schema is enough to start.
 
+## ER Diagram
+
+See the dedicated Mermaid ER diagram at
+[intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md).
+
 ## Design Rules
 
 - one canonical URI selects one fixed catalog-published source shape

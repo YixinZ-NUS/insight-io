@@ -1,5 +1,29 @@
 # Past Tasks
 
+## 2026-03-24 – Add Mermaid ER Diagram For The Simplified Schema
+
+### What Changed
+
+- added [intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md)
+  with a Mermaid `erDiagram` for the active durable schema
+- linked the ER diagram from
+  [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  and [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+
+### Why
+
+- the simplified schema was documented textually, but it still benefited from
+  one visual PK/FK map
+- the docs set already had a runtime diagram; the schema now has a matching ER
+  view
+
+### Verification
+
+- reviewed and aligned:
+  - [intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+
 ## 2026-03-24 – Simplify The Durable Data Model And Add A Docs Hub
 
 ### What Changed

@@ -62,6 +62,7 @@
 | `docs/features/runtime-and-app-user-journeys.json` | broader lifecycle coverage tracker | active |
 | `docs/design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md` | grouped-source rationale and Orbbec evidence | active |
 | `docs/features/INTERACTION_CONTEXT.md` | donor-grounded interaction framing | active |
+| `docs/diagram/intent-routing-er.md` | Mermaid ER diagram for the simplified durable schema | active |
 | `docs/diagram/intent-routing-runtime.md` | runtime/control-plane diagram | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
