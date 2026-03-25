@@ -4,8 +4,11 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 8
+- version: 9
 - major changes:
+  - 2026-03-25 reintroduced the first buildable backend slice, added a user
+    guide, and added a tech report plus bootstrap sequence diagram for the
+    implementation phase
   - 2026-03-25 removed stale variant/group identity fields from the active
     contract, made catalog RTSP publication metadata queryable, and defined
     referenced-session delete as `409 Conflict`
@@ -34,6 +37,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Document RTSP Publication Reuse After Delivery-Name Removal`
@@ -53,6 +57,8 @@
 6. [Feature Tracker: End To End](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
 7. [Feature Tracker: Runtime And User Journeys](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
 8. [Past Tasks](/home/yixin/Coding/insight-io/docs/past-tasks.md)
+9. [User Guide](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+10. [Tech Report](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
 
 ## Current Contract
 
@@ -116,8 +122,11 @@
 | `docs/features/runtime-and-app-user-journeys.json` | broader lifecycle coverage tracker | active |
 | `docs/design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md` | grouped-source rationale and Orbbec evidence | active |
 | `docs/features/INTERACTION_CONTEXT.md` | donor-grounded interaction framing | active |
+| `docs/USER_GUIDE.md` | build, test, and runtime steps for the checked-in slice | active |
+| `docs/design_doc/TECH_REPORT.md` | internal implementation notes and Mermaid inventory | active |
 | `docs/diagram/intent-routing-er.md` | Mermaid ER diagram for the simplified durable schema | active |
 | `docs/diagram/intent-routing-runtime.md` | runtime/control-plane diagram | active |
+| `docs/diagram/bootstrap-health-sequence.md` | sequence diagram for backend bootstrap and health | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
 ## Status Rules

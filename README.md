@@ -1,24 +1,43 @@
 # insight-io
 
-`insight-io` is the docs-only design home for the DB-first route-based rebuild
-that was previously being prototyped in `insightos`.
+## Role
 
-This repository intentionally keeps only the product and architecture contract:
+- role: repository entry point for the standalone `insight-io` rebuild
+- status: active
+- version: 3
+- major changes:
+  - 2026-03-25 reintroduced the first buildable backend slice with an explicit
+    SQL schema, a versioned health endpoint, focused tests, and runtime
+    verification
+  - 2026-03-25 added a user guide and a tech report entry point for the new
+    implementation phase
+- past tasks:
+  - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
 
-- PRD, architecture, data model, REST contract, and runtime diagrams
-- interaction and end-to-end feature trackers
-- past-task notes that record design decisions and future verification paths
+`insight-io` is the standalone home of the DB-first route-based rebuild that
+was previously being prototyped in `insightos`.
 
-The obsolete implementation scaffold has been removed on purpose. Future code
-work should restart only after reading and accepting the current doc set.
+The current checked-in implementation is intentionally narrow:
+
+- one buildable backend executable: `insightiod`
+- one checked-in v1 schema covering `devices`, `streams`, `apps`,
+  `app_routes`, `app_sources`, `sessions`, and `session_logs`
+- one versioned `GET /api/health` endpoint
+- focused schema and REST smoke tests
+
+Discovery, direct sessions, durable app routing, reuse, grouped preset
+resolution, SDK, and frontend flows remain to be reintroduced in later
+feature-sized slices.
 
 ## Start Here
 
-The centralized entry point is [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md).
+- design baseline: [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+- operator and developer steps: [docs/USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+- internal implementation notes: [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
 
 ## Grounding Order
 
-Before proposing or reintroducing implementation, read these files in order:
+Before proposing or extending implementation, read these files in order:
 
 1. `AGENTS.md`
 2. `docs/README.md`
@@ -29,27 +48,18 @@ Before proposing or reintroducing implementation, read these files in order:
 7. `docs/features/fullstack-intent-routing-e2e.json`
 8. `docs/past-tasks.md`
 
-## Current Scope
+## Current Contract
 
-The current design contract is built around these choices:
+The active product contract remains doc-led:
 
-- discovery publishes canonical URIs that resolve to one fixed published source
-  shape:
-  - exact-member URIs still mean one delivered stream
-  - grouped preset URIs may mean one fixed related stream bundle
-- a main product objective is to mask heterogeneous hardware details, such as
-  D2C on/off behavior, from users and from LLM-based app builders so audio and
-  video apps stay easy to develop and reuse
-- route declarations stay purpose-first through `app.route(...).expect(...)`
-  and validate compatibility instead of choosing hidden stream variants
-- grouped route binds use `route_grouped` in REST and
-  `app.connect_grouped(...)` in the SDK direction
-- RGBD discovery may publish both exact member choices and grouped preset
-  choices, for example:
-  - `orbbec/depth/400p_30`
-  - `orbbec/depth/480p_30`
-  - `orbbec/preset/480p_30`
-- the simplified durable schema is:
+- one derived `insightos://<host>/<device>/<selector>` URI selects one fixed
+  catalog-published source shape
+- discovery publishes exact-member URIs and may also publish grouped preset
+  URIs when the member bundle is fixed and proven
+- apps declare app-local logical routes and bind sources through one public
+  `target` surface
+- RTSP is optional publication intent, not part of source identity
+- the durable schema stays limited to:
   - `devices`
   - `streams`
   - `apps`
@@ -57,17 +67,8 @@ The current design contract is built around these choices:
   - `app_sources`
   - `sessions`
   - `session_logs`
-- `streams` is also the single per-device preset table for both exact-member
-  and grouped preset choices
-- the repo assumes a fresh implementation, so it does not require
-  migration-history or backward-compat schema layers in v1
-- stereo or dual-eye channel disambiguation may use an optional
-  `/channel/<name>` path segment, but discovery should normally emit the full
-  final URI so users rarely type it by hand
-- direct sessions, app-routed sessions, reuse, rebind, and restart are all part
-  of the intended lifecycle
 
 ## Status
 
-This repo is not currently buildable. The checked-in state is the design
-baseline for the next implementation round.
+The repository is now buildable for the bootstrap slice, but it is not yet a
+feature-complete implementation of the full intent-routing contract.

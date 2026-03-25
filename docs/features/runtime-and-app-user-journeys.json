@@ -11,7 +11,7 @@
         "Verify the expected binaries are produced",
         "Run the focused test targets successfully"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "backend-health-check",

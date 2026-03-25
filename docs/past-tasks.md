@@ -1,5 +1,60 @@
 # Past Tasks
 
+## 2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice
+
+### What Changed
+
+- reintroduced a buildable standalone backend scaffold in this repository:
+  - top-level [CMakeLists.txt](/home/yixin/Coding/insight-io/CMakeLists.txt)
+  - backend build file [backend/CMakeLists.txt](/home/yixin/Coding/insight-io/backend/CMakeLists.txt)
+  - explicit schema [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
+  - SQLite bootstrap layer
+    [schema_store.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/schema_store.hpp)
+    and [schema_store.cpp](/home/yixin/Coding/insight-io/backend/src/schema_store.cpp)
+  - backend HTTP surface
+    [rest_server.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/rest_server.hpp),
+    [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp),
+    and [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp)
+- added focused verification targets:
+  - [schema_store_test.cpp](/home/yixin/Coding/insight-io/backend/tests/schema_store_test.cpp)
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+- updated repository guidance and reporting:
+  - [README.md](/home/yixin/Coding/insight-io/README.md)
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [bootstrap-health-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/bootstrap-health-sequence.md)
+- updated the broader runtime tracker so `runtime-build-and-test` now records
+  verified pass state in
+  [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+
+### Why
+
+- the repository had no implementation left, so every later feature was blocked
+  on first making `insight-io` buildable again
+- the active docs require one explicit seven-table schema, so the bootstrap
+  slice checks that in before higher-level discovery or app-routing code lands
+- using a very small runtime surface keeps the new code aligned with the
+  documented contract instead of dragging donor-only behavior back into the new
+  repo prematurely
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18181 \
+  --db-path /tmp/insight-io-live.sqlite3 \
+  --frontend /tmp/frontend
+
+curl -s http://127.0.0.1:18181/api/health
+```
+
 ## 2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics
 
 ### What Changed
