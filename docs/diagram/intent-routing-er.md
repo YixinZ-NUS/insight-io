@@ -4,15 +4,16 @@
 
 - role: durable-schema entity-relationship diagram for `insight-io`
 - status: active
-- version: 2
+- version: 3
 - major changes:
+  - 2026-03-25 replaced durable `delivery_name` with `rtsp_enabled` and
+    publication metadata while keeping local IPC implicit
+  - 2026-03-25 replaced grouped-route public bind naming with one app-local
+    `target_name`
   - 2026-03-24 replaced stored `canonical_uri` with stable `selector_key` plus
     derived public `uri`
-  - 2026-03-24 made `delivery_name` durable on app-source and session records
-  - 2026-03-24 aligned grouped-session attach metadata with the app-source
-    surface
-  - 2026-03-24 added the Mermaid ER diagram for the simplified durable schema
 - past tasks:
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
   - `2026-03-24 – Add Mermaid ER Diagram For The Simplified Schema`
 
@@ -52,7 +53,7 @@ erDiagram
         TEXT caps_json
         TEXT capture_policy_json
         TEXT members_json
-        TEXT deliveries_json
+        TEXT publications_json
         INTEGER is_present
         INTEGER created_at_ms
         INTEGER updated_at_ms
@@ -85,9 +86,9 @@ erDiagram
         INTEGER source_session_id FK
         INTEGER active_session_id FK
         TEXT target_kind
-        TEXT route_grouped
+        TEXT target_name
         TEXT source_kind
-        TEXT delivery_name
+        INTEGER rtsp_enabled
         TEXT state
         TEXT resolved_routes_json
         TEXT last_error
@@ -99,7 +100,7 @@ erDiagram
         INTEGER session_id PK
         INTEGER stream_id FK
         TEXT session_kind
-        TEXT delivery_name
+        INTEGER rtsp_enabled
         TEXT request_json
         TEXT resolved_members_json
         TEXT state

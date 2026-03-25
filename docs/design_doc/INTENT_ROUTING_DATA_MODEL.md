@@ -4,18 +4,19 @@
 
 - role: define the minimal durable schema for `insight-io`
 - status: active
-- version: 8
+- version: 10
 - major changes:
-  - 2026-03-24 made `delivery_name` normalization output rather than a
-    client-posted field and clarified why `source_session_id` and
-    `active_session_id` both exist
-  - 2026-03-24 separated source `uri` from `delivery_name` so delivery is
-    durable bind/session intent rather than part of source identity
+  - 2026-03-25 clarified that route names describe app-local logical input
+    roles and that `session_kind = direct` means standalone session-first
+    runtime intent
+  - 2026-03-25 replaced public `route` / `route_grouped` binds with one
+    app-local `target` surface and reserved grouped target roots
+  - 2026-03-25 replaced durable `delivery_name` with durable `rtsp_enabled`
+    and publication metadata while keeping local IPC attach implicit
+  - 2026-03-25 removed `/channel/...` from the active public URI grammar
   - 2026-03-24 removed stored `canonical_uri` from `streams` and made public
     `uri` values derived from stable catalog identity plus the current device
     alias
-  - 2026-03-24 made `delivery_name` durable bind/session intent on
-    `app_sources` and `sessions`
   - 2026-03-24 added grouped-session durable member resolution and aligned
     session-backed binds with the same app-source surface as URI-backed binds
   - 2026-03-24 removed migration-history-table and other compatibility
@@ -28,6 +29,8 @@
   - 2026-03-24 moved capture, delivery, and worker reuse details out of the
     SQL model and into runtime/status responsibility
 - past tasks:
+  - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
   - `2026-03-24 – Separate Catalog Publication From Runtime Ownership And Rename Route APIs`
   - `2026-03-24 – Simplify The Durable Data Model And Add A Docs Hub`
@@ -68,17 +71,20 @@ See the dedicated Mermaid ER diagram at
 ## Design Rules
 
 - one derived `uri` selects one fixed catalog-published source shape
-- derived `uri` values identify source shape only; `delivery_name` identifies
-  how that source is delivered
-- `delivery_name` is inferred during normalization from source locality and
-  scheme, then stored durably for reuse and inspection
+- derived `uri` values identify source shape only
+- RTSP publication intent is durable; local IPC attach is implicit for local
+  SDK consumers and is not a posted field
 - discovery publishes devices and streams
 - apps declare intent through routes
 - app sources bind either:
-  - one route to one selected `uri`, or
-  - one `route_grouped` value to one grouped preset `uri`, or
-  - one route or one `route_grouped` value to an existing `session_id`
-- delivery is durable bind/session intent, not its own durable worker graph
+  - one app-local `target` to one selected `uri`, or
+  - one app-local `target` to an existing `session_id`
+- the backend resolves whether `target` is one exact route or one grouped
+  target root
+- app route declarations must reserve grouped roots:
+  an app must not declare both one exact route `x` and any route below `x/`
+- RTSP publication intent is durable bind/session state, not its own durable
+  worker graph
 - local SDK attach uses IPC in v1 even when future remote or LAN RTSP
   consumption is added later
 - sessions record client-visible session history
@@ -123,8 +129,8 @@ Why:
 
 - every user-selectable preset is already a catalog-published source shape
 - exact-member presets and grouped presets both need the same core fields:
-  stable selector identity, media kind, channel, capture policy, supported
-  deliveries, and optional grouped members
+  stable selector identity, media kind, channel, capture policy, optional
+  publication metadata, and optional grouped members
 - splitting presets into a second table would force either:
   - duplicated metadata across preset and stream tables, or
   - an unnecessary preset-to-stream expansion layer before app binding
@@ -198,7 +204,7 @@ Important columns:
 - `caps_json TEXT NOT NULL`
 - `capture_policy_json TEXT`
 - `members_json TEXT`
-- `deliveries_json TEXT NOT NULL`
+- `publications_json TEXT NOT NULL`
 - `is_present INTEGER NOT NULL DEFAULT 1`
 - `created_at_ms INTEGER NOT NULL`
 - `updated_at_ms INTEGER NOT NULL`
@@ -212,10 +218,11 @@ Checks:
 
 Notes:
 
-- `uri` is derived from the current device alias plus `selector` and optional
-  `channel`; it is not the durable DB key for this row
-- delivery is not encoded in the stored source identity; discovery can publish
-  one derived `uri` plus `deliveries_json` describing supported delivery names
+- `uri` is derived from the current device alias plus `selector`; it is not the
+  durable DB key for this row
+- publication is not encoded in the stored source identity; discovery can
+  publish one derived `uri` plus `publications_json` describing optional
+  published forms such as RTSP and supported RTSP profiles
 - `group_key` is enough for RGBD or stereo grouping; a separate `stream_groups`
   table is not needed yet
 - `streams` is also the only per-device preset table; a separate `presets`
@@ -274,12 +281,18 @@ Notes:
 - non-debug routes should normally include `media` in `expect_json`
 - route names remain business-facing, for example `yolov5`, `orbbec/color`,
   or `orbbec/depth`
+- route names stay unique only inside one app
+- route names should model the app's logical input roles, for example
+  `front-camera`, `rear-camera`, `orbbec/color`, and `orbbec/depth` for one app
+  consuming two V4L2 cameras plus one Orbbec
+- one app must not declare both one exact route `x` and any other route below
+  `x/`, because that would make the public bind target `x` ambiguous
 
 ### `app_sources`
 
 Purpose:
 
-- one durable binding record for one route or one grouped route target
+- one durable binding record for one app-local target
 
 Primary key:
 
@@ -296,9 +309,9 @@ Foreign keys:
 Important columns:
 
 - `target_kind TEXT NOT NULL`
-- `route_grouped TEXT`
+- `target_name TEXT NOT NULL`
 - `source_kind TEXT NOT NULL`
-- `delivery_name TEXT NOT NULL`
+- `rtsp_enabled INTEGER NOT NULL DEFAULT 0`
 - `state TEXT NOT NULL`
 - `resolved_routes_json TEXT`
 - `last_error TEXT`
@@ -309,10 +322,8 @@ Checks:
 
 - `target_kind IN ('route', 'grouped')`
 - `source_kind IN ('uri', 'session')`
-- if `target_kind = 'route'`, then `route_id IS NOT NULL` and
-  `route_grouped IS NULL`
-- if `target_kind = 'grouped'`, then `route_id IS NULL` and
-  `route_grouped IS NOT NULL`
+- if `target_kind = 'route'`, then `route_id IS NOT NULL`
+- if `target_kind = 'grouped'`, then `route_id IS NULL`
 - if `source_kind = 'uri'`, then `stream_id IS NOT NULL` and
   `source_session_id IS NULL`
 - if `source_kind = 'session'`, then `source_session_id IS NOT NULL` and
@@ -321,21 +332,23 @@ Checks:
 Indexes and constraints:
 
 - partial unique index on `(app_id, route_id)` where `route_id IS NOT NULL`
-- partial unique index on `(app_id, route_grouped)` where `route_grouped IS NOT NULL`
+- unique index on `(app_id, target_name)`
 
 Notes:
 
-- `route_grouped` is the grouped bind target name, for example `orbbec`
-- `delivery_name` is the durable bind intent inferred from the chosen `uri` or
-  attached session; locally resolved `insightos://` sources should infer `ipc`,
-  while non-local or `rtsp://` sources should infer `rtsp`
+- `target_name` is the app-local bind key posted by clients as `target`
+- for exact binds, `target_name` matches one declared route name
+- for grouped binds, `target_name` is the grouped target root, for example
+  `orbbec`
+- `rtsp_enabled` is the durable request to publish the serving session over
+  RTSP; when true the runtime should expose `rtsp_url` using the backend
+  default RTSP profile
+- local IPC attach is implicit for local app consumers and is not stored here
 - `resolved_routes_json` records grouped member-to-route resolution for grouped
   presets and grouped-session attaches
 - `source_session_id` records which existing session the user asked to bind
 - `active_session_id` is the latest runtime session currently serving this
-  binding; in v1 it should stay IPC-capable for local SDK attach, and in a
-  future version it may diverge from `source_session_id` when remote or LAN
-  RTSP-backed selection is bridged into a local IPC app session
+  binding; in v1 it should stay IPC-capable for local SDK attach
 - this table replaces the need for a dedicated route-group table in v1
 
 Why both session ids matter:
@@ -346,8 +359,7 @@ Why both session ids matter:
   now
 - they are equal when an app can attach to the selected session directly
 - they differ when the backend must realize a different serving session for the
-  app, for example a future RTSP-backed selection that is bridged into a local
-  IPC app session
+  app
 - they also differ across app-source restart or rebind cycles, because the
   selected upstream session may stay the same while the currently serving
   session is replaced
@@ -371,7 +383,7 @@ Foreign keys:
 Important columns:
 
 - `session_kind TEXT NOT NULL`
-- `delivery_name TEXT NOT NULL`
+- `rtsp_enabled INTEGER NOT NULL DEFAULT 0`
 - `request_json TEXT NOT NULL`
 - `resolved_members_json TEXT`
 - `state TEXT NOT NULL`
@@ -388,14 +400,19 @@ Checks:
 Notes:
 
 - direct sessions and app-created sessions share one table
+- `session_kind = 'direct'` means one standalone or session-first session
+  created before any app target bind exists
 - `stream_id` points at the selected exact-member or grouped-preset catalog row
-- `delivery_name` is the inferred durable delivery intent for restart,
-  inspection, and delivery-session reuse planning
+- `rtsp_enabled` is the durable request to publish this session over RTSP
+- local IPC attach is not a client-posted field; it remains implicit when the
+  serving runtime is local and attachable
 - `resolved_members_json` records fixed member resolution for grouped sessions
   and stays `NULL` for most exact-member sessions
 - `app_sources.active_session_id` is enough to answer which binding is using
   which live session
 - this table does not need to embed capture/delivery worker rows
+- declaring compatible routes on an app does not consume a direct session until
+  one app-source bind points at that session or the same selected URI
 
 ### `session_logs`
 
@@ -461,7 +478,7 @@ Deletion rules:
 - deleting a device cascades to `streams`
 - deleting a session cascades to `session_logs`
 - deleting a route should cascade only to exact-route `app_sources`; grouped
-  bindings remain controlled by `route_grouped`
+  bindings remain controlled by `target_name`
 
 ## What Stays Runtime-Only
 

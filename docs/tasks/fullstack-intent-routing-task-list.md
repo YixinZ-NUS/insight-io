@@ -4,15 +4,15 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 3
+- version: 4
 - major changes:
-  - 2026-03-24 made `uri` a derived source identifier and moved delivery into
-    durable bind/session intent
-  - 2026-03-24 unified URI-backed and session-backed app binds under the
-    app-source surface
-  - 2026-03-24 clarified grouped preset startup and grouped-session attach can
-    drive one app target without per-member bind management
+  - 2026-03-25 replaced public grouped/exact bind selection with one
+    app-local `target` surface
+  - 2026-03-25 reframed RTSP as optional publication intent rather than a peer
+    to implicit local IPC attach
+  - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
 This repository is intentionally docs-only right now. The ordered tasks below
@@ -24,26 +24,26 @@ describe the next implementation round, not work that is currently checked in.
    contract.
 2. Reintroduce discovery and catalog code backed by `devices` and `streams`
    tables that list exact-member URIs plus any fixed grouped preset URIs and
-   their supported delivery names, including separate
+   their optional publication metadata, including separate
    `orbbec/depth/400p_30`, `orbbec/depth/480p_30`, and the proven grouped
    preset `orbbec/preset/480p_30`.
 3. Check in one SQL schema for `devices`, `streams`, `apps`,
    `app_routes`, `app_sources`, `sessions`, and `session_logs`.
 4. Reintroduce direct session APIs and runtime status inspection using the same
-   exact URI contract as the app layer plus inferred durable delivery intent.
+   exact URI contract as the app layer plus durable RTSP publication intent.
 5. Reintroduce persistent apps, routes, and sources in SQLite, including
    reverse-order exact and grouped attach from `session_id`.
-6. Add route validation, grouped-source metadata persistence, grouped preset
-   `route_grouped` binds, session-backed binds under the same app-source
-   surface, identical-URI reuse, and different-delivery shared-capture
+6. Add route validation, grouped-source metadata persistence, grouped target
+   resolution behind one public `target` field, session-backed binds under the
+   same app-source surface, identical-URI reuse, and additive RTSP publication
    behavior in the backend.
 7. Add runtime rebind so a route can change bindings without destroying the app
    record.
 8. Refactor the high-level SDK to named-route declarations with callbacks plus
-   explicit startup source connection, grouped preset grouped-route
-   connection, exact and grouped session attach, and IPC-only local attach.
+   explicit startup source binding, exact and grouped session attach through
+   the same `bind_source(...)` surface, and IPC-only local attach.
 9. Update examples and tests to use exact-member URIs, grouped preset URIs,
-   explicit delivery intent, and cover the full lifecycle.
+   explicit RTSP publication intent, and cover the full lifecycle.
 10. Reintroduce the frontend app/route/source management flows.
 11. Run focused verification, update feature pass states, and record completed
     work in `docs/past-tasks.md`.
@@ -61,17 +61,16 @@ The work is complete only when:
 - backend persists app intent
 - discovery lists exact-member URIs and grouped preset URIs when the grouped
   member set is fixed and proven
-- delivery intent is persisted separately from the selected URI on app-source
-  and session records
-- delivery intent is inferred by normalization rather than client-posted
+- RTSP publication intent is persisted separately from the selected URI on
+  app-source and session records
 - SDK routes by declared route
-- SDK can bind one grouped preset URI through `route_grouped` without
-  extra SDK-only frame-merge helpers
+- SDK can bind one grouped preset URI through the same public `target` surface
+  without extra SDK-only frame-merge helpers
 - SDK can attach one grouped preset session through the same grouped target
   surface without forcing per-member bind management
 - direct-session-first and app-first flows are both supported
 - same exact URI can be reused safely across multiple consumers
-- same capture can back multiple delivery formats such as `ipc` and `rtsp`
+- same capture can back local IPC attach and optional RTSP publication
 - local SDK attach remains IPC-only in v1 while future remote or LAN RTSP
   consumption remains a separate path
 - frontend can express the same app/route/source flow

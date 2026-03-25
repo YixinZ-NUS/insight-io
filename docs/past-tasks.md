@@ -1,5 +1,98 @@
 # Past Tasks
 
+## 2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations
+
+### What Changed
+
+- updated the active docs hub, PRD, architecture note, data-model note, REST
+  reference, interaction note, and feature trackers so the current contract now
+  says:
+  - a direct session is one standalone or session-first runtime created from a
+    selected URI before any app target is involved
+  - declaring one compatible route does not make an app consume that direct
+    session automatically
+  - an app starts receiving frames only after one app-source bind becomes
+    active by `input` or `session_id`
+  - route names stay app-local and should describe logical input roles rather
+    than discovered device aliases or one globally unique route string
+  - a multi-device app that consumes two V4L2 cameras plus one Orbbec should
+    declare app-local routes such as `front-camera`, `rear-camera`,
+    `orbbec/color`, and `orbbec/depth`
+- updated the broader user-journey tracker to add an explicit future runtime
+  check that direct sessions stay idle for apps until a bind exists
+
+### Why
+
+- "direct session" was still easy to misread as capture-only or as implicitly
+  attached to any app that had already declared matching routes
+- multi-device apps needed one explicit naming rule so route declarations stay
+  stable when the discovered device URIs or aliases change underneath
+
+### Verification
+
+- reviewed and aligned:
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-prd.md](/home/yixin/Coding/insight-io/docs/prd/fullstack-intent-routing-prd.md)
+  - [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [INTERACTION_CONTEXT.md](/home/yixin/Coding/insight-io/docs/features/INTERACTION_CONTEXT.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+
+## 2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent
+
+### What Changed
+
+- updated the active PRD, architecture note, data-model note, REST reference,
+  grouped-source writeup, interaction note, task list, diagrams, and feature
+  trackers so the current contract now says:
+  - public app-source binds post one app-local `target` field instead of
+    separate `route` and `route_grouped` inputs
+  - grouped versus exact target resolution is hidden behind server-side target
+    resolution
+  - apps must reserve grouped roots:
+    one app can not declare both one exact route `x` and any route below `x/`
+  - local SDK guidance now uses `bind_source(...)` and `rebind(...)`
+  - `/channel/...` is removed from the active v1 URI grammar
+  - RTSP is modeled as optional durable publication intent through
+    `rtsp_enabled` rather than as a peer to implicit local IPC attach
+  - raw `rtsp://` input remains a future ingest/import path rather than a v1
+    source-selection shape
+- updated the durable schema docs and ER diagram so:
+  - `streams.deliveries_json` becomes `streams.publications_json`
+  - `app_sources.route_grouped` becomes `app_sources.target_name`
+  - `app_sources.delivery_name` and `sessions.delivery_name` become
+    `rtsp_enabled`
+- updated the runtime diagram and tracker language to reflect additive RTSP
+  publication on shared runtime instead of separate `ipc` versus `rtsp`
+  delivery-intent branches
+
+### Why
+
+- a public split between exact and grouped bind methods leaked an internal
+  distinction the backend can resolve from one posted target name
+- `ipc` is not a meaningful user-facing publication choice for local SDK app
+  binds; it is the fixed local attach mechanism
+- RTSP publication changes durable resource state, so it belongs in the
+  resource body and schema rather than in a query string such as `?rtsp=on`
+
+### Verification
+
+- reviewed and aligned:
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-prd.md](/home/yixin/Coding/insight-io/docs/prd/fullstack-intent-routing-prd.md)
+  - [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [GROUPED_SOURCE_SELECTION_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [INTERACTION_CONTEXT.md](/home/yixin/Coding/insight-io/docs/features/INTERACTION_CONTEXT.md)
+  - [intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md)
+  - [intent-routing-runtime.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-runtime.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+
 ## 2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds
 
 ### What Changed

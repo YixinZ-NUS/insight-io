@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 6,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -50,13 +50,13 @@
       "passes": false
     },
     {
-      "id": "catalog-lists-stereo-channel-uris",
+      "id": "catalog-lists-grouped-preset-uris",
       "category": "functional",
-      "description": "Stereo or dual-eye devices can expose selector-disambiguated exact URIs using `/channel/<name>` when needed",
+      "description": "Grouped-source devices can expose fixed grouped preset URIs without requiring extra bind syntax from the caller",
       "steps": [
-        "Call GET /api/devices for a stereo device",
-        "Verify disambiguated channel URIs are listed",
-        "Verify the full final URI is available without manual composition"
+        "Call GET /api/devices for a grouped-source device",
+        "Verify grouped preset URIs are listed when the grouped member set is fixed and proven",
+        "Verify later binds still post only one app-local `target`"
       ],
       "passes": false
     },
@@ -149,14 +149,15 @@
       "passes": false
     },
     {
-      "id": "shared-capture-rtsp-and-ipc-reuse",
+      "id": "shared-runtime-with-additive-rtsp-publication",
       "category": "functional",
-      "description": "Two direct sessions can reuse shared capture while exposing separate delivery intents",
+      "description": "Two direct requests for the same URI can reuse runtime while RTSP publication is enabled additively when requested",
       "steps": [
-        "Create an RTSP-oriented session from a non-local or `rtsp://` source so delivery infers to `rtsp`",
-        "Create an IPC-oriented session for the same locally resolved exact source so delivery infers to `ipc`",
+        "Create one direct session for one locally resolved exact source",
+        "Create another direct request for the same source with `rtsp_enabled = true`",
         "Inspect runtime status",
-        "Verify shared capture reuse is visible while each logical session remains distinct"
+        "Verify RTSP publication is visible",
+        "Verify shared capture or serving reuse is visible when applicable"
       ],
       "passes": false
     },
@@ -218,7 +219,7 @@
       "description": "A running idle app can receive a later exact video URI connection bound to a declared route",
       "steps": [
         "Start an idle app and declare route yolov5",
-        "Connect a listed compatible exact video URI with route yolov5",
+        "Connect a listed compatible exact video URI with target yolov5",
         "Verify the source record is created",
         "Verify a logical session is linked",
         "Verify the app receives callbacks on the declared route"
@@ -231,7 +232,7 @@
       "description": "A running idle app can receive a later exact depth URI connection bound to a declared route",
       "steps": [
         "Start an idle app and declare route orbbec/depth",
-        "Connect a listed URI such as insightos://host/desk-rgbd/orbbec/depth/480p_30 with route orbbec/depth",
+        "Connect a listed URI such as insightos://host/desk-rgbd/orbbec/depth/480p_30 with target orbbec/depth",
         "Verify the source record stores the resolved exact stream identity",
         "Verify the app receives callbacks on the declared route"
       ],
@@ -242,10 +243,23 @@
       "category": "functional",
       "description": "A running app can bind one declared route to an already-running IPC-capable direct session",
       "steps": [
-        "Create a direct session from a locally resolved `insightos://` URI so delivery infers to `ipc`",
+        "Create a direct session from a locally resolved `insightos://` URI",
         "Create or locate an idle app with a compatible route",
-        "Create one app-source bind using the existing `session_id` plus `route`",
+        "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on the attached route without recreating the session"
+      ],
+      "passes": false
+    },
+    {
+      "id": "direct-session-stays-idle-until-app-bind-exists",
+      "category": "functional",
+      "description": "A direct session remains standalone until an app creates its own bind, even when the app already declared compatible routes",
+      "steps": [
+        "Create a direct session from a locally resolved `insightos://` URI",
+        "Create or locate an idle app and declare one compatible route",
+        "Verify the app does not receive callbacks yet",
+        "Create one app-source bind using either the same `input` URI or the existing `session_id` plus `target`",
+        "Verify callbacks begin only after that bind becomes active"
       ],
       "passes": false
     },
@@ -254,9 +268,9 @@
       "category": "functional",
       "description": "A running app can bind one grouped target to an already-running grouped IPC session",
       "steps": [
-        "Create a grouped direct session from a locally resolved grouped preset URI so delivery infers to `ipc`",
+        "Create a grouped direct session from a locally resolved grouped preset URI",
         "Create or locate an idle app with routes such as orbbec/color and orbbec/depth",
-        "Create one app-source bind using the existing `session_id` plus `route_grouped`",
+        "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on both routes without separately managing `/color` and `/depth`"
       ],
       "passes": false
@@ -264,22 +278,22 @@
     {
       "id": "mixed-app-video-plus-related-group-routing",
       "category": "functional",
-      "description": "One app can run a video route plus related grouped-source routes at the same time with independent routing",
+      "description": "One app can declare app-local logical routes for multiple devices, such as two V4L2 cameras plus grouped Orbbec routes, and run them with independent routing",
       "steps": [
         "Create one app",
-        "Declare one video route, one orbbec/color route, and one orbbec/depth route",
-        "Connect one video URI plus grouped-source URIs for color and depth",
+        "Declare routes such as front-camera, rear-camera, orbbec/color, and orbbec/depth",
+        "Connect two compatible V4L2 video URIs plus one Orbbec color/depth source or grouped preset source",
         "Verify all routed sources remain active independently"
       ],
       "passes": false
     },
     {
-      "id": "rgbd-grouped-preset-over-route-grouped",
+      "id": "rgbd-grouped-preset-over-target-root",
       "category": "functional",
-      "description": "One app can declare ordinary color and depth routes separately and activate them together through one grouped preset `route_grouped` bind",
+      "description": "One app can declare ordinary color and depth routes separately and activate them together through one grouped preset target-root bind",
       "steps": [
         "Create one app with routes orbbec/color and orbbec/depth",
-        "Connect a grouped preset URI such as insightos://host/desk-rgbd/orbbec/preset/480p_30 with route_grouped orbbec",
+        "Connect a grouped preset URI such as insightos://host/desk-rgbd/orbbec/preset/480p_30 with target orbbec",
         "Verify the backend records one grouped source bind",
         "Verify ordinary route callbacks still fire independently on both routes",
         "Verify no extra SDK-only frame-merge helper is required for the grouped preset flow"
@@ -299,14 +313,15 @@
       "passes": false
     },
     {
-      "id": "different-delivery-shared-capture",
+      "id": "different-rtsp-publication-shared-runtime",
       "category": "functional",
-      "description": "The same URI with different delivery intents remains distinct delivery sessions while sharing capture when possible",
+      "description": "The same URI can add RTSP publication on top of a shared runtime when lifecycle rules allow it",
       "steps": [
-        "Create one `ipc` session and one `rtsp` session for the same exact stream",
+        "Create one direct session for one exact stream",
+        "Create another request for the same exact stream with `rtsp_enabled = true`",
         "Inspect runtime status",
-        "Verify separate delivery sessions exist",
-        "Verify shared capture reuse is visible"
+        "Verify RTSP publication is visible",
+        "Verify shared capture or serving reuse is visible"
       ],
       "passes": false
     },
@@ -354,7 +369,7 @@
         "Create an app and declare a route",
         "Connect a compatible source",
         "Inspect the source response",
-        "Verify route, uri, delivery_name, resolved_exact_stream_id, resolved_source_variant_id, resolved_source_group_id when present, and session metadata are present"
+        "Verify target, uri, rtsp_enabled, resolved_exact_stream_id, resolved_source_variant_id, resolved_source_group_id when present, and session metadata are present"
       ],
       "passes": false
     },

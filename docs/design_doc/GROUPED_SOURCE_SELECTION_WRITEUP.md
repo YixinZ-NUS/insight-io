@@ -4,13 +4,15 @@
 
 - role: grouped-source design rationale and real-device evidence
 - status: active
-- version: 2
+- version: 3
 - major changes:
-  - 2026-03-24 updated grouped-source wording to use derived `uri` identity
-    with separate durable `delivery_name`
-  - 2026-03-24 aligned grouped preset binds and grouped-session attach under
-    the same grouped target surface
+  - 2026-03-25 replaced public grouped/exact bind selection with one
+    app-local `target` surface
+  - 2026-03-25 reframed RTSP as optional publication intent while keeping
+    local IPC attach implicit
+  - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
 ## Summary
@@ -27,9 +29,7 @@ The adopted choices are:
   catalog-published source shape
 - treat route expectations as validation, not hidden stream selection
 - move D2C-sensitive depth differences into discovery-visible choices
-- keep channel disambiguation in the URI path rather than in query params when
-  it is required
-- keep delivery intent separate from URI identity so local IPC attach and
+- keep RTSP publication separate from URI identity so local IPC attach and
   future RTSP consumption do not distort source selection
 
 One main objective is to mask heterogeneous hardware details from users,
@@ -152,38 +152,20 @@ Those unknowns do not block the public contract:
   `orbbec/depth/480p_30` or `orbbec/preset/480p_30`; that note is informative
   only and must not become new structured dependency metadata
 
-### 3. Keep Path-Based Channel Disambiguation
+### 3. Defer Dedicated Channel URI Syntax
 
-Dual-eye and stereo devices still need an explicit way to separate left and
-right when the stream preset alone is not enough.
+Dual-eye and stereo devices may still need explicit left/right separation, but
+the active v1 contract does not need a dedicated `/channel/...` grammar.
 
-The preferred shape is an optional path suffix:
+Current decision:
 
-```text
-insightos://<host>/<device>/<stream-preset>/channel/<channel>
-```
-
-Examples:
-
-- `insightos://localhost/stereo-cam/video-720p_30/channel/left`
-- `insightos://localhost/stereo-cam/video-720p_30/channel/right`
-
-This should not be the common user story.
-
-Preferred behavior:
-
-- discovery emits the full final URI
-- the frontend shows it as a ready-made choice
-- users rarely type `/channel/...` manually
-
-Usage-based decision:
-
-- keep `/channel/<name>` in the path because the channel is part of the exact
-  stream identity
-- do not move this to a query parameter such as
-  `insightos://host/device/preset?source=left`, because query syntax reads like
-  an optional filter instead of part of the source choice
-- the path form keeps URI equality easier to reason about in copy/paste flows
+- keep left/right and similar distinctions in discovery-visible selector
+  choices or source metadata
+- do not add query parameters such as `?source=left`, because they read like
+  optional request modifiers rather than part of source identity
+- if future hardware proves that a dedicated public channel suffix is still
+  needed, add it in a later pass with real device evidence rather than keeping
+  it in the v1 active grammar
 
 ### 4. Source Groups Stay In Metadata
 
@@ -314,8 +296,6 @@ Concrete selectable source under one device:
 - `orbbec/depth/400p_30`
 - `orbbec/depth/480p_30`
 - `orbbec/preset/480p_30`
-- `video-720p_30/channel/left`
-- `video-720p_30/channel/right`
 
 The exact source choice is the real runtime identity. It must exist in catalog
 metadata, even if users do not usually type it manually.
@@ -344,7 +324,6 @@ app.route("depth-overlay").expect(insightos::Depth{})
 - expose separate 400p and 480p depth URIs
 - expose a grouped preset URI only when the bundled members are fixed and
   proven useful, as in `orbbec/preset/480p_30`
-- expose channel-qualified URIs when left/right are both present
 - persist the resolved exact stream identity and delivered caps
 - treat grouped runtime behavior as fixed per discovered entry in normal use
 - for tested Orbbec aligned depth, map delivered `480p` depth to a native
@@ -357,17 +336,12 @@ app.route("depth-overlay").expect(insightos::Depth{})
   `orbbec/preset/480p_30` explaining how D2C or grouped capture policy is
   realized underneath
 
-### Keep Advanced Channel Selection Optional
+### Defer Dedicated Channel URI Syntax
 
-It is possible to support a dedicated `/channel/<name>` URI suffix.
-
-That is acceptable because:
-
-- it solves real dual-eye ambiguity
-- it is only needed on a minority of devices
-- discovery can emit the final URI so manual typing is uncommon
-
-It should remain optional, not the default path shape for every device.
+If left/right disambiguation remains necessary after more real-device work,
+publish it later as a dedicated selector extension or another exact selector.
+It should not stay in the active v1 grammar without proof that discovery and
+ordinary selectors are insufficient.
 
 ### Keep Grouped Preset Routing First-Class
 
@@ -378,7 +352,8 @@ Expected SDK behavior:
 - the user or frontend may still connect those routes separately using exact
   member URIs
 - when discovery publishes a fixed grouped preset such as
-  `orbbec/preset/480p_30`, one source bind should fan out to a grouped route target
+  `orbbec/preset/480p_30`, one source bind should fan out to a grouped target
+  root
   such as `orbbec`
 - ordinary per-route callbacks remain the primary app surface; the SDK does not
   need a separate SDK-only frame-merge helper for this flow

@@ -4,21 +4,22 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 3
+- version: 5
 - major changes:
-  - 2026-03-24 made `delivery_name` inferred during normalization rather than
-    posted by clients
-  - 2026-03-24 made `uri` a derived source identifier and moved delivery into
-    durable `delivery_name`
-  - 2026-03-24 replaced the separate route-scoped attach endpoint with one
-    app-source create surface for both URI-backed and session-backed binds
-  - 2026-03-24 clarified local SDK attach is IPC-only in v1 while future
-    remote or LAN RTSP consumption remains separate
+  - 2026-03-25 clarified that direct sessions are standalone session-first
+    sessions and that multi-device apps declare app-local logical input routes
+  - 2026-03-25 replaced public `route` / `route_grouped` bind inputs with one
+    app-local `target` field and explicit ambiguity guardrails
+  - 2026-03-25 reframed RTSP as optional durable publication intent rather
+    than a peer to implicit local IPC attach
+  - 2026-03-25 removed `/channel/...` from the active URI contract
 - past tasks:
+  - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
 `insight-io` exposes a DB-first route-based API. Users choose a listed URI and
-connect it to an app-declared route. Route declarations are purpose-first. They
+bind it to one app-declared target. Route declarations are purpose-first. They
 should include semantic expectations for normal use, but they do not use raw
 runtime stream names as the primary contract.
 
@@ -51,8 +52,8 @@ Important rule:
 | `POST` | `/api/apps/{id}/sources` | create one app-source bind from one URI or one existing session |
 | `POST` | `/api/apps/{id}/sources/{source_id}/start` | restart one persisted app source |
 | `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop one running app source |
-| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | replace one route or grouped-route binding at runtime |
-| `GET` | `/api/status` | inspect shared capture and delivery state |
+| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | replace one target binding at runtime |
+| `GET` | `/api/status` | inspect shared capture and publication state |
 
 ## App Route Request Contract
 
@@ -60,11 +61,11 @@ This section describes the REST payload for `POST /api/apps/{id}/routes`.
 It is not an alternative to the SDK `app.route(...)` API. In the normal SDK
 flow, `app.route(...).expect(...)` serializes into this request shape.
 
-Create routes before connecting sources:
+Create routes before binding sources:
 
 ```json
 {
-  "route_name": "yolov5",
+  "route_name": "vision/detector",
   "expect": {
     "media": "video"
   }
@@ -74,13 +75,20 @@ Create routes before connecting sources:
 Semantic expectation keys may include:
 
 - `media`
-- `channel`
 
 Rules:
 
 - non-debug routes should include `media`
 - route expectations exist to reject obvious misroutes such as depth into a
   video-only route
+- route names are app-local target keys; they may be flat or hierarchical
+- route names should describe the app's logical input role rather than the
+  discovered device alias or one global resource name
+- declaring a route does not start callbacks by itself; one target stays idle
+  until one app-source bind becomes active
+- guardrail:
+  an app must not declare both one exact route `x` and any route below `x/`,
+  because that would make the public bind target `x` ambiguous
 
 Example:
 
@@ -93,14 +101,53 @@ Example:
 }
 ```
 
-## App Source Create / Attach Contract
+Multi-device example for one app that consumes two V4L2 cameras plus one
+Orbbec:
 
-Connect one listed URI to a declared route:
+```json
+[
+  {
+    "route_name": "front-camera",
+    "expect": {
+      "media": "video"
+    }
+  },
+  {
+    "route_name": "rear-camera",
+    "expect": {
+      "media": "video"
+    }
+  },
+  {
+    "route_name": "orbbec/color",
+    "expect": {
+      "media": "video"
+    }
+  },
+  {
+    "route_name": "orbbec/depth",
+    "expect": {
+      "media": "depth"
+    }
+  }
+]
+```
+
+That keeps the app contract role-first:
+
+- `front-camera` and `rear-camera` are app-local roles that may later bind to
+  whichever V4L2 device URIs satisfy them
+- `orbbec/color` and `orbbec/depth` stay ordinary routes, while grouped preset
+  binds may still target the shared root `orbbec`
+
+## App Source Bind Contract
+
+Bind one listed URI to one app-local target:
 
 ```json
 {
   "input": "insightos://localhost/front-camera/video-720p_30",
-  "route": "yolov5"
+  "target": "vision/detector"
 }
 ```
 
@@ -109,87 +156,90 @@ For grouped devices, discovery must still provide exact-member URIs:
 ```json
 {
   "input": "insightos://localhost/desk-rgbd/orbbec/depth/480p_30",
-  "route": "orbbec/depth"
+  "target": "orbbec/depth"
 }
 ```
 
 When discovery publishes a fixed grouped preset choice, one source bind may fan
-out into a grouped route target:
+out into the grouped target root:
 
 ```json
 {
   "input": "insightos://localhost/desk-rgbd/orbbec/preset/480p_30",
-  "route_grouped": "orbbec"
+  "target": "orbbec"
 }
 ```
 
-Attach one existing session to one exact route:
+Bind one existing session to one exact target:
 
 ```json
 {
   "session_id": 42,
-  "route": "yolov5"
+  "target": "vision/detector"
 }
 ```
 
-Attach one existing grouped session to one grouped target:
+Bind one existing grouped session to the grouped target root:
 
 ```json
 {
   "session_id": 43,
-  "route_grouped": "orbbec"
+  "target": "orbbec"
 }
 ```
 
 Rules:
 
-- exactly one of `route` or `route_grouped` is required
+- `target` is required
 - exactly one of `input` or `session_id` is required
-- `input` must be a catalog-published URI already exposed by the catalog
+- `input` must be a catalog-published `insightos://` URI already exposed by
+  the catalog
 - the URI itself must already identify the fixed published source shape
-- the URI selects one catalog entry; the backend infers `delivery_name` during
-  normalization and persists it on the bind
-- locally resolved `insightos://` sources infer `ipc`
-- non-local or `rtsp://` sources infer `rtsp`
+- raw `rtsp://` input is not part of the v1 source-selection contract; RTSP is
+  a publication of a selected `insightos://` source, not a posted source URI
+- `target` is app-local; the backend first resolves an exact route match, and
+  otherwise resolves a grouped target root when declared routes exist below
+  `target/...`
+- exact-route diagnostics should use resource-shaped names such as
+  `apps/{app}/routes/{route}` rather than requiring callers to post
+  `app-name/route-name`
+- guardrail:
+  route declaration or bind must fail if an app would make one posted target
+  ambiguous, for example both exact route `orbbec` and grouped routes below
+  `orbbec/...`
 - exact-member URIs validate against one route's expectation
 - grouped preset URIs validate against the declared routes under the chosen
-  grouped target, for example `orbbec/color` and `orbbec/depth`
+  grouped target root, for example `orbbec/color` and `orbbec/depth`
 - session-backed binds validate against the referenced session's resolved
   source shape and member set
-- grouped-session attaches use the same `route_grouped` surface, so one app can
-  start from `orbbec/preset/...` without separately managing `/color` and
-  `/depth`
+- grouped-session binds use the same `target` surface, so one app can start
+  from `orbbec/preset/...` without separately managing `/color` and `/depth`
 - the request does not override grouped-device behavior beyond choosing a
   different URI or existing session
+- `rtsp_enabled` is optional and defaults to `false`
+- when `rtsp_enabled = true`, the runtime should publish an `rtsp_url` for the
+  serving session using the backend default RTSP profile
+- local IPC attach is implicit for local SDK consumers; it is not a posted
+  field and there is no public `ipc` delivery selector
 - if a catalog entry needs extra explanation, discovery may include a short
   human-readable comment, but clients must treat that as informational only
-- duplicate URIs are allowed across routes and apps
-- one route or grouped target may own at most one active binding at a time
-- identical URI plus `delivery_name` combinations should reuse runtime where
+- duplicate URIs are allowed across targets and apps
+- one exact route or grouped target root may own at most one active binding at
+  a time
+- identical URI and publication requirements should reuse runtime where
   possible
-- identical URIs with different delivery intents, such as `ipc` and `rtsp`,
-  should stay separate delivery sessions while still being eligible for shared
-  capture reuse
+- one request needing RTSP publication and one request not needing it may still
+  share capture and serving runtime when lifecycle rules allow the shared
+  session to expose RTSP as an additive publication
 - when multiple entries from one source group are active, the backend must
   resolve them to one compatible grouped runtime or reject the newer request
 - the public contract does not add dependency-specific source metadata until
   device investigation justifies it
 - local SDK attach always uses IPC in v1
-- session-backed binds in v1 should therefore reference IPC-capable sessions
-- URI-backed app binds that infer `rtsp` are therefore future-facing unless the
-  backend also materializes an IPC-capable `active_session_id`
+- session-backed binds in v1 should therefore reference sessions the backend can
+  serve locally through IPC
 - future remote or LAN RTSP consumption can be added later without changing the
   app-source resource shape
-
-Optional advanced channel disambiguation stays in the path:
-
-```text
-insightos://<host>/<device>/<stream-preset>/channel/<channel>
-```
-
-Discovery should normally emit the final full URI so users rarely type this
-manually. The channel stays in the path rather than in a query param because it
-identifies the exact stream, not an optional filter.
 
 ## Direct Session Contract
 
@@ -197,35 +247,50 @@ Direct sessions use the same URI contract:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/orbbec/depth/400p_30"
+  "input": "insightos://localhost/desk-rgbd/orbbec/depth/400p_30",
+  "rtsp_enabled": true
 }
 ```
+
+A direct session is a standalone, session-first session created from one
+selected URI before any app target is involved. It is not app-exclusive, but it
+also does not feed matching routes automatically.
 
 This flow is the basis for:
 
 - `insightos-open`
 - RTSP monitoring
-- session-first workflows that later attach to app routes
+- session-first workflows that later bind to app targets
 
 Normal-use rule:
 
 - the chosen URI fixes the backend source behavior for that direct session
-- the backend infers `delivery_name` from the selected source address and
-  locality policy, then stores it on the session
-- locally resolved `insightos://` sources infer `ipc`
-- non-local or `rtsp://` sources infer `rtsp`
+- `direct` means standalone or session-first:
+  the session may later be bound to one app target through `session_id`
+- `rtsp_enabled` is optional and defaults to `false`
+- when `rtsp_enabled = true`, the runtime publishes an `rtsp_url` using the
+  backend default RTSP profile
+- local IPC attach is not a client-posted field
+- apps that merely declare compatible routes do not receive callbacks from this
+  session until they create one app-source bind by `input` or `session_id`
+- when an app later binds the same `session_id` or independently binds the same
+  URI, the backend should reuse runtime where possible, but the app still
+  needs its own active bind to receive frames
 - a grouped preset direct session may legitimately surface multiple related
   members when discovery published that preset as one fixed bundled choice
 - advanced grouped-device overrides are not part of the direct-session request
+- raw `rtsp://` ingest remains a future import path rather than a v1 session
+  input shape
 
 ## Runtime Rebind Contract
 
-Replace the current URI-backed or session-backed source bound to one route or
-grouped target:
+Replace the current URI-backed or session-backed source bound to one exact
+target or grouped target root:
 
 ```json
 {
-  "input": "insightos://localhost/desk-rgbd/orbbec/depth/400p_30"
+  "input": "insightos://localhost/desk-rgbd/orbbec/depth/400p_30",
+  "rtsp_enabled": false
 }
 ```
 
@@ -242,9 +307,11 @@ App-source responses include:
 
 - `source_kind`
 - `uri`
-- `route`
-- `route_grouped` when grouped
-- `delivery_name`
+- `target`
+- `target_resource_name` when the target resolves to one exact route, formatted
+  as `apps/{app}/routes/{route}`
+- `rtsp_enabled`
+- `rtsp_url` when active and published
 - `source_session_id` when session-backed
 - `active_session_id` when a runtime session exists
 - `resolved_exact_stream_id`
@@ -257,8 +324,8 @@ App-source responses include:
 - `capture_policy_json`
 
 The backend still uses the existing session graph under the routing layer. A
-successful app-source connect creates one ordinary logical session and records
-which resolved exact stream was connected to the route. A successful
+successful app-source bind creates one ordinary logical session and records
+which resolved exact stream was connected to the target. A successful
 session-backed bind records both the referenced `source_session_id` and the
 currently serving `active_session_id`.
 
@@ -270,7 +337,8 @@ Why both session ids are exposed:
   bind right now
 - they are equal for direct local IPC attach
 - they may differ when the selected source and the serving app session are not
-  the same runtime, for example future RTSP-to-IPC bridging
+  the same runtime, for example after restart, rebind, or regrouped serving
+  replacement
 
 Current boundary:
 
@@ -301,15 +369,16 @@ Current boundary:
 
 ## SDK Relationship
 
-`app.connect(...)`, `app.connect_grouped(...)`, `app.attach(...)`, and
-`app.attach_grouped(...)` are SDK conveniences over `POST /api/apps/{id}/sources`.
-The REST endpoint is the external-control surface for creating and changing app
-binds without embedding the SDK in the caller.
+`app.bind_source(...)` is the SDK convenience over
+`POST /api/apps/{id}/sources`, and `app.rebind(...)` is the SDK convenience
+over the source rebind endpoint. The REST endpoint is the external-control
+surface for creating and changing app binds without embedding the SDK in the
+caller.
 
 Current interop boundary:
 
 - `insightos://` remains the local selector namespace
-- `rtsp://` remains the remote/LAN transport namespace
+- `rtsp://` remains the publication namespace for remote or LAN consumption
 - the current scope supports exporting local `insightos://` selections toward
   RTSP consumers
 - the reverse direction does not become a first-class `insightos://` catalog

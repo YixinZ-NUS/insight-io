@@ -4,8 +4,16 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 3
+- version: 5
 - major changes:
+  - 2026-03-25 clarified that direct sessions remain standalone until bound and
+    that multi-device apps declare app-local logical input routes
+  - 2026-03-25 replaced public `route` / `route_grouped` bind inputs with one
+    app-local `target` surface and reserved grouped target roots
+  - 2026-03-25 removed `/channel/...` from the active URI grammar and kept
+    grouped target resolution server-side
+  - 2026-03-25 reframed RTSP as optional publication intent, not as a peer to
+    implicit local IPC attach
   - 2026-03-24 made `delivery_name` inferred from source locality and scheme
     rather than client-posted, while keeping it durable in storage
   - 2026-03-24 made public `uri` values derived rather than durable DB keys
@@ -18,6 +26,8 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
   - `2026-03-24 – Separate Catalog Publication From Runtime Ownership And Rename Route APIs`
   - `2026-03-24 – Simplify The Durable Data Model And Add A Docs Hub`
@@ -38,18 +48,21 @@
 - one derived `uri` selects one fixed catalog-published source shape
 - `uri` is derived from stable catalog identity plus the current device public
   name; it is not a durable DB key
-- `delivery_name` is inferred from source locality and scheme, then persisted
-  separately from `uri` on app-source and session records
+- app-source requests use one app-local `target` field; the backend resolves
+  whether that target is one exact route or one grouped target root
+- route names stay app-local and should model logical input roles such as
+  `front-camera`, `rear-camera`, `orbbec/color`, and `orbbec/depth`
+- grouped target roots are reserved:
+  an app must not declare both one exact route `x` and any route below `x/`
 - exact-member URIs still mean one delivered stream
 - grouped preset URIs may mean one fixed related stream bundle
 - discovery publishes selectable choices; sessions and workers realize them
   later
-- grouped app binds use `route_grouped` in REST and
-  `connect_grouped(...)` / `attach_grouped(...)` in the SDK direction
-- delivery is durable bind/session intent on `app_sources` and `sessions`
-- locally resolved `insightos://` sources infer `ipc`; non-local or `rtsp://`
-  sources infer `rtsp`
-- local SDK attach always uses IPC
+- RTSP is optional durable publication intent on `app_sources` and `sessions`
+- local SDK attach always uses IPC, but that is implicit and not a posted
+  field
+- direct sessions are standalone session-first runtime intent; declaring a
+  matching route does not consume them until a later app-source bind exists
 - future remote or LAN RTSP consumption remains planned, but it is not part of
   the v1 SDK attach contract
 - the durable schema should stay minimal:
