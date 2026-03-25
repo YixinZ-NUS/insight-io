@@ -56,7 +56,7 @@ Before proposing or implementing changes, read these documents in order:
     read like current guidance
 - Add durable architecture diagrams under `docs/diagram/`.
 - Subagent Strategy
-  - Use subgents liberally to keep main contect window clean
+  - Use subgents liberally to keep main context window clean
   - Offload research, exploration, and parallel analysis to subagents
   - For complex problems, throw more compute at it via subagents
 - Never mark a task complete without proving it work. Apply the emperical workflow below.
