@@ -4,8 +4,10 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 5
+- version: 6
 - major changes:
+  - 2026-03-25 added queryable RTSP publication metadata expectations and fixed
+    referenced-session delete behavior
   - 2026-03-25 added a runtime-only post-capture publication-planning task for
     codec/profile handling after capture
   - 2026-03-25 replaced public grouped/exact bind selection with one
@@ -14,6 +16,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
@@ -27,13 +30,16 @@ describe the next implementation round, not work that is currently checked in.
    contract.
 2. Reintroduce discovery and catalog code backed by `devices` and `streams`
    tables that list exact-member URIs plus any fixed grouped preset URIs and
-   their optional publication metadata, including separate
+   their optional publication metadata, including queryable
+   `publications_json.rtsp.url` values that mirror the source selector path on
+   the configured RTSP host, plus separate
    `orbbec/depth/400p_30`, `orbbec/depth/480p_30`, and the proven grouped
    preset `orbbec/preset/480p_30`.
 3. Check in one SQL schema for `devices`, `streams`, `apps`,
    `app_routes`, `app_sources`, `sessions`, and `session_logs`.
 4. Reintroduce direct session APIs and runtime status inspection using the same
-   exact URI contract as the app layer plus durable RTSP publication intent.
+   exact URI contract as the app layer plus durable RTSP publication intent and
+   `409` delete protection while a session is still referenced by app sources.
 5. Reintroduce persistent apps, routes, and sources in SQLite, including
    reverse-order exact and grouped attach from `session_id`.
 6. Add route validation, grouped-source metadata persistence, grouped target
@@ -70,6 +76,9 @@ The work is complete only when:
   member set is fixed and proven
 - RTSP publication intent is persisted separately from the selected URI on
   app-source and session records
+- catalog publication metadata exposes a predictable RTSP URL for each source
+  shape, even though actual reachability still depends on active publication
+  state
 - SDK routes by declared route
 - SDK can bind one grouped preset URI through the same public `target` surface
   without extra SDK-only frame-merge helpers
@@ -80,6 +89,8 @@ The work is complete only when:
 - same capture can back local IPC attach and optional RTSP publication
 - runtime includes a post-capture publication phase for output profile and
   codec/publication handling without reintroducing durable delivery tables
+- deleting a referenced session returns `409 Conflict` instead of silently
+  detaching dependent app sources
 - local SDK attach remains IPC-only in v1 while future remote or LAN RTSP
   consumption remains a separate path
 - frontend can express the same app/route/source flow

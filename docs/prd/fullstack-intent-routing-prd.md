@@ -4,8 +4,11 @@
 
 - role: product contract for the DB-first intent-routing rebuild
 - status: active
-- version: 5
+- version: 6
 - major changes:
+  - 2026-03-25 removed stale source variant/group response fields, made RTSP
+    publication metadata queryable from the catalog, and fixed
+    `DELETE /api/sessions/{id}` to return `409 Conflict` while referenced
   - 2026-03-25 clarified that direct sessions are standalone session-first
     sessions and that multi-device apps declare app-local logical input routes
   - 2026-03-25 replaced public `route` / `route_grouped` bind inputs with one
@@ -14,6 +17,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
@@ -45,6 +49,9 @@ The key product rules are:
 - one derived URI selects one fixed catalog-published source shape
 - RTSP publication is optional durable bind/session intent, not part of source
   identity
+- the catalog may expose queryable RTSP publication metadata for a source shape
+  using the same `/<device>/<selector>` path as the derived `insightos://` URI
+  with the configured RTSP host
 - route expectations validate compatibility; they do not choose hidden stream
   variants
 - exact-member URIs still map to one delivered stream
@@ -91,7 +98,7 @@ quirks first.
 
 ## Non-Goals
 
-- changing the existing logical/capture/delivery session model
+- reintroducing durable capture, delivery, or publication worker tables in v1
 - replacing `memfd` + ring buffer local IPC with a different transport
 - adding auth, cloud tenancy, or remote app-side media attach in this pass
 - making applications name runtime stream ids directly in normal route
@@ -202,7 +209,9 @@ Current design boundary:
 3. Backend normalizes the URI into `SessionRequest`.
 4. User may optionally request RTSP publication with `rtsp_enabled = true`.
 5. Backend creates or reuses capture and serving runtime accordingly, and
-   publishes `rtsp_url` when RTSP publication is enabled.
+   publishes `rtsp_url` when RTSP publication is enabled. The RTSP URL should
+   keep the same `/<device>/<selector>` path as the selected `insightos://`
+   URI while replacing `localhost` with the configured RTSP host.
 6. User monitors RTSP or local IPC output and later stops the session.
 
 ### 3. Create App And Routes
@@ -268,7 +277,7 @@ or:
 7. Backend validates route expectations against the resolved source metadata.
 8. Backend creates one ordinary logical session or one grouped logical session.
 9. Backend returns the resolved source identity, member bindings when grouped,
-   and source-group metadata to the SDK.
+   publication state, and serving-session metadata to the SDK.
 
 V1 boundary:
 
@@ -302,7 +311,7 @@ Direct-session meaning:
    - `source_session_id` for the session the user chose
    - `active_session_id` for the session actually serving the app
 
-### 6. Fan-Out And Delivery Divergence
+### 6. Fan-Out And Publication Divergence
 
 1. The same exact URI may be used in multiple places, including multiple routes
    across one or more apps.
@@ -419,6 +428,14 @@ Important rule:
 - `POST /api/sessions/{id}/stop`
 - `DELETE /api/sessions/{id}`
 
+Delete rule:
+
+- `DELETE /api/sessions/{id}` must return `409 Conflict` when any `app_source`
+  still references that session through `source_session_id` or
+  `active_session_id`
+- only unreferenced sessions may be deleted; successful delete also removes
+  `session_logs`
+
 ### App APIs
 
 - `POST /api/apps`
@@ -500,13 +517,11 @@ Session-backed grouped request:
 - RTSP URL when published
 - source kind
 - source session id when session-backed
+- active session id when a serving runtime exists
 - target name
 - exact-route diagnostic name when applicable, formatted as
   `apps/{app}/routes/{route}`
 - resolved stream id
-- resolved source variant id
-- resolved member kind
-- resolved source group id when present
 - resolved member mappings when grouped
 - delivered caps
 - capture policy metadata
@@ -645,7 +660,8 @@ Backend Handshake:
 - grouped preset sessions can attach through the same app-source surface, so an
   app can start from one grouped preset choice without separately managing
   `/color` and `/depth`
-- dependent sources can be related through source-group metadata
+- dependent sources can still be recognized as related for grouped runtime
+  planning without separate public source-group id fields
 - grouped sources either share one compatible grouped runtime or reject with a
   compatibility error
 - direct-session-first and app-first flows are both supported
@@ -686,12 +702,17 @@ Backend Handshake:
   misroutes such as depth into a video detector
 - the resolved exact stream identity is persisted explicitly enough to survive
   restart without ambiguity
+- the catalog can expose a queryable RTSP publication URL whose path mirrors
+  the selected `insightos://` URI while using the configured RTSP host
 - local SDK attach is IPC-only in v1, while future remote or LAN RTSP
   consumption can be added without changing the core app-source resource shape
 - current scope therefore implies one-way interoperability:
   local `insightos://` selections can be published toward `rtsp://` consumers,
   but raw `rtsp://` inputs do not become first-class `insightos://` catalog
   sources without explicit ingest/import design
-- existing logical/capture/delivery session reuse remains intact
+- deleting a referenced session returns `409 Conflict` instead of silently
+  detaching dependent app sources
+- logical session reuse and runtime-only capture/publication planning remain
+  aligned with the active contract
 - feature tracker exists and can be updated mechanically as implementation
   advances

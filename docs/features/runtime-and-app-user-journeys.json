@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -125,6 +125,18 @@
       "passes": false
     },
     {
+      "id": "catalog-exposes-queryable-rtsp-publication-address",
+      "category": "functional",
+      "description": "The device catalog exposes a predictable RTSP publication address for each listed source shape",
+      "steps": [
+        "Call GET /api/devices or GET /api/devices/{device}",
+        "Inspect one listed source entry and its `publications_json` metadata",
+        "Verify `publications_json.rtsp.url` keeps the same `/<device>/<selector>` path as the derived `insightos://` URI while using the configured RTSP host",
+        "Verify clients can query that address from the catalog even though actual reachability still depends on active publication state"
+      ],
+      "passes": false
+    },
+    {
       "id": "direct-session-create-via-rest",
       "category": "functional",
       "description": "A user can create a direct logical session through POST /api/sessions without going through the app layer",
@@ -172,6 +184,19 @@
         "Inspect the persisted session record",
         "Call POST /api/sessions/{id}/start",
         "Verify a fresh runtime session is active"
+      ],
+      "passes": false
+    },
+    {
+      "id": "delete-referenced-session-conflicts",
+      "category": "functional",
+      "description": "Deleting a session that is still referenced by an app source returns 409 Conflict",
+      "steps": [
+        "Create a direct session from one listed source URI",
+        "Create an app, declare a compatible route, and bind that session through one app source",
+        "Call DELETE /api/sessions/{id} for the referenced session",
+        "Verify the API returns 409 Conflict",
+        "Verify the session and app-source records remain unchanged"
       ],
       "passes": false
     },
@@ -369,7 +394,7 @@
         "Create an app and declare a route",
         "Connect a compatible source",
         "Inspect the source response",
-        "Verify target, uri, rtsp_enabled, resolved_exact_stream_id, resolved_source_variant_id, resolved_source_group_id when present, and session metadata are present"
+        "Verify target, uri, state, rtsp_enabled, resolved_exact_stream_id, resolved_members_json when grouped, and session metadata are present"
       ],
       "passes": false
     },

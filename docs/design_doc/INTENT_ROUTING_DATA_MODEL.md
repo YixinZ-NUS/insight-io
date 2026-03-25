@@ -4,8 +4,11 @@
 
 - role: define the minimal durable schema for `insight-io`
 - status: active
-- version: 10
+- version: 11
 - major changes:
+  - 2026-03-25 removed stale source variant/group response fields, clarified
+    queryable RTSP publication metadata, and made session delete conflict
+    semantics explicit
   - 2026-03-25 clarified that route names describe app-local logical input
     roles and that `session_kind = direct` means standalone session-first
     runtime intent
@@ -29,6 +32,7 @@
   - 2026-03-24 moved capture, delivery, and worker reuse details out of the
     SQL model and into runtime/status responsibility
 - past tasks:
+  - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
@@ -56,7 +60,7 @@ That gives one minimal durable schema:
 - `session_logs`
 
 Everything lower-level than that, such as grouped capture planning, shared
-delivery reuse, RTSP publisher state, worker processes, and attach handles,
+publication reuse, RTSP publisher state, worker processes, and attach handles,
 should stay runtime-only unless a concrete persistence need is proven later.
 
 Because this repo is intended to be implemented fresh, the schema does not need
@@ -85,11 +89,15 @@ See the dedicated Mermaid ER diagram at
   an app must not declare both one exact route `x` and any route below `x/`
 - RTSP publication intent is durable bind/session state, not its own durable
   worker graph
+- catalog publication metadata may expose a queryable RTSP URL that keeps the
+  same `/<device>/<selector>` path as the derived `insightos://` URI while
+  using the configured RTSP host
 - local SDK attach uses IPC in v1 even when future remote or LAN RTSP
   consumption is added later
 - sessions record client-visible session history
 - logs record what happened
-- lower-level capture and delivery internals are runtime structures, not first
+- lower-level capture and publication internals are runtime structures, not
+  first
   class SQL tables in v1
 
 ## Why The Schema Can Stay Small
@@ -222,9 +230,12 @@ Notes:
   durable DB key for this row
 - publication is not encoded in the stored source identity; discovery can
   publish one derived `uri` plus `publications_json` describing optional
-  published forms such as RTSP and supported RTSP profiles
-- `group_key` is enough for RGBD or stereo grouping; a separate `stream_groups`
-  table is not needed yet
+  published forms such as RTSP. A minimal shape is
+  `{\"rtsp\":{\"url\":\"rtsp://<rtsp-host>/<device>/<selector>\",\"profile\":\"default\"}}`;
+  the RTSP URL should mirror the `insightos://` path after swapping the scheme
+  and host
+- `group_key` is an internal grouping hint for runtime planning; it should not
+  be exposed as a public source-group id field
 - `streams` is also the only per-device preset table; a separate `presets`
   table is not needed in v1
 - discovery should upsert by `selector_key` so ids stay stable across alias
@@ -342,7 +353,8 @@ Notes:
   `orbbec`
 - `rtsp_enabled` is the durable request to publish the serving session over
   RTSP; when true the runtime should expose `rtsp_url` using the backend
-  default RTSP profile
+  default RTSP profile and the same `/<device>/<selector>` path as the bound
+  `insightos://` URI, with the configured RTSP host replacing `localhost`
 - local IPC attach is implicit for local app consumers and is not stored here
 - `resolved_routes_json` records grouped member-to-route resolution for grouped
   presets and grouped-session attaches
@@ -476,7 +488,10 @@ Deletion rules:
 
 - deleting an app cascades to `app_routes` and `app_sources`
 - deleting a device cascades to `streams`
-- deleting a session cascades to `session_logs`
+- deleting a session must be rejected with `409 Conflict` when any
+  `app_sources` row still references it through `source_session_id` or
+  `active_session_id`; only unreferenced sessions may be deleted, and then
+  delete cascades to `session_logs`
 - deleting a route should cascade only to exact-route `app_sources`; grouped
   bindings remain controlled by `target_name`
 
@@ -485,7 +500,7 @@ Deletion rules:
 These remain runtime structures or status snapshots, not durable tables:
 
 - grouped compatibility planning
-- shared capture and delivery reuse graphs
+- shared capture and publication reuse graphs
 - worker process ids and restart handles
 - RTSP publisher state
 - local IPC attach handles

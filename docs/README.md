@@ -4,8 +4,11 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 7
+- version: 8
 - major changes:
+  - 2026-03-25 removed stale variant/group identity fields from the active
+    contract, made catalog RTSP publication metadata queryable, and defined
+    referenced-session delete as `409 Conflict`
   - 2026-03-25 added a writeup that recommends a runtime-only post-capture
     publication phase for codec and protocol-specific publication work
   - 2026-03-25 added an RTSP publication reuse writeup explaining why the
@@ -31,6 +34,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Document RTSP Publication Reuse After Delivery-Name Removal`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
@@ -66,12 +70,18 @@
 - discovery publishes selectable choices; sessions and workers realize them
   later
 - RTSP is optional durable publication intent on `app_sources` and `sessions`
+- `streams.publications_json` may expose a queryable `rtsp.url` for the same
+  source shape; that URL should keep the same `/<device>/<selector>` path as
+  the derived `insightos://` URI while replacing `localhost` with the
+  configured RTSP host
 - same `uri` plus the same publication requirements may share one serving path;
   RTSP publication may be additive on shared runtime when lifecycle rules allow
 - runtime still needs a post-capture publication phase for output profile,
   codec, and protocol-description work, but that phase stays runtime-only in v1
 - local SDK attach always uses IPC, but that is implicit and not a posted
   field
+- `DELETE /api/sessions/{id}` must return `409 Conflict` while any app source
+  still references that session
 - direct sessions are standalone session-first runtime intent; declaring a
   matching route does not consume them until a later app-source bind exists
 - future remote or LAN RTSP consumption remains planned, but it is not part of
@@ -88,7 +98,7 @@
   grouped preset choices
 - the schema is greenfield: no migration-history table or backward-compat
   schema layer is required in v1
-- lower-level capture, delivery, and worker reuse graphs stay runtime-only and
+- lower-level capture, publication, and worker reuse graphs stay runtime-only and
   are surfaced through status and logs rather than their own durable tables
 
 ## Doc Map

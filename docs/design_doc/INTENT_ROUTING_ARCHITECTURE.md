@@ -4,8 +4,11 @@
 
 - role: control-plane and runtime-responsibility split for `insight-io`
 - status: active
-- version: 6
+- version: 7
 - major changes:
+  - 2026-03-25 removed stale source variant/group response fields, made RTSP
+    publication metadata queryable from the catalog, and fixed session-delete
+    conflict semantics
   - 2026-03-25 added a runtime-only post-capture publication phase boundary for
     codec handling and protocol-specific publication work
   - 2026-03-25 clarified that direct sessions stay standalone until one app
@@ -16,6 +19,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active public URI grammar
 - past tasks:
+  - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
@@ -39,7 +43,6 @@ The public app model is:
 - one derived `uri` selects one fixed catalog-published source shape
 - the discovery catalog exposes exact member choices up front and may also
   expose grouped preset choices when the member bundle is fixed and proven
-- grouped devices expose related source identities through catalog metadata
 - discovery publishes selectable source shapes and metadata; sessions own
   runtime realization, reuse, and lifecycle
 - RTSP publication intent is durable bind/session state rather than part of
@@ -177,14 +180,14 @@ metadata such as:
 - derived URI
 - source shape
 - exact stream id
-- source variant id
-- source group id
-- member kind
-- channel when applicable
 - delivered caps
 - capture policy requirements
-- supported delivery names
+- publication metadata, including queryable RTSP URL when applicable
 - grouped preset members when applicable
+
+The RTSP publication URL should keep the same `/<device>/<selector>` path as
+the derived `insightos://` URI while replacing `localhost` with the configured
+RTSP host.
 
 Examples:
 
@@ -376,8 +379,8 @@ The app layer must also support:
 - expose route CRUD
 - expose app-source create, rebind, and lifecycle control for both exact-route
   and grouped binds, with `session_id` handled through the same create surface
-- expose resolved exact stream identity and source-group metadata in app-source
-  responses, plus grouped member bindings when a grouped preset URI is used
+- expose resolved exact stream identity, publication state, and grouped member
+  bindings in app-source responses when a grouped preset URI is used
 - expose runtime status for capture and publication reuse inspection
 
 ## Frontend Responsibilities

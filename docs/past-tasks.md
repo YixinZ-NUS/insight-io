@@ -1,5 +1,48 @@
 # Past Tasks
 
+## 2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics
+
+### What Changed
+
+- updated the active docs hub, PRD, architecture note, data-model note, REST
+  reference, task list, and feature trackers so the active contract now:
+  - removes stale source-variant and source-group id fields from public source
+    responses
+  - keeps catalog publication metadata in `streams.publications_json` and makes
+    `publications_json.rtsp.url` queryable
+  - defines the RTSP publication URL as the same `/<device>/<selector>` path as
+    the derived `insightos://` URI with the configured RTSP host replacing
+    `localhost`
+  - returns `409 Conflict` from `DELETE /api/sessions/{id}` while any
+    `app_source` still references that session through `source_session_id` or
+    `active_session_id`
+- updated the implementation trackers so the new catalog RTSP metadata behavior
+  and referenced-session delete conflict are both called out as future runtime
+  checks
+
+### Why
+
+- the active contract had already moved away from variant/group id response
+  fields, but several active docs still exposed them and made the schema read
+  heavier than the current design actually is
+- catalog publication metadata needed one explicit rule so RTSP addresses are
+  predictable and queryable without turning RTSP into part of source identity
+- session delete needed a hard contract because silently detaching or rewriting
+  app-source references would create ambiguous runtime ownership and surprise
+  callers
+
+### Verification
+
+- reviewed and aligned:
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-prd.md](/home/yixin/Coding/insight-io/docs/prd/fullstack-intent-routing-prd.md)
+  - [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+
 ## 2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase
 
 ### What Changed

@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -82,6 +82,17 @@
         "Open the architecture note and verify capture and publication planning are separated at runtime",
         "Open the post-capture publication-phase writeup and verify it recommends runtime-only publication planning rather than new durable delivery tables",
         "Open the task list and verify publication planning after capture is called out as an implementation task"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-minimal-source-metadata-and-session-delete-rule",
+      "category": "functional",
+      "description": "The active docs keep source metadata minimal, expose queryable RTSP publication metadata, and reject deletion of referenced sessions",
+      "steps": [
+        "Open the REST reference and verify app-source responses no longer promise resolved source-variant or source-group id fields",
+        "Open the architecture or data-model note and verify catalog publication metadata includes a queryable RTSP URL that mirrors the source selector path on the RTSP host",
+        "Open the REST reference or PRD and verify DELETE /api/sessions/{id} returns 409 Conflict while any app source still references that session"
       ],
       "passes": true
     },

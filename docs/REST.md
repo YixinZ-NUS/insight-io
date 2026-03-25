@@ -4,8 +4,10 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 5
+- version: 6
 - major changes:
+  - 2026-03-25 removed stale source variant/group response fields, made RTSP
+    publication metadata queryable, and fixed session-delete conflict behavior
   - 2026-03-25 clarified that direct sessions are standalone session-first
     sessions and that multi-device apps declare app-local logical input routes
   - 2026-03-25 replaced public `route` / `route_grouped` bind inputs with one
@@ -14,6 +16,7 @@
     than a peer to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI contract
 - past tasks:
+  - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
@@ -40,7 +43,7 @@ Important rule:
 | `GET` | `/api/sessions/{id}` | inspect one logical session |
 | `POST` | `/api/sessions/{id}/start` | rehydrate one persisted logical session |
 | `POST` | `/api/sessions/{id}/stop` | stop one logical session |
-| `DELETE` | `/api/sessions/{id}` | destroy one logical session |
+| `DELETE` | `/api/sessions/{id}` | destroy one unreferenced logical session |
 | `POST` | `/api/apps` | create one durable app record |
 | `GET` | `/api/apps` | list durable apps |
 | `GET` | `/api/apps/{id}` | inspect one app |
@@ -54,6 +57,20 @@ Important rule:
 | `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop one running app source |
 | `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | replace one target binding at runtime |
 | `GET` | `/api/status` | inspect shared capture and publication state |
+
+## Device Catalog Publication Notes
+
+Catalog entries returned by `GET /api/devices` and `GET /api/devices/{device}`
+should include one derived `uri` plus `publications_json`.
+
+Rules:
+
+- `publications_json.rtsp.url` is queryable publication metadata for that source
+  shape
+- the RTSP URL should keep the same `/<device>/<selector>` path as the derived
+  `insightos://` URI while replacing `localhost` with the configured RTSP host
+- the presence of that URL does not by itself guarantee an active RTSP
+  publisher; reachability still depends on current runtime publication state
 
 ## App Route Request Contract
 
@@ -218,7 +235,9 @@ Rules:
   different URI or existing session
 - `rtsp_enabled` is optional and defaults to `false`
 - when `rtsp_enabled = true`, the runtime should publish an `rtsp_url` for the
-  serving session using the backend default RTSP profile
+  serving session using the backend default RTSP profile and the same
+  `/<device>/<selector>` path as the selected `insightos://` URI, with the
+  configured RTSP host replacing `localhost`
 - local IPC attach is implicit for local SDK consumers; it is not a posted
   field and there is no public `ipc` delivery selector
 - if a catalog entry needs extra explanation, discovery may include a short
@@ -269,7 +288,9 @@ Normal-use rule:
   the session may later be bound to one app target through `session_id`
 - `rtsp_enabled` is optional and defaults to `false`
 - when `rtsp_enabled = true`, the runtime publishes an `rtsp_url` using the
-  backend default RTSP profile
+  backend default RTSP profile and the same `/<device>/<selector>` path as the
+  selected `insightos://` URI, with the configured RTSP host replacing
+  `localhost`
 - local IPC attach is not a client-posted field
 - apps that merely declare compatible routes do not receive callbacks from this
   session until they create one app-source bind by `input` or `session_id`
@@ -281,6 +302,16 @@ Normal-use rule:
 - advanced grouped-device overrides are not part of the direct-session request
 - raw `rtsp://` ingest remains a future import path rather than a v1 session
   input shape
+
+## Session Delete Contract
+
+Rules for `DELETE /api/sessions/{id}`:
+
+- return `409 Conflict` when any app source still references the session through
+  `source_session_id` or `active_session_id`
+- do not silently detach or rewrite app-source bindings during delete
+- when the session is unreferenced, delete the session and cascade delete its
+  `session_logs`
 
 ## Runtime Rebind Contract
 
@@ -310,15 +341,13 @@ App-source responses include:
 - `target`
 - `target_resource_name` when the target resolves to one exact route, formatted
   as `apps/{app}/routes/{route}`
+- `state`
+- `last_error`
 - `rtsp_enabled`
 - `rtsp_url` when active and published
 - `source_session_id` when session-backed
 - `active_session_id` when a runtime session exists
 - `resolved_exact_stream_id`
-- `resolved_source_variant_id`
-- `resolved_source_group_id` when present
-- `resolved_member_kind`
-- `resolved_channel` when present
 - `resolved_members_json` when grouped
 - `delivered_caps_json`
 - `capture_policy_json`
@@ -327,7 +356,8 @@ The backend still uses the existing session graph under the routing layer. A
 successful app-source bind creates one ordinary logical session and records
 which resolved exact stream was connected to the target. A successful
 session-backed bind records both the referenced `source_session_id` and the
-currently serving `active_session_id`.
+currently serving `active_session_id`. Grouped binds additionally record their
+member-to-route mapping in `resolved_members_json`.
 
 Why both session ids are exposed:
 
