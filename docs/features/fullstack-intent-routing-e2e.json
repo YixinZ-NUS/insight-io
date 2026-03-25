@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 9,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -23,7 +23,7 @@
         "Verify `orbbec/depth/400p_30` and `orbbec/depth/480p_30` are documented as separate discovery choices",
         "Verify `orbbec/preset/480p_30` is documented as the proven grouped preset choice",
         "Open the PRD and verify route expectations no longer choose alignment implicitly",
-        "Open the REST reference and verify grouped preset binds use `route_grouped` instead of route-side pairing helpers"
+        "Open the REST reference and verify grouped preset binds use the same public `target` field instead of route-side pairing helpers"
       ],
       "passes": true
     },
@@ -39,25 +39,60 @@
       "passes": true
     },
     {
-      "id": "docs-delivery-intent-and-app-source-surface",
+      "id": "docs-rtsp-publication-and-app-source-surface",
       "category": "functional",
-      "description": "The design docs separate derived URI identity from durable delivery intent and use one app-source surface for connect and attach",
+      "description": "The design docs separate derived URI identity from durable RTSP publication intent and use one app-source surface for URI-backed and session-backed binds",
       "steps": [
-        "Open the data-model note and verify `uri` is derived while `delivery_name` is inferred then stored durably on `app_sources` and `sessions`",
-        "Open the REST reference and verify `POST /api/apps/{id}/sources` accepts exactly one of `input` or `session_id` and exactly one of `route` or `route_grouped`",
+        "Open the data-model note and verify `uri` is derived while RTSP publication intent is stored durably on `app_sources` and `sessions`",
+        "Open the REST reference and verify `POST /api/apps/{id}/sources` accepts exactly one of `input` or `session_id` plus one app-local `target` field",
         "Open the PRD and verify local SDK attach is IPC-only in v1",
-        "Open the PRD or REST reference and verify future remote or LAN RTSP consumption is documented as a separate path"
+        "Open the PRD or REST reference and verify future remote or LAN RTSP consumption is documented as a separate path",
+        "Open the RTSP publication reuse writeup and verify the old inferred-`delivery_name` split is superseded by additive RTSP publication on shared runtime"
       ],
       "passes": true
     },
     {
-      "id": "docs-channel-path-and-grouped-preset-contract",
+      "id": "docs-target-surface-and-grouped-preset-contract",
       "category": "functional",
-      "description": "The design docs keep channel selection in the URI path and define grouped preset fan-out through `route_grouped` instead of an extra SDK-only frame-merge layer",
+      "description": "The design docs hide grouped versus exact bind selection behind one public `target` surface and define grouped preset fan-out without an extra SDK-only frame-merge layer",
       "steps": [
-        "Open the grouped-source writeup and verify `/channel/<name>` is preferred over query-param selection for usage reasons",
+        "Open the grouped-source writeup and verify grouped preset fan-out is resolved server-side from one posted `target` value",
         "Open the PRD and verify grouped preset URIs are documented alongside ordinary routes",
         "Open the architecture diagram and verify grouped preset expansion feeds ordinary route callbacks without an extra SDK-only frame-merge layer"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-direct-session-and-multi-device-route-guidance",
+      "category": "functional",
+      "description": "The design docs define direct sessions as standalone session-first runtime and tell multi-device apps to declare app-local logical input routes",
+      "steps": [
+        "Open the REST reference and verify direct sessions are documented as standalone until an app-source bind exists",
+        "Open the PRD and verify multi-device apps are told to declare routes such as front-camera, rear-camera, orbbec/color, and orbbec/depth",
+        "Open the data-model note and verify route names remain app-local logical input roles rather than device-global identifiers",
+        "Open the interaction note and verify apps only receive callbacks after an active bind exists"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-post-capture-publication-phase",
+      "category": "functional",
+      "description": "The design docs define a runtime-only post-capture publication phase for output profile, codec, and protocol-specific publication work",
+      "steps": [
+        "Open the architecture note and verify capture and publication planning are separated at runtime",
+        "Open the post-capture publication-phase writeup and verify it recommends runtime-only publication planning rather than new durable delivery tables",
+        "Open the task list and verify publication planning after capture is called out as an implementation task"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-minimal-source-metadata-and-session-delete-rule",
+      "category": "functional",
+      "description": "The active docs keep source metadata minimal, expose queryable RTSP publication metadata, and reject deletion of referenced sessions",
+      "steps": [
+        "Open the REST reference and verify app-source responses no longer promise resolved source-variant or source-group id fields",
+        "Open the architecture or data-model note and verify catalog publication metadata includes a queryable RTSP URL that mirrors the source selector path on the RTSP host",
+        "Open the REST reference or PRD and verify DELETE /api/sessions/{id} returns 409 Conflict while any app source still references that session"
       ],
       "passes": true
     },
@@ -134,23 +169,23 @@
       "passes": false
     },
     {
-      "id": "browse-stereo-channel-uri",
+      "id": "browse-grouped-preset-uri",
       "category": "functional",
-      "description": "Stereo or dual-eye devices can expose channel-disambiguated exact URIs",
+      "description": "Discovery can expose grouped preset URIs without requiring extra target syntax from the caller",
       "steps": [
-        "Open the device catalog API for a stereo device",
-        "Verify exact URIs exist for left and right channels",
-        "Verify the route layer is not required to guess the channel"
+        "Open the device catalog API for a grouped-source device",
+        "Verify fixed grouped preset URIs are listed when supported",
+        "Verify the bind contract still posts only one app-local `target`"
       ],
       "passes": false
     },
     {
       "id": "inject-yolov5-source",
       "category": "functional",
-      "description": "Injecting an exact video URI with route yolov5 routes callbacks to the app",
+      "description": "Injecting an exact video URI with target yolov5 routes callbacks to the app",
       "steps": [
         "Create an app and declare route yolov5",
-        "Inject a compatible exact video URI with route yolov5",
+        "Inject a compatible exact video URI with target yolov5",
         "Verify the backend creates a logical session",
         "Verify the SDK receives callbacks on the declared route"
       ],
@@ -159,10 +194,10 @@
     {
       "id": "inject-depth-source",
       "category": "functional",
-      "description": "Injecting an exact depth URI with route orbbec/depth routes callbacks",
+      "description": "Injecting an exact depth URI with target orbbec/depth routes callbacks",
       "steps": [
         "Create an app and declare route orbbec/depth",
-        "Inject a compatible URI such as insightos://host/desk-rgbd/orbbec/depth/480p_30 with route orbbec/depth",
+        "Inject a compatible URI such as insightos://host/desk-rgbd/orbbec/depth/480p_30 with target orbbec/depth",
         "Verify the backend records the resolved exact stream identity",
         "Verify the SDK receives callbacks on the declared route"
       ],
@@ -171,10 +206,10 @@
     {
       "id": "inject-grouped-orbbec-preset",
       "category": "functional",
-      "description": "Injecting a grouped Orbbec preset URI with route_grouped orbbec activates ordinary color and depth routes together",
+      "description": "Injecting a grouped Orbbec preset URI with target orbbec activates ordinary color and depth routes together",
       "steps": [
         "Create an app and declare routes orbbec/color and orbbec/depth",
-        "Inject a compatible URI such as insightos://host/desk-rgbd/orbbec/preset/480p_30 with route_grouped orbbec",
+        "Inject a compatible URI such as insightos://host/desk-rgbd/orbbec/preset/480p_30 with target orbbec",
         "Verify the backend records one grouped source bind with resolved member mappings",
         "Verify the SDK receives callbacks on both declared routes without an extra SDK-only frame-merge layer"
       ],
@@ -185,9 +220,9 @@
       "category": "functional",
       "description": "A route can attach to an already-running IPC-capable direct logical session through the app-source surface",
       "steps": [
-        "Create a direct session through POST /api/sessions from a locally resolved `insightos://` URI so delivery infers to `ipc`",
+        "Create a direct session through POST /api/sessions from a locally resolved `insightos://` URI",
         "Create an app and declare a compatible route",
-        "Create one app-source bind using the existing `session_id` plus `route`",
+        "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on the attached route without recreating the stream"
       ],
       "passes": false
@@ -197,9 +232,9 @@
       "category": "functional",
       "description": "A grouped target can attach to an already-running grouped logical session through the same app-source surface",
       "steps": [
-        "Create a grouped direct session through POST /api/sessions from a locally resolved grouped preset URI so delivery infers to `ipc`",
+        "Create a grouped direct session through POST /api/sessions from a locally resolved grouped preset URI",
         "Create an app and declare routes such as orbbec/color and orbbec/depth",
-        "Create one app-source bind using the existing `session_id` plus `route_grouped`",
+        "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on both declared routes without separately managing `/color` and `/depth`"
       ],
       "passes": false
@@ -207,24 +242,25 @@
     {
       "id": "fanout-identical-uri",
       "category": "functional",
-      "description": "The same URI and delivery intent can be used in multiple places while delivering the same frame sequence or fixed grouped member set",
+      "description": "The same URI and publication requirements can be used in multiple places while delivering the same frame sequence or fixed grouped member set",
       "steps": [
-        "Bind the same URI and delivery intent into multiple consumers",
+        "Bind the same URI and publication requirements into multiple consumers",
         "Inspect runtime status",
-        "Verify shared delivery reuse is visible when applicable",
+        "Verify shared serving reuse is visible when applicable",
         "Verify consumers observe the same frame sequence"
       ],
       "passes": false
     },
     {
-      "id": "different-delivery-same-capture",
+      "id": "rtsp-publication-adds-on-shared-runtime",
       "category": "functional",
-      "description": "The same URI with different delivery intents remains distinct delivery sessions while sharing capture when possible",
+      "description": "The same URI can add RTSP publication on top of a shared local serving runtime when lifecycle rules allow it",
       "steps": [
-        "Create one `ipc` session and one `rtsp` session for the same exact source",
+        "Create one local session for an exact source",
+        "Create another request for the same source with `rtsp_enabled = true`",
         "Inspect runtime status",
-        "Verify separate delivery intents exist",
-        "Verify shared capture reuse is visible"
+        "Verify RTSP publication is visible",
+        "Verify shared capture or serving reuse is visible when applicable"
       ],
       "passes": false
     },

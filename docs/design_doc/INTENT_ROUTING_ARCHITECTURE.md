@@ -4,17 +4,25 @@
 
 - role: control-plane and runtime-responsibility split for `insight-io`
 - status: active
-- version: 3
+- version: 7
 - major changes:
-  - 2026-03-24 made `delivery_name` inferred during normalization rather than
-    client-posted
-  - 2026-03-24 made public `uri` values derived source identifiers and moved
-    delivery into durable bind/session intent
-  - 2026-03-24 unified URI-backed and session-backed app binds under one
-    app-source surface
-  - 2026-03-24 clarified local SDK attach stays IPC-only in v1 while future
-    remote or LAN RTSP consumption remains separate
+  - 2026-03-25 removed stale source variant/group response fields, made RTSP
+    publication metadata queryable from the catalog, and fixed session-delete
+    conflict semantics
+  - 2026-03-25 added a runtime-only post-capture publication phase boundary for
+    codec handling and protocol-specific publication work
+  - 2026-03-25 clarified that direct sessions stay standalone until one app
+    bind becomes active and that route names describe app-local input roles
+  - 2026-03-25 replaced public grouped and exact bind distinctions with one
+    app-local `target` surface and explicit ambiguity guardrails
+  - 2026-03-25 reframed RTSP as optional publication intent rather than a peer
+    to implicit local IPC attach
+  - 2026-03-25 removed `/channel/...` from the active public URI grammar
 - past tasks:
+  - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
+  - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
+  - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
 ## Summary
@@ -29,30 +37,35 @@ quirks.
 The public app model is:
 
 - apps declare named routes
+- those route names are app-local logical input roles rather than device-global
+  identifiers
 - each route describes purpose and optional semantic expectations
 - one derived `uri` selects one fixed catalog-published source shape
 - the discovery catalog exposes exact member choices up front and may also
   expose grouped preset choices when the member bundle is fixed and proven
-- grouped devices expose related source identities through catalog metadata
 - discovery publishes selectable source shapes and metadata; sessions own
   runtime realization, reuse, and lifecycle
-- delivery is durable bind/session intent rather than part of source identity
-- delivery is inferred from source locality and scheme, then stored durably
+- RTSP publication intent is durable bind/session state rather than part of
+  source identity
 - the backend validates route expectations against resolved source metadata
 - grouped-device runtime behavior remains fixed per discovered catalog entry in
   normal use
-- local SDK attach uses IPC in v1; future remote or LAN RTSP consumption is a
-  separate consumer path
+- app-source binds use one app-local `target` field; the backend resolves
+  whether that target is one exact route or one grouped target root
+- local SDK attach uses IPC in v1 and does not post `ipc` as a transport field;
+  future remote or LAN RTSP consumption is a separate consumer path
+- runtime publication planning after capture is still needed for output profile,
+  codec, and protocol-description work, but it stays runtime-only in v1
 
 ## Top-Level Structure
 
 ```text
 device discovery   enumerate exact-member and grouped-preset catalog entries, publish source-shape metadata
-frontend / SDK     create apps, declare routes, connect or attach sources, inspect status
+frontend / SDK     create apps, declare routes, bind sources, inspect status
 REST API           durable app/route/source control plane + direct session APIs
 durable schema     devices -> streams, apps -> app_routes -> app_sources, sessions -> session_logs
 session manager    validates route expectations, expands grouped presets, and realizes catalog choices as logical sessions
-runtime workers    capture, delivery, RTSP, IPC attach, and reuse planning
+runtime workers    capture, publication, RTSP, IPC attach, and reuse planning
 ```
 
 ## Design Boundaries
@@ -103,7 +116,7 @@ Meaning:
 - `session_logs` store append-only audit events
 - each route or grouped target owns at most one active binding at a time
 - multiple apps may reuse the same URI across one or more sessions when the
-  delivery intent is also compatible
+  publication requirements are also compatible
 
 ### Runtime execution
 
@@ -114,7 +127,10 @@ tables in v1:
 sessions
   worker planning
     capture reuse
-    delivery reuse
+    publication planning
+      passthrough / repacketize / transcode
+      protocol description / negotiation
+    publication reuse
     RTSP / IPC publishers
 ```
 
@@ -124,6 +140,35 @@ process realization.
 Discovery does not own worker sessions. It only publishes selectable catalog
 entries and their metadata. The session graph, donor-grounded workers, and
 runtime reuse rules realize those choices later.
+
+## Post-Capture Publication Phase
+
+After capture workers start producing frames, the runtime still needs one
+publication phase before data reaches SDK consumers or RTSP endpoints.
+
+That phase should stay runtime-only in v1.
+
+It should own:
+
+- publication-profile selection
+- passthrough versus repacketize versus transcode decisions
+- protocol-specific description such as RTSP-facing media details
+- publication fanout and reuse
+- promised-versus-actual output metadata
+
+It should not own:
+
+- source identity
+- route resolution
+- durable schema authority
+- hardware capture policy
+
+This boundary keeps the architecture clean:
+
+- discovery answers what can be selected
+- capture workers answer how source data is produced
+- publication phase answers how that captured data is exposed to one or more
+  consumers
 
 ## Discovery And Source Catalog
 
@@ -135,14 +180,14 @@ metadata such as:
 - derived URI
 - source shape
 - exact stream id
-- source variant id
-- source group id
-- member kind
-- channel when applicable
 - delivered caps
 - capture policy requirements
-- supported delivery names
+- publication metadata, including queryable RTSP URL when applicable
 - grouped preset members when applicable
+
+The RTSP publication URL should keep the same `/<device>/<selector>` path as
+the derived `insightos://` URI while replacing `localhost` with the configured
+RTSP host.
 
 Examples:
 
@@ -150,8 +195,6 @@ Examples:
 - `orbbec/depth/400p_30`
 - `orbbec/depth/480p_30`
 - `orbbec/preset/480p_30`
-- `video-720p_30/channel/left`
-- `video-720p_30/channel/right`
 
 If backend processing changes the delivered caps, discovery must split that into
 separate catalog entries instead of asking the route layer to infer it later.
@@ -170,29 +213,29 @@ Route resolution is an app-layer concern above stream publication:
 
 1. frontend or SDK declares routes on an app
 2. frontend or SDK creates one app-source bind with either:
-   - `input + route` for one exact URI-backed bind
-   - `input + route_grouped` for one grouped preset URI-backed bind
-   - `session_id + route` for one exact session-backed bind
-   - `session_id + route_grouped` for one grouped session-backed bind
-3. backend normalizes the selected source plus inferred `delivery_name` into
+   - `input + target` for one URI-backed bind
+   - `session_id + target` for one session-backed bind
+3. backend normalizes the selected source plus optional `rtsp_enabled` into
    `SessionRequest`
 4. backend resolves either one concrete exact stream identity or one concrete
    preset member set from that selection
 5. backend reads route expectations from `expect_json`
 6. backend validates:
    - media kind
-   - channel constraints
-   - grouped preset member-to-route matches when `route_grouped` is used
+   - grouped preset member-to-route matches when the selected `target` resolves
+     to one grouped target root
 7. backend creates one logical session or one grouped logical session
 8. SDK attaches through the existing IPC contract
 
 Important boundary:
 
+- declaring routes alone does not consume a matching URI or direct session
+- an app starts receiving frames only when one app-source bind becomes active
 - the route does not choose hidden variants
 - the URI and catalog already determine the exact member or grouped preset
 - route validation may reject an incompatible URI, but it does not rewrite it
-- v1 app binds stay IPC-oriented; the old RTSP-qualified
-  `insightos://.../rtsp` form is left to a later remote-consumption pass
+- v1 app binds stay IPC-oriented; RTSP publication is additive state on the
+  selected session rather than part of the selected source URI
 - this is why `source_session_id` and `active_session_id` are both durable:
   one preserves the selected upstream session and the other records the serving
   session materialized for the app
@@ -215,9 +258,6 @@ The recommended approach is:
 - grouped preset fan-out targets an app grouped bind such as `orbbec`, letting
   routes like `orbbec/color` and `orbbec/depth` stay ordinary intent-first
   route declarations
-- dual-eye channel disambiguation should stay in the URI path with an optional
-  `/channel/<channel>` suffix when needed, because it identifies the exact
-  stream rather than acting like an optional query filter
 - most users should copy the full discovery-generated URI rather than compose
   selectors manually
 
@@ -261,12 +301,12 @@ are active:
 
 The runtime must preserve donor-style reuse semantics:
 
-- identical URI plus `delivery_name` combinations may share capture and
-  delivery runtime
-- consumers attached to the same URI and delivery intent should observe the
-  same frame sequence when the shared delivery path is reused
-- the same URI with different delivery intents, such as `ipc` versus `rtsp`,
-  may share capture while keeping distinct delivery sessions
+- identical URI plus the same publication requirements may share capture and
+  serving runtime
+- consumers attached to the same URI and publication intent should observe the
+  same frame sequence when the shared serving path is reused
+- a serving runtime may expose RTSP as an additive publication when one or more
+  active consumers request it
 - current scope is therefore one-way across namespaces: local `insightos://`
   selections may publish toward RTSP, but raw `rtsp://` inputs still need an
   explicit ingest/import path before they become cataloged `insightos://`
@@ -274,9 +314,10 @@ The runtime must preserve donor-style reuse semantics:
 
 The app layer must also support:
 
-- app-first binding: create app, then connect exact URI
-- session-first binding: create direct session, then attach `session_id` to a
+- app-first binding: create app, then bind exact URI
+- session-first binding: create direct session, then bind `session_id` to a
   route or grouped target through the same app-source surface
+- direct sessions remain standalone until that later bind exists
 - runtime rebind: replace one route or grouped target binding without
   destroying the durable app record
 
@@ -301,7 +342,7 @@ The app layer must also support:
 - surface channel, source-group, caps, and capture-policy metadata
 - split depth choices into separate discoverable outputs when D2C changes the
   delivered caps
-- surface grouped preset member metadata so `route_grouped` binds can fan out
+- surface grouped preset member metadata so grouped target binds can fan out
   without hidden inference
 - keep grouped-device behavior fixed per catalog entry in normal use until
   device-specific investigation justifies a richer public contract
@@ -315,7 +356,6 @@ The app layer must also support:
 - keep the current session graph behavior
 - validate source compatibility against route expectations
 - resolve exact-member metadata or grouped preset member metadata
-- enforce channel constraints when declared
 - preserve grouped-source relationships as internal metadata for discovery,
   inspection, and runtime orchestration
 - expand grouped preset binds into matching declared routes under one grouped
@@ -327,9 +367,9 @@ The app layer must also support:
 - do not accept bind-time policy overrides that would change the meaning of an
   existing URI
 - create and stop ordinary sessions
-- attach existing logical sessions to routes or grouped targets
+- bind existing logical sessions to routes or grouped targets
 - rebind routes at runtime
-- preserve capture and delivery reuse semantics
+- preserve capture and publication reuse semantics
 
 ### REST server
 
@@ -337,11 +377,11 @@ The app layer must also support:
 - expose direct logical session APIs
 - expose app CRUD
 - expose route CRUD
-- expose app-source create, attach, rebind, and lifecycle control for both
-  exact-route and grouped binds
-- expose resolved exact stream identity and source-group metadata in app-source
-  responses, plus grouped member bindings when a grouped preset URI is used
-- expose runtime status for capture and delivery reuse inspection
+- expose app-source create, rebind, and lifecycle control for both exact-route
+  and grouped binds, with `session_id` handled through the same create surface
+- expose resolved exact stream identity, publication state, and grouped member
+  bindings in app-source responses when a grouped preset URI is used
+- expose runtime status for capture and publication reuse inspection
 
 ## Frontend Responsibilities
 
@@ -349,10 +389,10 @@ The app layer must also support:
 - route declaration UI
 - URI selection from the device catalog
 - direct-session launch and status inspection
-- source-to-route connection or session attach through the same app-source
-  surface
+- source-to-route connection or session-backed bind through the same
+  app-source surface
 - grouped-source inspection when devices expose multiple exact stream entries
-- route rebind and attach-existing-session flows
+- route rebind and bind-existing-session flows
 - status and error display
 
 The frontend remains a control-plane client. It does not own capture state.
@@ -361,8 +401,8 @@ The frontend remains a control-plane client. It does not own capture state.
 
 - declare routes
 - describe route expectations
-- connect source URIs with `route` or `route_grouped`
-- attach existing `session_id` values to routes or grouped targets when needed
+- bind sources with `target`
+- attach existing `session_id` values to targets when needed
 - attach returned stream identities through the existing IPC client
 - keep local attach IPC-only in v1 even when future remote or LAN RTSP
   consumption is added as a separate path

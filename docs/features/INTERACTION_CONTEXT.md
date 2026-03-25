@@ -4,17 +4,18 @@
 
 - role: donor-grounded interaction framing for the active `insight-io` design
 - status: active
-- version: 3
+- version: 5
 - major changes:
-  - 2026-03-24 made `delivery_name` inferred during normalization rather than
-    posted by clients
-  - 2026-03-24 updated the interaction model so `uri` identifies source shape
-    while `delivery_name` carries durable transport intent
-  - 2026-03-24 unified URI-backed and session-backed app binds under one
-    app-source surface, including grouped-session attach
-  - 2026-03-24 clarified local SDK attach stays IPC-only in v1 while future
-    remote or LAN RTSP consumption remains separate
+  - 2026-03-25 clarified that direct sessions are standalone session-first
+    sessions and that multi-device apps declare app-local logical input routes
+  - 2026-03-25 replaced public grouped/exact bind selection with one
+    app-local `target` surface
+  - 2026-03-25 reframed RTSP as optional publication intent rather than a peer
+    to implicit local IPC attach
+  - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
+  - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
 This note explains what `insight-io` should feel like from a user and operator
@@ -35,7 +36,7 @@ Those files cover almost all currently exercised user-visible behavior:
 - health and catalog inspection
 - device aliasing
 - direct session creation through REST and `insightos-open`
-- shared capture and delivery reuse
+- shared capture and publication reuse
 - RTSP verification
 - backend restart and persisted session recovery
 - idle app startup
@@ -48,7 +49,7 @@ Those files cover almost all currently exercised user-visible behavior:
 `insight-io` keeps the same lower-level runtime model:
 
 - public URIs still look like
-  `insightos://<host>/<device>/<selector>[/channel/<name>]`
+  `insightos://<host>/<device>/<selector>`
 - devices still come from discovery and catalog listing
 - device aliases still create the human-usable names that appear in the base
   URI
@@ -57,7 +58,7 @@ Those files cover almost all currently exercised user-visible behavior:
 - local attach still happens through the existing IPC contract
 - RTSP and audio delivery flows still exist for operator-facing and debugging
   scenarios
-- delivery intent is now inferred separately from the URI identity
+- RTSP publication intent is now selected separately from the URI identity
 - restart still preserves durable intent while runtime state is rebuilt
 - future remote or LAN RTSP consumption remains separate from the v1 SDK attach
   path
@@ -80,17 +81,22 @@ In `insight-io`, the same workflow becomes:
 2. Declare routes such as `yolov5`, `orbbec/color`, `orbbec/depth`,
    `stereo/left-detector`
 3. Describe route expectations only when needed
-4. Connect a source with either `input` plus `route` or `session_id` plus
-   `route`
+4. Bind a source with either `input` plus `target` or `session_id` plus
+   `target`
 5. Let the backend resolve one source identity from that selection
 6. Let the app consume one callback chain per route
+
+Those route names are app-local logical input roles. For an app that consumes
+two V4L2 cameras plus one Orbbec, the preferred declarations are roles such as
+`front-camera`, `rear-camera`, `orbbec/color`, and `orbbec/depth`, not posted
+device aliases or globally unique route strings.
 
 Example:
 
 ```json
 {
   "input": "insightos://localhost/front-camera/video-720p_30",
-  "route": "yolov5"
+  "target": "yolov5"
 }
 ```
 
@@ -99,7 +105,7 @@ Grouped-source example:
 ```json
 {
   "input": "insightos://localhost/desk-rgbd/orbbec/preset/480p_30",
-  "route_grouped": "orbbec"
+  "target": "orbbec"
 }
 ```
 
@@ -141,7 +147,7 @@ starts from listed URIs.
 This also remains a first-class part of the product:
 
 1. Create direct sessions through `POST /api/sessions` or `insightos-open`
-2. Let the backend infer delivery intent from source locality and scheme
+2. Optionally request RTSP publication with `rtsp_enabled = true`
 3. Inspect session metadata
 4. Verify RTSP or audio output
 5. Stop sessions
@@ -152,6 +158,14 @@ This also remains a first-class part of the product:
 
 These flows matter because `insight-io` is not only an app builder. It still
 needs an inspectable media runtime beneath the app layer.
+
+Important boundary:
+
+- a direct session is standalone or session-first runtime intent, not an
+  implicit app subscription
+- declaring compatible routes does not make an app consume that session
+- an app starts receiving frames only after it creates its own bind by `input`
+  or `session_id`
 
 ### 3. Developer Runs An Idle App And Connects Sources Later
 
@@ -174,6 +188,8 @@ being reconstructed from a runtime-only registry.
 donor repo, but with clearer contracts:
 
 - multiple independent video routes in one app
+- multiple device roles in one app, for example `front-camera`,
+  `rear-camera`, `orbbec/color`, and `orbbec/depth`
 - related routes such as color + depth in one app
 - grouped preset binds that can activate related routes such as
   `orbbec/color` and `orbbec/depth` together from one catalog-published preset
@@ -187,8 +203,8 @@ donor repo, but with clearer contracts:
   expectation
 - restart-safe app records that keep declared intent after the backend exits
 - same exact URI reused across multiple consumers
-- different delivery intents on the same source while sharing capture when
-  possible
+- additive RTSP publication on the same source while sharing capture or serving
+  runtime when possible
 
 ### 5. Operator Audits Rename And Reuse Edge Cases
 
@@ -217,10 +233,7 @@ That means:
   choices separately
 - if a grouped RGBD preset is proven end to end, discovery may also list a
   fixed grouped preset URI such as `orbbec/preset/480p_30`
-- optional `/channel/<name>` disambiguation is available for stereo or dual-eye
-  devices, but discovery should emit the full final URI so users do not need to
-  compose it manually
-- delivery intent is inferred separately from the URI and persisted on app and
+- RTSP publication intent is persisted separately from the URI on app and
   session records
 - grouped-device runtime behavior remains fixed by the chosen catalog entry in
   normal use; the current docs do not add richer dependency metadata until
@@ -241,7 +254,7 @@ To represent the actual product, the repo also needs feature coverage for:
 - session-first attach flows
 - heterogeneous-hardware abstraction at discovery time
 - same-URI fan-out
-- same-source different-delivery behavior
+- same-source RTSP publication behavior
 - runtime rebind
 - route-connection visibility in API responses
 - rename and reuse edge cases
