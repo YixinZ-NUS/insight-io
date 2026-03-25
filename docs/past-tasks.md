@@ -1,5 +1,55 @@
 # Past Tasks
 
+## 2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds
+
+### What Changed
+
+- updated the active PRD, architecture note, data-model note, REST reference,
+  grouped-source writeup, interaction note, task list, diagrams, and feature
+  trackers so the current contract now says:
+  - public `uri` values are derived source identifiers rather than durable DB
+    keys
+  - `delivery_name` is inferred during normalization and then persisted on
+    `app_sources` and `sessions` rather than being part of stored source
+    identity
+  - `POST /api/apps/{id}/sources` is the single app-control surface for both
+    URI-backed connects and session-backed attaches
+  - grouped-session attach uses the same `route_grouped` surface as grouped
+    preset URI binds
+  - local SDK attach remains IPC-only in v1
+  - future remote or LAN RTSP consumption remains planned as a separate path
+- updated the grouped-startup wording so an app with one grouped target can
+  start from one bare grouped preset URI without separately managing
+  `/color` and `/depth`
+- updated the ER and runtime diagrams to reflect derived `uri`, durable
+  `delivery_name`, unified app-source binds, and IPC-only local attach
+
+### Why
+
+- tying delivery into the public URI shape made app-route binds ambiguous once
+  local SDK attach was constrained to IPC
+- a separate route-scoped `attach-session` endpoint was under-modeled once
+  grouped-session attach and external app control were both in scope
+- the split between `source_session_id` and `active_session_id` needed to be
+  documented explicitly to avoid future confusion when remote or LAN RTSP
+  consumption is added later
+
+### Verification
+
+- reviewed and aligned:
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-prd.md](/home/yixin/Coding/insight-io/docs/prd/fullstack-intent-routing-prd.md)
+  - [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [GROUPED_SOURCE_SELECTION_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [INTERACTION_CONTEXT.md](/home/yixin/Coding/insight-io/docs/features/INTERACTION_CONTEXT.md)
+  - [intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md)
+  - [intent-routing-runtime.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-runtime.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+
 ## 2026-03-24 – Add Mermaid ER Diagram For The Simplified Schema
 
 ### What Changed

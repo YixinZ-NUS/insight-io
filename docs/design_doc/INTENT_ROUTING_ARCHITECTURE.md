@@ -1,5 +1,22 @@
 # Intent Routing Architecture
 
+## Role
+
+- role: control-plane and runtime-responsibility split for `insight-io`
+- status: active
+- version: 3
+- major changes:
+  - 2026-03-24 made `delivery_name` inferred during normalization rather than
+    client-posted
+  - 2026-03-24 made public `uri` values derived source identifiers and moved
+    delivery into durable bind/session intent
+  - 2026-03-24 unified URI-backed and session-backed app binds under one
+    app-source surface
+  - 2026-03-24 clarified local SDK attach stays IPC-only in v1 while future
+    remote or LAN RTSP consumption remains separate
+- past tasks:
+  - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
+
 ## Summary
 
 This note documents the architecture of the DB-first route-based rebuild.
@@ -13,21 +30,25 @@ The public app model is:
 
 - apps declare named routes
 - each route describes purpose and optional semantic expectations
-- one canonical URI selects one fixed catalog-published source shape
+- one derived `uri` selects one fixed catalog-published source shape
 - the discovery catalog exposes exact member choices up front and may also
   expose grouped preset choices when the member bundle is fixed and proven
 - grouped devices expose related source identities through catalog metadata
 - discovery publishes selectable source shapes and metadata; sessions own
   runtime realization, reuse, and lifecycle
+- delivery is durable bind/session intent rather than part of source identity
+- delivery is inferred from source locality and scheme, then stored durably
 - the backend validates route expectations against resolved source metadata
 - grouped-device runtime behavior remains fixed per discovered catalog entry in
   normal use
+- local SDK attach uses IPC in v1; future remote or LAN RTSP consumption is a
+  separate consumer path
 
 ## Top-Level Structure
 
 ```text
 device discovery   enumerate exact-member and grouped-preset catalog entries, publish source-shape metadata
-frontend / SDK     create apps, declare routes, connect URIs, inspect status
+frontend / SDK     create apps, declare routes, connect or attach sources, inspect status
 REST API           durable app/route/source control plane + direct session APIs
 durable schema     devices -> streams, apps -> app_routes -> app_sources, sessions -> session_logs
 session manager    validates route expectations, expands grouped presets, and realizes catalog choices as logical sessions
@@ -77,11 +98,12 @@ Meaning:
 - `apps` are persistent application records
 - `app_routes` declare intended processing uses and semantic expectations
 - `app_sources` bind routes either to exact URIs, grouped preset targets, or
-  existing logical sessions
+  existing logical sessions through one durable surface
 - `sessions` store logical session history
 - `session_logs` store append-only audit events
 - each route or grouped target owns at most one active binding at a time
-- multiple apps may reuse the same canonical URI across one or more sessions
+- multiple apps may reuse the same URI across one or more sessions when the
+  delivery intent is also compatible
 
 ### Runtime execution
 
@@ -110,7 +132,7 @@ Discovery is now responsible for surfacing user choices directly.
 The catalog must publish one entry per fixed published source shape with
 metadata such as:
 
-- canonical URI
+- derived URI
 - source shape
 - exact stream id
 - source variant id
@@ -119,7 +141,7 @@ metadata such as:
 - channel when applicable
 - delivered caps
 - capture policy requirements
-- supported delivery suffixes
+- supported delivery names
 - grouped preset members when applicable
 
 Examples:
@@ -147,25 +169,33 @@ The user chooses between them at discovery time.
 Route resolution is an app-layer concern above stream publication:
 
 1. frontend or SDK declares routes on an app
-2. frontend or SDK connects one URI with either:
-   - `route` for one exact-member bind, or
-   - `route_grouped` for one grouped preset bind
-3. backend normalizes the URI into `SessionRequest`
+2. frontend or SDK creates one app-source bind with either:
+   - `input + route` for one exact URI-backed bind
+   - `input + route_grouped` for one grouped preset URI-backed bind
+   - `session_id + route` for one exact session-backed bind
+   - `session_id + route_grouped` for one grouped session-backed bind
+3. backend normalizes the selected source plus inferred `delivery_name` into
+   `SessionRequest`
 4. backend resolves either one concrete exact stream identity or one concrete
-   preset member set from that URI
+   preset member set from that selection
 5. backend reads route expectations from `expect_json`
 6. backend validates:
    - media kind
    - channel constraints
    - grouped preset member-to-route matches when `route_grouped` is used
 7. backend creates one logical session or one grouped logical session
-8. SDK attaches through the existing local stream attach contract
+8. SDK attaches through the existing IPC contract
 
 Important boundary:
 
 - the route does not choose hidden variants
 - the URI and catalog already determine the exact member or grouped preset
 - route validation may reject an incompatible URI, but it does not rewrite it
+- v1 app binds stay IPC-oriented; the old RTSP-qualified
+  `insightos://.../rtsp` form is left to a later remote-consumption pass
+- this is why `source_session_id` and `active_session_id` are both durable:
+  one preserves the selected upstream session and the other records the serving
+  session materialized for the app
 
 This keeps the data plane stable while changing the orchestration surface.
 
@@ -222,7 +252,7 @@ are active:
 
 - the session manager must try to place them onto one compatible grouped
   backend mode
-- if that is not possible without changing what an existing canonical URI means,
+- if that is not possible without changing what an existing URI means,
   the backend must reject the newer request
 - bind-time overrides are out of scope for normal use; selecting a different
   discovered URI is the supported way to ask for different runtime behavior
@@ -231,17 +261,22 @@ are active:
 
 The runtime must preserve donor-style reuse semantics:
 
-- identical canonical URIs may share capture and delivery runtime
-- consumers attached to the same canonical URI should observe the same
-  frame sequence when the shared delivery path is reused
-- URIs that differ only by delivery suffix, such as `/mjpeg` versus `/rtsp`,
+- identical URI plus `delivery_name` combinations may share capture and
+  delivery runtime
+- consumers attached to the same URI and delivery intent should observe the
+  same frame sequence when the shared delivery path is reused
+- the same URI with different delivery intents, such as `ipc` versus `rtsp`,
   may share capture while keeping distinct delivery sessions
+- current scope is therefore one-way across namespaces: local `insightos://`
+  selections may publish toward RTSP, but raw `rtsp://` inputs still need an
+  explicit ingest/import path before they become cataloged `insightos://`
+  sources
 
 The app layer must also support:
 
 - app-first binding: create app, then connect exact URI
 - session-first binding: create direct session, then attach `session_id` to a
-  route
+  route or grouped target through the same app-source surface
 - runtime rebind: replace one route or grouped target binding without
   destroying the durable app record
 
@@ -249,7 +284,7 @@ The app layer must also support:
 
 ### Database layer
 
-- own the checked-in canonical SQL schema
+- own the checked-in SQL schema
 - load/save devices, streams, apps, routes, sources, sessions, and logs
 - normalize runtime-only state on startup
 - keep the durable schema minimal
@@ -285,12 +320,14 @@ The app layer must also support:
   inspection, and runtime orchestration
 - expand grouped preset binds into matching declared routes under one grouped
   target
+- expand grouped session-backed attaches into matching declared routes under one
+  grouped target
 - resolve compatible grouped source requests onto one backend mode when
   possible, and reject conflicting grouped requests otherwise
 - do not accept bind-time policy overrides that would change the meaning of an
-  existing canonical URI
+  existing URI
 - create and stop ordinary sessions
-- attach existing logical sessions to routes
+- attach existing logical sessions to routes or grouped targets
 - rebind routes at runtime
 - preserve capture and delivery reuse semantics
 
@@ -300,7 +337,7 @@ The app layer must also support:
 - expose direct logical session APIs
 - expose app CRUD
 - expose route CRUD
-- expose app-source connection, attach, rebind, and lifecycle control for both
+- expose app-source create, attach, rebind, and lifecycle control for both
   exact-route and grouped binds
 - expose resolved exact stream identity and source-group metadata in app-source
   responses, plus grouped member bindings when a grouped preset URI is used
@@ -312,7 +349,8 @@ The app layer must also support:
 - route declaration UI
 - URI selection from the device catalog
 - direct-session launch and status inspection
-- source-to-route connection
+- source-to-route connection or session attach through the same app-source
+  surface
 - grouped-source inspection when devices expose multiple exact stream entries
 - route rebind and attach-existing-session flows
 - status and error display
@@ -324,6 +362,8 @@ The frontend remains a control-plane client. It does not own capture state.
 - declare routes
 - describe route expectations
 - connect source URIs with `route` or `route_grouped`
-- attach existing `session_id` values to routes when needed
-- attach returned stream identities through the existing low-level client
+- attach existing `session_id` values to routes or grouped targets when needed
+- attach returned stream identities through the existing IPC client
+- keep local attach IPC-only in v1 even when future remote or LAN RTSP
+  consumption is added as a separate path
 - present one callback chain per route to applications

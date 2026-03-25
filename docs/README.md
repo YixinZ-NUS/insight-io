@@ -4,13 +4,21 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 1
+- version: 3
 - major changes:
+  - 2026-03-24 made `delivery_name` inferred from source locality and scheme
+    rather than client-posted, while keeping it durable in storage
+  - 2026-03-24 made public `uri` values derived rather than durable DB keys
+  - 2026-03-24 made delivery durable bind/session intent and unified
+    session-first binds under the app-source surface
+  - 2026-03-24 clarified local SDK attach stays IPC-only while future LAN RTSP
+    consumption remains planned
   - 2026-03-24 added a centralized reading order
   - 2026-03-24 standardized grouped bind naming to `route_grouped`
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
   - `2026-03-24 – Separate Catalog Publication From Runtime Ownership And Rename Route APIs`
   - `2026-03-24 – Simplify The Durable Data Model And Add A Docs Hub`
 
@@ -27,13 +35,23 @@
 
 ## Current Contract
 
-- one canonical URI selects one fixed catalog-published source shape
+- one derived `uri` selects one fixed catalog-published source shape
+- `uri` is derived from stable catalog identity plus the current device public
+  name; it is not a durable DB key
+- `delivery_name` is inferred from source locality and scheme, then persisted
+  separately from `uri` on app-source and session records
 - exact-member URIs still mean one delivered stream
 - grouped preset URIs may mean one fixed related stream bundle
 - discovery publishes selectable choices; sessions and workers realize them
   later
 - grouped app binds use `route_grouped` in REST and
-  `connect_grouped(...)` in the SDK direction
+  `connect_grouped(...)` / `attach_grouped(...)` in the SDK direction
+- delivery is durable bind/session intent on `app_sources` and `sessions`
+- locally resolved `insightos://` sources infer `ipc`; non-local or `rtsp://`
+  sources infer `rtsp`
+- local SDK attach always uses IPC
+- future remote or LAN RTSP consumption remains planned, but it is not part of
+  the v1 SDK attach contract
 - the durable schema should stay minimal:
   - `devices`
   - `streams`

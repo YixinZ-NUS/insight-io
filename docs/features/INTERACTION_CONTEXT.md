@@ -1,5 +1,22 @@
 # Interaction Context
 
+## Role
+
+- role: donor-grounded interaction framing for the active `insight-io` design
+- status: active
+- version: 3
+- major changes:
+  - 2026-03-24 made `delivery_name` inferred during normalization rather than
+    posted by clients
+  - 2026-03-24 updated the interaction model so `uri` identifies source shape
+    while `delivery_name` carries durable transport intent
+  - 2026-03-24 unified URI-backed and session-backed app binds under one
+    app-source surface, including grouped-session attach
+  - 2026-03-24 clarified local SDK attach stays IPC-only in v1 while future
+    remote or LAN RTSP consumption remains separate
+- past tasks:
+  - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
+
 This note explains what `insight-io` should feel like from a user and operator
 point of view. It is grounded on the audited workflows from the donor project
 and restates them in the new DB-first route-based shape.
@@ -30,8 +47,8 @@ Those files cover almost all currently exercised user-visible behavior:
 
 `insight-io` keeps the same lower-level runtime model:
 
-- canonical URIs still look like
-  `insightos://<host>/<device>/<selector>[/<delivery>]`
+- public URIs still look like
+  `insightos://<host>/<device>/<selector>[/channel/<name>]`
 - devices still come from discovery and catalog listing
 - device aliases still create the human-usable names that appear in the base
   URI
@@ -40,7 +57,10 @@ Those files cover almost all currently exercised user-visible behavior:
 - local attach still happens through the existing IPC contract
 - RTSP and audio delivery flows still exist for operator-facing and debugging
   scenarios
+- delivery intent is now inferred separately from the URI identity
 - restart still preserves durable intent while runtime state is rebuilt
+- future remote or LAN RTSP consumption remains separate from the v1 SDK attach
+  path
 
 ## What Changes In `insight-io`
 
@@ -60,15 +80,16 @@ In `insight-io`, the same workflow becomes:
 2. Declare routes such as `yolov5`, `orbbec/color`, `orbbec/depth`,
    `stereo/left-detector`
 3. Describe route expectations only when needed
-4. Connect a source with `input` plus `route`
-5. Let the backend resolve one source identity from that URI
+4. Connect a source with either `input` plus `route` or `session_id` plus
+   `route`
+5. Let the backend resolve one source identity from that selection
 6. Let the app consume one callback chain per route
 
 Example:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/video-720p_30/mjpeg",
+  "input": "insightos://localhost/front-camera/video-720p_30",
   "route": "yolov5"
 }
 ```
@@ -110,22 +131,24 @@ This remains close to `demo_command.md`:
 3. Start the backend
 4. Verify `/api/health`
 5. Inspect `/api/devices`
-6. Apply device aliases to produce stable canonical URIs
+6. Apply device aliases to produce stable derived URIs
 
 The route-based project depends on this flow because route connection still
-starts from listed canonical URIs.
+starts from listed URIs.
 
 ### 2. Operator Uses Direct Session Flows
 
 This also remains a first-class part of the product:
 
 1. Create direct sessions through `POST /api/sessions` or `insightos-open`
-2. Inspect session metadata
-3. Verify RTSP or audio output
-4. Stop sessions
-5. Restart the backend
-6. Rehydrate persisted sessions explicitly
-7. Optionally attach an already-running direct session to an app route later
+2. Let the backend infer delivery intent from source locality and scheme
+3. Inspect session metadata
+4. Verify RTSP or audio output
+5. Stop sessions
+6. Restart the backend
+7. Rehydrate persisted sessions explicitly
+8. Optionally attach an already-running direct IPC session to an app route or
+   grouped target later
 
 These flows matter because `insight-io` is not only an app builder. It still
 needs an inspectable media runtime beneath the app layer.
@@ -155,6 +178,8 @@ donor repo, but with clearer contracts:
 - grouped preset binds that can activate related routes such as
   `orbbec/color` and `orbbec/depth` together from one catalog-published preset
   URI
+- grouped preset sessions that can attach through the same grouped target
+  surface without forcing the app to bind `/color` and `/depth` individually
 - separate depth choices such as `orbbec/depth/400p_30` and
   `orbbec/depth/480p_30`
 - stereo left + right routes in one app
@@ -162,7 +187,7 @@ donor repo, but with clearer contracts:
   expectation
 - restart-safe app records that keep declared intent after the backend exits
 - same exact URI reused across multiple consumers
-- different delivery suffixes on the same source while sharing capture when
+- different delivery intents on the same source while sharing capture when
   possible
 
 ### 5. Operator Audits Rename And Reuse Edge Cases
@@ -195,6 +220,8 @@ That means:
 - optional `/channel/<name>` disambiguation is available for stereo or dual-eye
   devices, but discovery should emit the full final URI so users do not need to
   compose it manually
+- delivery intent is inferred separately from the URI and persisted on app and
+  session records
 - grouped-device runtime behavior remains fixed by the chosen catalog entry in
   normal use; the current docs do not add richer dependency metadata until
   device investigation completes
