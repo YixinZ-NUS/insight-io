@@ -4,8 +4,10 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 6
+- version: 7
 - major changes:
+  - 2026-03-25 added a writeup that recommends a runtime-only post-capture
+    publication phase for codec and protocol-specific publication work
   - 2026-03-25 added an RTSP publication reuse writeup explaining why the
     active contract no longer promises separate IPC versus RTSP delivery
     sessions
@@ -29,6 +31,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Document RTSP Publication Reuse After Delivery-Name Removal`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
@@ -65,6 +68,8 @@
 - RTSP is optional durable publication intent on `app_sources` and `sessions`
 - same `uri` plus the same publication requirements may share one serving path;
   RTSP publication may be additive on shared runtime when lifecycle rules allow
+- runtime still needs a post-capture publication phase for output profile,
+  codec, and protocol-description work, but that phase stays runtime-only in v1
 - local SDK attach always uses IPC, but that is implicit and not a posted
   field
 - direct sessions are standalone session-first runtime intent; declaring a
@@ -93,6 +98,7 @@
 | `docs/prd/fullstack-intent-routing-prd.md` | product contract and user flows | active |
 | `docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md` | control-plane, runtime, and responsibility split | active |
 | `docs/design_doc/INTENT_ROUTING_DATA_MODEL.md` | minimal durable schema, PK/FK plan, and runtime boundary | active |
+| `docs/design_doc/POST_CAPTURE_PUBLICATION_PHASE_WRITEUP.md` | why capture and publication planning stay separate at runtime | active |
 | `docs/design_doc/RTSP_PUBLICATION_REUSE_WRITEUP.md` | why the active contract treats RTSP as additive publication state | active |
 | `docs/REST.md` | public HTTP contract | active |
 | `docs/tasks/fullstack-intent-routing-task-list.md` | next implementation round | active |

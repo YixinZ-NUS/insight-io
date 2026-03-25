@@ -4,14 +4,17 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 4
+- version: 5
 - major changes:
+  - 2026-03-25 added a runtime-only post-capture publication-planning task for
+    codec/profile handling after capture
   - 2026-03-25 replaced public grouped/exact bind selection with one
     app-local `target` surface
   - 2026-03-25 reframed RTSP as optional publication intent rather than a peer
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
@@ -37,15 +40,19 @@ describe the next implementation round, not work that is currently checked in.
    resolution behind one public `target` field, session-backed binds under the
    same app-source surface, identical-URI reuse, and additive RTSP publication
    behavior in the backend.
-7. Add runtime rebind so a route can change bindings without destroying the app
+7. Add a runtime-only post-capture publication phase that manages publication
+   profile selection, passthrough versus transcode decisions, protocol-specific
+   publication description, and publication fanout without adding new durable
+   runtime tables.
+8. Add runtime rebind so a route can change bindings without destroying the app
    record.
-8. Refactor the high-level SDK to named-route declarations with callbacks plus
+9. Refactor the high-level SDK to named-route declarations with callbacks plus
    explicit startup source binding, exact and grouped session attach through
    the same `bind_source(...)` surface, and IPC-only local attach.
-9. Update examples and tests to use exact-member URIs, grouped preset URIs,
+10. Update examples and tests to use exact-member URIs, grouped preset URIs,
    explicit RTSP publication intent, and cover the full lifecycle.
-10. Reintroduce the frontend app/route/source management flows.
-11. Run focused verification, update feature pass states, and record completed
+11. Reintroduce the frontend app/route/source management flows.
+12. Run focused verification, update feature pass states, and record completed
     work in `docs/past-tasks.md`.
 
 ## Completion Rule
@@ -71,6 +78,8 @@ The work is complete only when:
 - direct-session-first and app-first flows are both supported
 - same exact URI can be reused safely across multiple consumers
 - same capture can back local IPC attach and optional RTSP publication
+- runtime includes a post-capture publication phase for output profile and
+  codec/publication handling without reintroducing durable delivery tables
 - local SDK attach remains IPC-only in v1 while future remote or LAN RTSP
   consumption remains a separate path
 - frontend can express the same app/route/source flow

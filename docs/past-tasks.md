@@ -1,5 +1,47 @@
 # Past Tasks
 
+## 2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase
+
+### What Changed
+
+- added
+  [POST_CAPTURE_PUBLICATION_PHASE_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/POST_CAPTURE_PUBLICATION_PHASE_WRITEUP.md)
+  to record the recommendation that `insight-io` should keep a distinct
+  runtime-only publication phase after capture for output profile, codec, and
+  protocol-specific publication work
+- updated
+  [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  so the active architecture now explicitly separates capture workers from a
+  post-capture publication phase
+- updated [intent-routing-runtime.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-runtime.md),
+  [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md),
+  [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md), and
+  [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  so the new runtime boundary is visible in the diagram, backlog, hub, and docs
+  tracker
+
+### Why
+
+- the current contract already separates capture-side source choice from RTSP
+  publication intent, so a runtime publication phase is the clean place for
+  output profile selection and codec/publication handling
+- the donor material also separates source-side capture policy from
+  promise-specific publication work, which supports keeping this boundary in the
+  runtime rather than reintroducing durable delivery tables
+- local IPC and future RTSP/LAN consumers need different publication handling,
+  but that should not force duplicate capture workers or a more complex durable
+  schema in v1
+
+### Verification
+
+- reviewed and aligned:
+  - [POST_CAPTURE_PUBLICATION_PHASE_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/POST_CAPTURE_PUBLICATION_PHASE_WRITEUP.md)
+  - [INTENT_ROUTING_ARCHITECTURE.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md)
+  - [intent-routing-runtime.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-runtime.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+
 ## 2026-03-25 – Document RTSP Publication Reuse After Delivery-Name Removal
 
 ### What Changed

@@ -4,8 +4,10 @@
 
 - role: control-plane and runtime-responsibility split for `insight-io`
 - status: active
-- version: 5
+- version: 6
 - major changes:
+  - 2026-03-25 added a runtime-only post-capture publication phase boundary for
+    codec handling and protocol-specific publication work
   - 2026-03-25 clarified that direct sessions stay standalone until one app
     bind becomes active and that route names describe app-local input roles
   - 2026-03-25 replaced public grouped and exact bind distinctions with one
@@ -14,6 +16,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active public URI grammar
 - past tasks:
+  - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
@@ -48,6 +51,8 @@ The public app model is:
   whether that target is one exact route or one grouped target root
 - local SDK attach uses IPC in v1 and does not post `ipc` as a transport field;
   future remote or LAN RTSP consumption is a separate consumer path
+- runtime publication planning after capture is still needed for output profile,
+  codec, and protocol-description work, but it stays runtime-only in v1
 
 ## Top-Level Structure
 
@@ -119,6 +124,9 @@ tables in v1:
 sessions
   worker planning
     capture reuse
+    publication planning
+      passthrough / repacketize / transcode
+      protocol description / negotiation
     publication reuse
     RTSP / IPC publishers
 ```
@@ -129,6 +137,35 @@ process realization.
 Discovery does not own worker sessions. It only publishes selectable catalog
 entries and their metadata. The session graph, donor-grounded workers, and
 runtime reuse rules realize those choices later.
+
+## Post-Capture Publication Phase
+
+After capture workers start producing frames, the runtime still needs one
+publication phase before data reaches SDK consumers or RTSP endpoints.
+
+That phase should stay runtime-only in v1.
+
+It should own:
+
+- publication-profile selection
+- passthrough versus repacketize versus transcode decisions
+- protocol-specific description such as RTSP-facing media details
+- publication fanout and reuse
+- promised-versus-actual output metadata
+
+It should not own:
+
+- source identity
+- route resolution
+- durable schema authority
+- hardware capture policy
+
+This boundary keeps the architecture clean:
+
+- discovery answers what can be selected
+- capture workers answer how source data is produced
+- publication phase answers how that captured data is exposed to one or more
+  consumers
 
 ## Discovery And Source Catalog
 

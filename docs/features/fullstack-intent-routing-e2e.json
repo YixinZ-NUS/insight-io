@@ -1,5 +1,5 @@
 {
-  "version": 7,
+  "version": 8,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -71,6 +71,17 @@
         "Open the PRD and verify multi-device apps are told to declare routes such as front-camera, rear-camera, orbbec/color, and orbbec/depth",
         "Open the data-model note and verify route names remain app-local logical input roles rather than device-global identifiers",
         "Open the interaction note and verify apps only receive callbacks after an active bind exists"
+      ],
+      "passes": true
+    },
+    {
+      "id": "docs-post-capture-publication-phase",
+      "category": "functional",
+      "description": "The design docs define a runtime-only post-capture publication phase for output profile, codec, and protocol-specific publication work",
+      "steps": [
+        "Open the architecture note and verify capture and publication planning are separated at runtime",
+        "Open the post-capture publication-phase writeup and verify it recommends runtime-only publication planning rather than new durable delivery tables",
+        "Open the task list and verify publication planning after capture is called out as an implementation task"
       ],
       "passes": true
     },
