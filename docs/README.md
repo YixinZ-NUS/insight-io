@@ -4,8 +4,11 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 5
+- version: 6
 - major changes:
+  - 2026-03-25 added an RTSP publication reuse writeup explaining why the
+    active contract no longer promises separate IPC versus RTSP delivery
+    sessions
   - 2026-03-25 clarified that direct sessions remain standalone until bound and
     that multi-device apps declare app-local logical input routes
   - 2026-03-25 replaced public `route` / `route_grouped` bind inputs with one
@@ -26,6 +29,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-25 – Document RTSP Publication Reuse After Delivery-Name Removal`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
@@ -59,6 +63,8 @@
 - discovery publishes selectable choices; sessions and workers realize them
   later
 - RTSP is optional durable publication intent on `app_sources` and `sessions`
+- same `uri` plus the same publication requirements may share one serving path;
+  RTSP publication may be additive on shared runtime when lifecycle rules allow
 - local SDK attach always uses IPC, but that is implicit and not a posted
   field
 - direct sessions are standalone session-first runtime intent; declaring a
@@ -87,6 +93,7 @@
 | `docs/prd/fullstack-intent-routing-prd.md` | product contract and user flows | active |
 | `docs/design_doc/INTENT_ROUTING_ARCHITECTURE.md` | control-plane, runtime, and responsibility split | active |
 | `docs/design_doc/INTENT_ROUTING_DATA_MODEL.md` | minimal durable schema, PK/FK plan, and runtime boundary | active |
+| `docs/design_doc/RTSP_PUBLICATION_REUSE_WRITEUP.md` | why the active contract treats RTSP as additive publication state | active |
 | `docs/REST.md` | public HTTP contract | active |
 | `docs/tasks/fullstack-intent-routing-task-list.md` | next implementation round | active |
 | `docs/features/fullstack-intent-routing-e2e.json` | narrow implementation scoreboard | active |

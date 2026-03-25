@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -303,11 +303,11 @@
     {
       "id": "identical-uri-fanout-same-frames",
       "category": "functional",
-      "description": "The same exact URI can be reused across multiple consumers and should deliver the same frame sequence when shared delivery is reused",
+      "description": "The same exact URI can be reused across multiple consumers and should deliver the same frame sequence when shared serving runtime is reused",
       "steps": [
         "Bind the same exact URI into multiple consumers",
         "Inspect runtime status",
-        "Verify shared delivery reuse is visible when applicable",
+        "Verify shared serving reuse is visible when applicable",
         "Verify the consumers observe the same frame sequence"
       ],
       "passes": false

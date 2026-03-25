@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -46,7 +46,8 @@
         "Open the data-model note and verify `uri` is derived while RTSP publication intent is stored durably on `app_sources` and `sessions`",
         "Open the REST reference and verify `POST /api/apps/{id}/sources` accepts exactly one of `input` or `session_id` plus one app-local `target` field",
         "Open the PRD and verify local SDK attach is IPC-only in v1",
-        "Open the PRD or REST reference and verify future remote or LAN RTSP consumption is documented as a separate path"
+        "Open the PRD or REST reference and verify future remote or LAN RTSP consumption is documented as a separate path",
+        "Open the RTSP publication reuse writeup and verify the old inferred-`delivery_name` split is superseded by additive RTSP publication on shared runtime"
       ],
       "passes": true
     },

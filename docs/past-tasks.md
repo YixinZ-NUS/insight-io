@@ -1,5 +1,37 @@
 # Past Tasks
 
+## 2026-03-25 – Document RTSP Publication Reuse After Delivery-Name Removal
+
+### What Changed
+
+- added
+  [RTSP_PUBLICATION_REUSE_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/RTSP_PUBLICATION_REUSE_WRITEUP.md)
+  to explain that the old donor-style rule
+  "`ipc` versus `rtsp` implies separate delivery sessions" is no longer the
+  active public contract
+- updated [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md) so
+  the docs hub now points readers at that writeup and summarizes the active
+  additive RTSP publication rule
+- updated
+  [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  so the docs tracker explicitly verifies the writeup and the new reuse rule
+
+### Why
+
+- the active `insight-io` docs now model RTSP as optional publication state via
+  `rtsp_enabled`, not as one inferred peer delivery mode alongside implicit IPC
+- that means the older statement "different inferred `delivery_name` values must
+  remain separate delivery sessions" no longer describes the public contract
+- the donor runtime may still split publishers internally, but the API should
+  only promise shared runtime plus additive RTSP publication when possible
+
+### Verification
+
+- reviewed and aligned:
+  - [RTSP_PUBLICATION_REUSE_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/RTSP_PUBLICATION_REUSE_WRITEUP.md)
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+
 ## 2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations
 
 ### What Changed
