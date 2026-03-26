@@ -1,5 +1,87 @@
 # Past Tasks
 
+## Role
+
+- role: chronological change log and verification index for active repo work
+- status: active
+- version: 3
+- major changes:
+  - 2026-03-26 added the current scaffold/discovery review entry, including
+    donor-reuse status and the schema-keying recommendation
+  - 2026-03-26 recorded the persisted discovery catalog and alias flow
+  - 2026-03-25 recorded the bootstrap backend reintroduction and the related
+    docs-only contract updates
+
+## 2026-03-26 – Review Current Scaffold, Discovery Reuse, And Schema Keying
+
+### What Changed
+
+- reviewed the current checked-in implementation against the active repo docs,
+  the live runtime behavior, and the donor repo at `../insightos`
+- updated the operator-facing guide in
+  [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md) so it now
+  includes a review walkthrough for:
+  - build and focused tests
+  - live discovery/catalog verification
+  - SQLite catalog inspection
+  - the current Orbbec duplicate-suppression rule
+- updated the internal report in
+  [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  to record:
+  - the current implementation boundary
+  - donor reuse status across discovery, Orbbec integration, IPC, and runtime
+  - a schema recommendation to replace stored `selector_key` duplication with
+    relational uniqueness on `(device_id, selector)` unless a future opaque
+    `uid` is proven necessary
+  - a Mermaid backlog for the next runtime slices
+
+### Why
+
+- the repo is still at the scaffold-plus-discovery stage, so planning the next
+  slices requires a precise statement of what is already real versus what is
+  still doc-only backlog
+- the donor repo contains several reusable subsystems, but only some of them
+  are already imported; documenting that split reduces future rework
+- the current `streams.selector_key` design stores a concatenated key that is
+  derivable from existing data, so it was worth recording a cleaner schema
+  direction before more tables start depending on it
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18183 \
+  --db-path /tmp/insight-io-review.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18183/api/health | jq
+curl -s http://127.0.0.1:18183/api/devices | jq
+curl -s -X POST http://127.0.0.1:18183/api/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"public_name":"front-camera"}' | jq
+
+sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
+  "SELECT device_id, device_key, public_name, driver, status \
+   FROM devices ORDER BY public_name;"
+
+sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
+  "SELECT stream_id, device_id, selector_key, selector, media_kind, shape_kind \
+   FROM streams ORDER BY device_id, selector;"
+
+diff -u ../insightos/backend/src/discovery/v4l2_discovery.cpp \
+  backend/src/discovery/v4l2_discovery.cpp
+diff -u ../insightos/backend/src/discovery/orbbec_discovery.cpp \
+  backend/src/discovery/orbbec_discovery.cpp
+diff -u ../insightos/backend/src/discovery/pipewire_discovery.cpp \
+  backend/src/discovery/pipewire_discovery.cpp
+```
+
 ## 2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow
 
 ### What Changed
