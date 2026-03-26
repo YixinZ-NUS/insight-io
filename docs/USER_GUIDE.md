@@ -4,8 +4,12 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 10
+- version: 11
 - major changes:
+  - 2026-03-26 added serving-runtime reuse across matching direct sessions and
+    app-owned sources, documented the new `serving_runtime` and
+    `serving_runtimes` status fields, and added a live shared-runtime smoke
+    walkthrough
   - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap, added a
     focused discovery regression test, and updated the operator guide so it no
     longer describes generic V4L2 fallback as an open caveat when SDK-backed
@@ -33,6 +37,7 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
   - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
@@ -59,8 +64,8 @@ This guide covers the current worktree slice only:
 - stop, restart, and rebind app sources
 - inspect `/api/status`
 
-SDK callbacks, IPC attach, runtime reuse, and frontend management are still not
-available in this worktree slice.
+SDK callbacks, IPC attach, active RTSP serving runtime, and frontend
+management are still not available in this worktree slice.
 
 ## Build
 
@@ -74,6 +79,7 @@ Expected binaries:
 - `build/bin/insightiod`
 - `build/bin/schema_store_test`
 - `build/bin/catalog_service_test`
+- `build/bin/discovery_test`
 - `build/bin/session_service_test`
 - `build/bin/rest_server_test`
 - `build/bin/app_service_test`
@@ -88,6 +94,7 @@ Current checked-in result on the development host:
 
 - `schema_store_test`: pass
 - `catalog_service_test`: pass
+- `discovery_test`: pass
 - `session_service_test`: pass
 - `rest_server_test`: pass
 - `app_service_test`: pass
@@ -354,8 +361,54 @@ The current backend now exposes these session endpoints:
 - `GET /api/status`
 
 The focused tests plus the live smoke flow above verify the direct-session
-REST and persistence slice on this host. Media-worker reuse, SDK callbacks,
-IPC attach, and active RTSP publication runtime are still future work.
+REST and persistence slice on this host. Serving-runtime reuse is now also
+implemented and inspectable, but IPC attach, SDK callbacks, and active RTSP
+publication runtime are still future work.
+
+## Shared Runtime Reuse Smoke Test
+
+Use this when verifying task 6 on the development host.
+
+```bash
+first=$(curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}')
+
+second=$(curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}')
+
+app_id=$(curl -s -X POST http://127.0.0.1:18180/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"runtime-reuse-guide"}' | jq -r '.app_id')
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"yolov5","expect":{"media":"video"}}' | jq
+
+source_json=$(curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5","rtsp_enabled":false}')
+
+printf '%s\n' "${first}" | jq '.serving_runtime'
+printf '%s\n' "${second}" | jq '.serving_runtime'
+printf '%s\n' "${source_json}" | jq '.active_session.serving_runtime'
+
+curl -s http://127.0.0.1:18180/api/status | jq '.serving_runtimes'
+```
+
+Expected observations on the current host:
+
+- the first direct session reports one `serving_runtime` with
+  `consumer_count = 1`
+- the second direct session reports the same `runtime_key` with
+  `consumer_count = 2`, `shared = true`, and `rtsp_enabled = true`
+- the URI-backed app source creates one app-owned logical session whose nested
+  `active_session.serving_runtime` reports the same shared runtime with
+  `consumer_count = 3`
+- `GET /api/status` reports `total_serving_runtimes = 1` and one runtime entry
+  with `owner_session_id`, `consumer_session_ids`, resolved source metadata,
+  and additive RTSP intent for the shared path
 
 ## App Route Source Smoke Test
 

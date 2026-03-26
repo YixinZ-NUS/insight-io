@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -172,6 +172,19 @@
         "Verify shared capture or serving reuse is visible when applicable"
       ],
       "passes": false
+    },
+    {
+      "id": "status-shows-shared-serving-runtime-topology",
+      "category": "functional",
+      "description": "Session responses and GET /api/status expose one shared serving-runtime view for repeated identical exact-URI requests",
+      "steps": [
+        "Create one direct session for one exact URI with `rtsp_enabled = false`",
+        "Create another direct session for the same exact URI with `rtsp_enabled = true`",
+        "Create one URI-backed app source for that same exact URI",
+        "Inspect the returned session or app-source payloads and GET /api/status",
+        "Verify one shared serving runtime is reported with consumer session ids, owner session id, resolved source metadata, and additive RTSP intent"
+      ],
+      "passes": true
     },
     {
       "id": "persisted-session-restart-after-backend-exit",

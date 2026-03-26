@@ -4,8 +4,12 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 14
+- version: 15
 - major changes:
+  - 2026-03-26 added in-memory serving-runtime reuse for identical exact
+    `stream_id` requests, exposed serving-runtime topology in session and
+    status responses, runtime-verified shared reuse on the current host, and
+    added a shared-serving-runtime sequence diagram
   - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap, added a
     focused aggregate-discovery regression test, verified the current host
     still lists one Orbbec plus one webcam without duplication, and swept the
@@ -43,6 +47,102 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology
+
+### What Changed
+
+- added in-memory serving-runtime reuse in
+  [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+  keyed by resolved `stream_id`, with additive RTSP intent derived from the
+  active consumer set rather than from a second durable runtime table
+- taught direct-session create and start to attach logical sessions to the
+  shared serving-runtime registry and expose one `serving_runtime` view on
+  direct session responses
+- taught app-source create, start, and rebind in
+  [app_service.cpp](/home/yixin/Coding/insight-io/backend/src/app_service.cpp)
+  to attach app-owned sessions to the same serving-runtime registry and reuse
+  the existing exact-stream serving path instead of materializing isolated
+  runtime state
+- expanded `/api/status` and session JSON in
+  [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  so the REST surface now returns:
+  - `total_serving_runtimes`
+  - `serving_runtimes[]` with `runtime_key`, `owner_session_id`,
+    `consumer_session_ids`, resolved source metadata, and additive RTSP intent
+  - per-session `serving_runtime` metadata when one active session is attached
+- added focused regression coverage in:
+  - [session_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/session_service_test.cpp)
+    for repeated direct-session reuse and additive RTSP upgrades
+  - [app_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/app_service_test.cpp)
+    for direct-session plus app-owned source reuse on the same exact URI
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+    for the public `/api/status` and session JSON serving-runtime fields
+- added the new Mermaid sequence
+  [shared-serving-runtime-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/shared-serving-runtime-sequence.md)
+  to keep the task-6 runtime behavior explainable internally
+- refreshed the task list, docs hub, user guide, tech report, and feature
+  trackers to reflect that task 6 is closed and task 7 is now the next slice
+
+### Why
+
+- task 6 required status-visible serving reuse before IPC or active RTSP
+  delivery could be ported from the donor tree
+- the checked-in backend already persisted logical session intent correctly,
+  but it still behaved as if every active request implied an isolated serving
+  path, which obscured the intended runtime graph and made repeated-URI status
+  inspection misleading
+- surfacing serving-runtime ownership, consumer session ids, and additive RTSP
+  intent now gives task 7 one clear runtime baseline for donor IPC reuse
+  instead of pushing reuse semantics into the later transport work
+
+### Verification
+
+```bash
+cmake --build build -j4 --target \
+  discovery_test \
+  catalog_service_test \
+  session_service_test \
+  app_service_test \
+  rest_server_test \
+  insightiod
+
+ctest --test-dir build --output-on-failure -R \
+  'discovery_test|catalog_service_test|session_service_test|app_service_test|rest_server_test'
+
+mkdir -p /tmp/insight-io-task6-frontend
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18189 \
+  --db-path /tmp/insight-io-task6.sqlite3 \
+  --frontend /tmp/insight-io-task6-frontend \
+  --rtsp-host 127.0.0.1
+
+first=$(curl -s -X POST http://127.0.0.1:18189/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}')
+
+second=$(curl -s -X POST http://127.0.0.1:18189/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}')
+
+app_id=$(curl -s -X POST http://127.0.0.1:18189/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"task6-live-app"}' | jq -r '.app_id')
+
+curl -s -X POST http://127.0.0.1:18189/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"yolov5","expect":{"media":"video"}}'
+
+source_json=$(curl -s -X POST http://127.0.0.1:18189/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5","rtsp_enabled":false}')
+
+printf '%s\n' "${first}" | jq '.serving_runtime'
+printf '%s\n' "${second}" | jq '.serving_runtime'
+printf '%s\n' "${source_json}" | jq '.active_session.serving_runtime'
+curl -s http://127.0.0.1:18189/api/status | jq '.serving_runtimes'
+```
 
 ## 2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage
 

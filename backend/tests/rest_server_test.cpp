@@ -1,9 +1,10 @@
 // role: focused REST tests for the standalone backend slices.
-// revision: 2026-03-26 pr5-review-fixes
+// revision: 2026-03-26 task6-serving-runtime-reuse
 // major changes: verifies catalog, direct-session, app/route/source,
-// grouped-route delete cleanup, and runtime-status behavior on the
-// SQLite-backed HTTP surface without relying on a fixed Orbbec serial, while
-// covering route JSON shape and path-id overflow handling.
+// grouped-route delete cleanup, and runtime-status plus serving-runtime reuse
+// behavior on the SQLite-backed HTTP surface without relying on a fixed
+// Orbbec serial, while covering route JSON shape and path-id overflow
+// handling.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -264,7 +265,7 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     httplib::Client client("127.0.0.1", port);
 
     const auto create = client.Post("/api/sessions",
-                                    R"({"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true})",
+                                    R"({"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false})",
                                     "application/json");
     EXPECT_TRUE(create);
     EXPECT_EQ(create->status, 201);
@@ -273,16 +274,30 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     EXPECT_EQ(created_json.at("state").get<std::string>(), "active");
     EXPECT_TRUE(created_json.at("resolved_exact_stream_id").get<std::int64_t>() > 0);
     EXPECT_EQ(created_json.at("resolved_source").at("selector").get<std::string>(), "720p_30");
-    EXPECT_EQ(created_json.at("rtsp_url").get<std::string>(),
-              "rtsp://127.0.0.1/web-camera/720p_30");
+    EXPECT_TRUE(created_json.contains("serving_runtime"));
+    EXPECT_EQ(created_json.at("serving_runtime").at("consumer_count").get<int>(), 1);
+    EXPECT_TRUE(!created_json.contains("rtsp_url"));
 
     const auto session_id = created_json.at("session_id").get<std::int64_t>();
+
+    const auto second_create = client.Post(
+        "/api/sessions",
+        R"({"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true})",
+        "application/json");
+    EXPECT_TRUE(second_create);
+    EXPECT_EQ(second_create->status, 201);
+    const auto second_json = nlohmann::json::parse(second_create->body);
+    EXPECT_EQ(second_json.at("rtsp_url").get<std::string>(),
+              "rtsp://127.0.0.1/web-camera/720p_30");
+    EXPECT_TRUE(second_json.at("serving_runtime").at("shared").get<bool>());
+    EXPECT_EQ(second_json.at("serving_runtime").at("consumer_count").get<int>(), 2);
+    const auto second_session_id = second_json.at("session_id").get<std::int64_t>();
 
     const auto list = client.Get("/api/sessions");
     EXPECT_TRUE(list);
     EXPECT_EQ(list->status, 200);
     const auto list_json = nlohmann::json::parse(list->body);
-    EXPECT_EQ(list_json.at("sessions").size(), 1u);
+    EXPECT_EQ(list_json.at("sessions").size(), 2u);
 
     const auto inspect = client.Get(("/api/sessions/" + std::to_string(session_id)).c_str());
     EXPECT_TRUE(inspect);
@@ -295,8 +310,24 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     EXPECT_TRUE(status);
     EXPECT_EQ(status->status, 200);
     const auto status_json = nlohmann::json::parse(status->body);
-    EXPECT_EQ(status_json.at("active_sessions").get<int>(), 1);
-    EXPECT_EQ(status_json.at("total_sessions").get<int>(), 1);
+    EXPECT_EQ(status_json.at("active_sessions").get<int>(), 2);
+    EXPECT_EQ(status_json.at("total_sessions").get<int>(), 2);
+    EXPECT_EQ(status_json.at("total_serving_runtimes").get<int>(), 1);
+    EXPECT_EQ(status_json.at("serving_runtimes").size(), 1u);
+    EXPECT_EQ(status_json.at("serving_runtimes")[0].at("consumer_count").get<int>(), 2);
+    EXPECT_TRUE(status_json.at("serving_runtimes")[0].at("rtsp_enabled").get<bool>());
+
+    const auto stop_second =
+        client.Post(("/api/sessions/" + std::to_string(second_session_id) + "/stop").c_str(),
+                    "",
+                    "application/json");
+    EXPECT_TRUE(stop_second);
+    EXPECT_EQ(stop_second->status, 200);
+
+    const auto destroy_second =
+        client.Delete(("/api/sessions/" + std::to_string(second_session_id)).c_str());
+    EXPECT_TRUE(destroy_second);
+    EXPECT_EQ(destroy_second->status, 204);
 
     const auto stop = client.Post(("/api/sessions/" + std::to_string(session_id) + "/stop").c_str(),
                                   "",

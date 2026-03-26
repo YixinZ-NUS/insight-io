@@ -4,8 +4,12 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 21
+- version: 22
 - major changes:
+  - 2026-03-26 added in-memory serving-runtime reuse for identical
+    `stream_id` requests across direct sessions and app-owned sources,
+    surfaced serving-runtime topology in session responses plus
+    `GET /api/status`, and moved the implementation handoff to donor IPC
   - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap so generic
     V4L2 suppression now activates only after usable SDK-backed Orbbec
     discovery succeeds, added focused aggregate-discovery regression coverage,
@@ -69,6 +73,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
   - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
   - `2026-03-26 – Fix PR #5 Defect-Level Review Items`
@@ -117,6 +122,9 @@
 - grouped preset URIs may mean one fixed related stream bundle
 - the current worktree now serves health, device catalog, alias, direct
   session lifecycle, app/route/source lifecycle, and runtime-status endpoints
+- `GET /api/status` now exposes `serving_runtimes` with owner session id,
+  consumer session ids, resolved source metadata, and additive RTSP intent for
+  shared serving paths
 - the current worktree rejects `insightos://` inputs whose host does not match
   the configured local catalog host on both direct-session and app-source
   creation paths

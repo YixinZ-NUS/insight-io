@@ -1,21 +1,25 @@
 #pragma once
 
 // role: persisted direct-session service for the standalone backend.
-// revision: 2026-03-26 direct-session-slice
+// revision: 2026-03-26 task6-serving-runtime-reuse
 // major changes: resolves catalog URIs into durable logical session records,
 // normalizes persisted runtime state on startup, and exposes session/status
-// read models for the REST layer.
+// read models plus serving-runtime reuse topology for the REST layer.
+// See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/schema_store.hpp"
 
 #include <nlohmann/json.hpp>
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace insightio::backend {
+
+class ServingRuntimeRegistry;
 
 struct SessionResolvedSource {
     std::int64_t stream_id{0};
@@ -47,13 +51,35 @@ struct SessionRecord {
     std::int64_t updated_at_ms{0};
     SessionResolvedSource source;
     std::string rtsp_url;
+    struct ServingRuntimeView {
+        std::string runtime_key;
+        std::int64_t owner_session_id{0};
+        bool rtsp_enabled{false};
+        bool shared{false};
+        int consumer_count{0};
+        std::vector<std::int64_t> consumer_session_ids;
+    };
+    std::optional<ServingRuntimeView> serving_runtime;
+};
+
+struct ServingRuntimeSnapshot {
+    std::string runtime_key;
+    std::int64_t stream_id{0};
+    std::int64_t owner_session_id{0};
+    bool rtsp_enabled{false};
+    int consumer_count{0};
+    std::vector<std::int64_t> consumer_session_ids;
+    SessionResolvedSource source;
+    nlohmann::json resolved_members_json;
 };
 
 struct RuntimeStatusSnapshot {
     int total_sessions{0};
     int active_sessions{0};
     int stopped_sessions{0};
+    int total_serving_runtimes{0};
     std::vector<SessionRecord> sessions;
+    std::vector<ServingRuntimeSnapshot> serving_runtimes;
 };
 
 class SessionService {
@@ -61,6 +87,7 @@ public:
     SessionService(SchemaStore& store,
                    std::string uri_host = "localhost",
                    std::string rtsp_host = "127.0.0.1");
+    ~SessionService();
 
     bool initialize();
 
@@ -92,10 +119,25 @@ public:
                         std::string& error_code,
                         std::string& error_message) const;
 
+    bool attach_session_runtime(std::int64_t session_id,
+                                SessionRecord& updated,
+                                int& error_status,
+                                std::string& error_code,
+                                std::string& error_message) const;
+
+    bool ensure_session_rtsp(std::int64_t session_id,
+                             SessionRecord& updated,
+                             int& error_status,
+                             std::string& error_code,
+                             std::string& error_message) const;
+
 private:
+    [[nodiscard]] SessionRecord enrich_runtime(SessionRecord session) const;
+
     SchemaStore& store_;
     std::string uri_host_;
     std::string rtsp_host_;
+    std::unique_ptr<ServingRuntimeRegistry> runtime_registry_;
 };
 
 }  // namespace insightio::backend

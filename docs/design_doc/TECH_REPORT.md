@@ -4,8 +4,12 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 13
+- version: 14
 - major changes:
+  - 2026-03-26 closed task 6 by adding in-memory serving-runtime reuse keyed by
+    `stream_id`, exposing serving-runtime topology in session responses plus
+    `GET /api/status`, runtime-verifying shared exact-URI reuse on the current
+    host, and moving the next implementation handoff to donor IPC delivery
   - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap, added a
     focused aggregate-discovery regression test, confirmed the current host
     still enumerates one Orbbec plus one V4L2 webcam without duplication, and
@@ -39,6 +43,7 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
   - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
   - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
@@ -54,7 +59,7 @@
 ## Current Slice
 
 The current implementation slice now covers the full durable control-plane
-surface up through app/route/source persistence:
+surface up through serving-runtime reuse:
 
 - explicit seven-table SQLite schema checked into the repository
 - one standalone backend binary, `insightiod`
@@ -64,6 +69,10 @@ surface up through app/route/source persistence:
 - durable app-route CRUD with ambiguity guards
 - durable app-source create/list/start/stop/rebind for exact, grouped, and
   session-backed binds
+- in-memory serving-runtime reuse across matching active direct sessions and
+  app-owned sessions
+- runtime-status inspection that surfaces serving-runtime ownership, consumer
+  session ids, resolved source metadata, and additive RTSP intent
 - focused tests that prove schema bootstrap, catalog shaping, REST lifecycle
   paths, app-source behavior, and direct-session behavior
 
@@ -93,7 +102,7 @@ In concrete HTTP terms, the current backend serves only:
 - `POST /api/apps/{id}/sources/{source_id}/rebind`
 - `GET /api/status`
 
-Reuse, IPC attach, RTSP serving runtime, SDK callbacks, and frontend portions
+IPC attach, active RTSP serving runtime, SDK callbacks, and frontend portions
 of the PRD remain future work.
 
 ## Review Snapshot
@@ -107,6 +116,7 @@ Observed from the current audit:
 - `ctest` is green across:
   - `schema_store_test`
   - `catalog_service_test`
+  - `discovery_test`
   - `session_service_test`
   - `rest_server_test`
   - `app_service_test`
@@ -144,6 +154,18 @@ Observed from the current audit:
   - backend restart with the same SQLite file
   - `GET /api/apps`
   - `GET /api/apps/{id}/sources` showing persisted rows normalized to `stopped`
+- serving-runtime reuse is now live-verified for one repeated exact URI:
+  - one direct session for `insightos://localhost/web-camera/720p_30`
+    reports one `serving_runtime` with `consumer_count = 1`
+  - a second direct session for the same URI with `rtsp_enabled = true`
+    reports the same `runtime_key` with `consumer_count = 2`,
+    `shared = true`, and additive `rtsp_enabled = true`
+  - one URI-backed app source on `yolov5` for the same URI creates one
+    app-owned logical session whose nested active-session metadata reports the
+    same shared runtime with `consumer_count = 3`
+  - `GET /api/status` now returns one `serving_runtimes` entry for that exact
+    URI with `owner_session_id`, `consumer_session_ids`, resolved source
+    metadata, and additive RTSP intent
 - session-backed bind verification also succeeded:
   - `POST /api/sessions`
   - `POST /api/apps/{id}/sources` with `session_id`
@@ -183,27 +205,30 @@ Important scope boundary:
   host for the checked-in slice
 - app, route, and source persistence are runtime-verified on the development
   host for the current worktree slice
-- session reuse, IPC delivery, RTSP runtime, SDK callbacks, and frontend flows
-  are not implemented in this repository yet
+- serving-runtime reuse and status topology are now implemented in this
+  repository
+- IPC delivery, active RTSP runtime, SDK callbacks, and frontend flows are not
+  implemented in this repository yet
 
 This matches the current feature trackers:
 
 - `docs/features/fullstack-intent-routing-e2e.json` now records the verified
-  grouped-route delete cleanup and route-expectation rejection as passing,
-  while callback-dependent bind flows such as `inject-yolov5-source` remain
-  `false` until IPC delivery and SDK callbacks actually exist
+  grouped-route delete cleanup, route-expectation rejection, and one status
+  inspection entry for shared serving-runtime topology as passing, while
+  callback-dependent bind flows such as `inject-yolov5-source` remain `false`
+  until IPC delivery and SDK callbacks actually exist
 - `docs/features/runtime-and-app-user-journeys.json` now marks direct-session
   create, persisted restart, referenced-session delete conflict, exact
-  source-response identity, app-source stop/start preservation, and the
-  grouped-route delete cleanup journey as passing where those flows were
-  actually verified
-- grouped runtime reuse, IPC attach, RTSP serving runtime, SDK callbacks, and
-  frontend flows remain `false`
+  source-response identity, app-source stop/start preservation, grouped-route
+  delete cleanup, and one shared-serving-runtime status journey as passing
+  where those flows were actually verified
+- frame-delivery fanout, IPC attach, active RTSP serving runtime, SDK
+  callbacks, and frontend flows remain `false`
 
 ## Donor Reuse Status
 
 This section was rechecked against the current `../insightos` tree while
-closing task 5.
+closing task 6.
 
 ### Already Reused
 
@@ -481,34 +506,20 @@ In short:
 
 ## Next Step
 
-Task 5 is now closed. Start task 6 in this order:
+Task 6 is now closed. Start task 7 from the checked-in serving-runtime reuse
+baseline:
 
-1. add one runtime reuse registry keyed by `stream_id` plus publication intent
-   so direct sessions and app-owned sources can point at one shared serving
-   runtime instead of always inserting a fresh app-owned runtime row
-2. teach direct-session create/start to consult that reuse registry first,
-   attach a new logical session record as a consumer, and report whether reuse
-   or fresh realization happened
-3. teach app-source create/start/rebind to reuse that same serving runtime for
-   URI-backed exact and grouped binds before any IPC or RTSP transport work is
-   added
-4. expand `GET /api/status` so it surfaces the serving-runtime view needed by
-   task 6: owner/source `stream_id`, consumer session ids, grouped members when
-   present, and additive RTSP publication intent
-5. add focused tests plus live repeated-URI smoke that prove:
-   identical URI binds reuse serving state, `rtsp_enabled = true` upgrades the
-   shared publication intent additively, and incompatible grouped requests
-   reject instead of silently mutating runtime meaning
-
-After task 6, continue in the existing order:
-
-- task 7: port donor IPC delivery and control-server pieces onto the new
-  session and app-source contract
-- task 8: add RTSP serving runtime and the runtime-only post-capture
-  publication phase
-- task 9: wire real SDK callback delivery on top of the REST-backed
-  route/app-source control plane
-- task 10: implement the frontend flows after runtime delivery is coherent
+1. port the donor `memfd` + ring-buffer + `eventfd` transport plus control
+   server pieces from `../insightos` into repo-native runtime form
+2. keep attach lifecycle keyed by the new `sessions` and `app_sources`
+   contract rather than donor delivery tables or donor naming
+3. make one serving runtime expose local IPC attach on top of the current
+   reuse registry rather than reintroducing parallel runtime graphs
+4. preserve the new `/api/status` serving-runtime topology and extend it with
+   IPC attach visibility instead of replacing it
+5. add focused tests plus live hardware smoke that prove one repeated exact URI
+   can attach multiple local consumers through the shared runtime before task 8
+   adds active RTSP publication runtime
 
 ## Mermaid Diagram Inventory
 
@@ -526,6 +537,9 @@ After task 6, continue in the existing order:
   documents app create, route declaration, source bind, stop/start, and rebind
 - [grouped-route-delete-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-route-delete-sequence.md)
   documents grouped bind cleanup when one member route is deleted
+- [shared-serving-runtime-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/shared-serving-runtime-sequence.md)
+  documents shared exact-URI runtime reuse plus additive RTSP intent in the
+  current task-6 slice
 
 ## Recommended Mermaid Backlog
 
@@ -536,8 +550,6 @@ adding are:
   app-source bind using one grouped preset URI and one grouped `target`
 - existing-session attach sequence:
   attach `session_id` to one app-local target without recreating capture
-- shared-runtime reuse sequence:
-  two consumers on the same URI with additive RTSP publication
 - runtime worker graph:
   capture worker, publication phase, IPC publisher, RTSP publisher, and reuse
   ownership boundaries

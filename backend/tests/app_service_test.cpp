@@ -1,9 +1,9 @@
 // role: focused durable app/route/source service tests for the backend.
-// revision: 2026-03-26 pr5-review-fixes
+// revision: 2026-03-26 task6-serving-runtime-reuse
 // major changes: verifies app CRUD, route guards, exact and grouped source
-// binds, grouped-route delete cleanup, restart normalization, and route
-// rebind behavior without relying on a fixed Orbbec serial, and covers
-// app-delete stop-failure propagation.
+// binds, grouped-route delete cleanup, restart normalization, route rebind
+// behavior, and serving-runtime reuse without relying on a fixed Orbbec
+// serial, and covers app-delete stop-failure propagation.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -13,6 +13,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -236,6 +237,83 @@ TEST(uri_backed_exact_source_persists_and_restarts) {
     EXPECT_EQ(listed_sources.size(), 1u);
     EXPECT_EQ(listed_sources[0].state, "stopped");
     EXPECT_EQ(listed_sources[0].active_session_id, 0);
+}
+
+TEST(uri_backed_source_reuses_existing_direct_runtime) {
+    Fixture fx;
+
+    int error_status = 0;
+    std::string error_code;
+    std::string error_message;
+
+    SessionRecord direct;
+    EXPECT_TRUE(fx.sessions.create_direct_session("insightos://localhost/web-camera/720p_30",
+                                                  false,
+                                                  direct,
+                                                  error_status,
+                                                  error_code,
+                                                  error_message));
+
+    AppRecord app;
+    EXPECT_TRUE(fx.apps.create_app("Shared Vision",
+                                   "",
+                                   nullptr,
+                                   app,
+                                   error_status,
+                                   error_code,
+                                   error_message));
+
+    RouteRecord route;
+    EXPECT_TRUE(fx.apps.create_route(app.app_id,
+                                     "yolov5",
+                                     nlohmann::json{{"media", "video"}},
+                                     nullptr,
+                                     route,
+                                     error_status,
+                                     error_code,
+                                     error_message));
+
+    AppSourceRecord source;
+    EXPECT_TRUE(fx.apps.create_source(app.app_id,
+                                      std::optional<std::string>{
+                                          "insightos://localhost/web-camera/720p_30"},
+                                      std::nullopt,
+                                      "yolov5",
+                                      false,
+                                      source,
+                                      error_status,
+                                      error_code,
+                                      error_message));
+    EXPECT_TRUE(source.active_session_id > 0);
+    EXPECT_TRUE(source.active_session_id != direct.session_id);
+    EXPECT_TRUE(source.active_session.has_value());
+    EXPECT_TRUE(source.active_session->serving_runtime.has_value());
+    EXPECT_TRUE(source.active_session->serving_runtime->shared);
+    EXPECT_EQ(source.active_session->serving_runtime->consumer_count, 2);
+
+    auto status = fx.sessions.runtime_status();
+    EXPECT_EQ(status.total_serving_runtimes, 1);
+    EXPECT_EQ(status.serving_runtimes[0].consumer_count, 2);
+    EXPECT_TRUE(std::find(status.serving_runtimes[0].consumer_session_ids.begin(),
+                          status.serving_runtimes[0].consumer_session_ids.end(),
+                          direct.session_id) !=
+                status.serving_runtimes[0].consumer_session_ids.end());
+    EXPECT_TRUE(std::find(status.serving_runtimes[0].consumer_session_ids.begin(),
+                          status.serving_runtimes[0].consumer_session_ids.end(),
+                          source.active_session_id) !=
+                status.serving_runtimes[0].consumer_session_ids.end());
+
+    AppSourceRecord stopped;
+    EXPECT_TRUE(fx.apps.stop_source(app.app_id,
+                                    source.source_id,
+                                    stopped,
+                                    error_status,
+                                    error_code,
+                                    error_message));
+    status = fx.sessions.runtime_status();
+    EXPECT_EQ(status.total_serving_runtimes, 1);
+    EXPECT_EQ(status.serving_runtimes[0].consumer_count, 1);
+    EXPECT_EQ(status.serving_runtimes[0].consumer_session_ids[0], direct.session_id);
 }
 
 TEST(route_guard_rejects_ambiguous_target_roots) {

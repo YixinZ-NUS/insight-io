@@ -1,8 +1,9 @@
 // role: durable app, route, and app-source implementation for the backend.
-// revision: 2026-03-26 pr5-review-fixes
+// revision: 2026-03-26 task6-serving-runtime-reuse
 // major changes: cleans grouped source rows when one member route is deleted,
 // removes app-owned grouped sessions that would retain stale member metadata,
-// propagates app-delete session stop failures, and hardens post-insert reloads.
+// propagates app-delete session stop failures, hardens post-insert reloads,
+// and reuses in-memory serving runtimes across direct and app-owned sessions.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -713,20 +714,6 @@ bool delete_session_row(sqlite3* db, std::int64_t session_id) {
     return erase.exec();
 }
 
-bool update_session_rtsp(sqlite3* db, std::int64_t session_id, bool rtsp_enabled) {
-    Stmt statement(
-        db,
-        "UPDATE sessions SET rtsp_enabled = CASE WHEN ? THEN 1 ELSE rtsp_enabled END, "
-        "updated_at_ms = ? WHERE session_id = ?");
-    if (!statement) {
-        return false;
-    }
-    statement.bind_int(1, rtsp_enabled ? 1 : 0);
-    statement.bind_int64(2, now_ms());
-    statement.bind_int64(3, session_id);
-    return statement.exec();
-}
-
 std::int64_t insert_app_session(sqlite3* db,
                                 std::int64_t app_id,
                                 std::string_view target_name,
@@ -1354,12 +1341,16 @@ bool AppService::create_source(std::int64_t app_id,
             selection->session = started;
         }
 
-        if (rtsp_enabled &&
-            !update_session_rtsp(store_.db(), selection->source_session_id, true)) {
-            error_status = 500;
-            error_code = "internal";
-            error_message = "Failed to update referenced session RTSP state";
-            return false;
+        if (rtsp_enabled) {
+            SessionRecord rtsp_updated;
+            if (!sessions_.ensure_session_rtsp(selection->source_session_id,
+                                               rtsp_updated,
+                                               error_status,
+                                               error_code,
+                                               error_message)) {
+                return false;
+            }
+            selection->session = rtsp_updated;
         }
         active_session_id = selection->source_session_id;
     }
@@ -1435,6 +1426,17 @@ bool AppService::create_source(std::int64_t app_id,
         return false;
     }
 
+    if (selection->source_session_id == 0) {
+        SessionRecord realized;
+        if (!sessions_.attach_session_runtime(active_session_id,
+                                              realized,
+                                              error_status,
+                                              error_code,
+                                              error_message)) {
+            return false;
+        }
+    }
+
     if (!load_source_row(store_.db(),
                          sessions_,
                          app_id,
@@ -1494,12 +1496,15 @@ bool AppService::start_source(std::int64_t app_id,
                 return false;
             }
         }
-        if (existing.rtsp_enabled &&
-            !update_session_rtsp(store_.db(), existing.source_session_id, true)) {
-            error_status = 500;
-            error_code = "internal";
-            error_message = "Failed to update referenced session RTSP state";
-            return false;
+        if (existing.rtsp_enabled) {
+            SessionRecord rtsp_updated;
+            if (!sessions_.ensure_session_rtsp(existing.source_session_id,
+                                               rtsp_updated,
+                                               error_status,
+                                               error_code,
+                                               error_message)) {
+                return false;
+            }
         }
         active_session_id = existing.source_session_id;
     } else {
@@ -1527,6 +1532,14 @@ bool AppService::start_source(std::int64_t app_id,
             error_status = 500;
             error_code = "internal";
             error_message = "Failed to commit source session transaction";
+            return false;
+        }
+        SessionRecord realized;
+        if (!sessions_.attach_session_runtime(active_session_id,
+                                              realized,
+                                              error_status,
+                                              error_code,
+                                              error_message)) {
             return false;
         }
     }
@@ -1725,12 +1738,16 @@ bool AppService::rebind_source(std::int64_t app_id,
                 return false;
             }
         }
-        if (rtsp_enabled &&
-            !update_session_rtsp(store_.db(), selection->source_session_id, true)) {
-            error_status = 500;
-            error_code = "internal";
-            error_message = "Failed to update referenced session RTSP state";
-            return false;
+        if (rtsp_enabled) {
+            SessionRecord rtsp_updated;
+            if (!sessions_.ensure_session_rtsp(selection->source_session_id,
+                                               rtsp_updated,
+                                               error_status,
+                                               error_code,
+                                               error_message)) {
+                return false;
+            }
+            selection->session = rtsp_updated;
         }
         new_active_session_id = selection->source_session_id;
     }
@@ -1802,6 +1819,17 @@ bool AppService::rebind_source(std::int64_t app_id,
         error_code = "internal";
         error_message = "Failed to commit source rebind";
         return false;
+    }
+
+    if (selection->source_session_id == 0) {
+        SessionRecord realized;
+        if (!sessions_.attach_session_runtime(new_active_session_id,
+                                              realized,
+                                              error_status,
+                                              error_code,
+                                              error_message)) {
+            return false;
+        }
     }
 
     if (old_app_owned_session_id > 0 && old_app_owned_session_id != new_active_session_id) {

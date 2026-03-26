@@ -1,5 +1,5 @@
 {
-  "version": 13,
+  "version": 14,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -190,6 +190,19 @@
         "Call POST /api/sessions/{id}/stop and POST /api/sessions/{id}/start",
         "Restart the backend with the same database and verify the persisted session can be inspected and restarted",
         "Stop the session and call DELETE /api/sessions/{id} to verify the unreferenced session is removed"
+      ],
+      "passes": true
+    },
+    {
+      "id": "status-exposes-shared-serving-runtime-topology",
+      "category": "functional",
+      "description": "Status inspection exposes one shared serving runtime for repeated identical exact-URI requests before IPC and active RTSP delivery are added",
+      "steps": [
+        "Create one direct session for one exact URI with `rtsp_enabled = false`",
+        "Create a second direct session for the same URI with `rtsp_enabled = true`",
+        "Create one URI-backed app source for the same exact URI",
+        "Inspect session responses and GET /api/status",
+        "Verify one shared serving-runtime entry reports owner session id, consumer session ids, resolved source metadata, and additive RTSP intent"
       ],
       "passes": true
     },

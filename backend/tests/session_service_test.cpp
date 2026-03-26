@@ -1,8 +1,9 @@
 // role: focused direct-session service tests for the standalone backend.
-// revision: 2026-03-26 direct-session-slice
+// revision: 2026-03-26 task6-serving-runtime-reuse
 // major changes: verifies direct session persistence, restart normalization,
-// and delete-conflict behavior against the SQLite-backed service using the
-// canonical app-route and app-source schema shape.
+// delete-conflict behavior, and serving-runtime reuse against the SQLite-backed
+// service using the canonical app-route and app-source schema shape.
+// See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -10,6 +11,7 @@
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
@@ -262,6 +264,94 @@ TEST(direct_session_rejects_non_local_uri_host) {
                                                 error_message));
     EXPECT_EQ(error_status, 422);
     EXPECT_EQ(error_code, "invalid_input");
+}
+
+TEST(direct_sessions_share_serving_runtime_and_upgrade_rtsp_additively) {
+    const auto db_path = make_temp_db_path();
+    SchemaStore store(db_path);
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store);
+    EXPECT_TRUE(sessions.initialize());
+
+    int error_status = 0;
+    std::string error_code;
+    std::string error_message;
+
+    SessionRecord first;
+    EXPECT_TRUE(sessions.create_direct_session("insightos://localhost/web-camera/720p_30",
+                                               false,
+                                               first,
+                                               error_status,
+                                               error_code,
+                                               error_message));
+    EXPECT_TRUE(first.serving_runtime.has_value());
+    EXPECT_EQ(first.serving_runtime->consumer_count, 1);
+    EXPECT_TRUE(!first.serving_runtime->shared);
+    EXPECT_TRUE(!first.serving_runtime->rtsp_enabled);
+
+    SessionRecord second;
+    EXPECT_TRUE(sessions.create_direct_session("insightos://localhost/web-camera/720p_30",
+                                               true,
+                                               second,
+                                               error_status,
+                                               error_code,
+                                               error_message));
+    EXPECT_TRUE(second.serving_runtime.has_value());
+    EXPECT_EQ(second.serving_runtime->consumer_count, 2);
+    EXPECT_TRUE(second.serving_runtime->shared);
+    EXPECT_TRUE(second.serving_runtime->rtsp_enabled);
+
+    const auto reloaded_first = sessions.get_session(first.session_id);
+    EXPECT_TRUE(reloaded_first.has_value());
+    EXPECT_TRUE(reloaded_first->serving_runtime.has_value());
+    EXPECT_EQ(reloaded_first->serving_runtime->consumer_count, 2);
+    EXPECT_TRUE(reloaded_first->serving_runtime->rtsp_enabled);
+
+    auto status = sessions.runtime_status();
+    EXPECT_EQ(status.total_serving_runtimes, 1);
+    EXPECT_EQ(status.serving_runtimes.size(), 1u);
+    EXPECT_EQ(status.serving_runtimes[0].consumer_count, 2);
+    EXPECT_TRUE(status.serving_runtimes[0].rtsp_enabled);
+    EXPECT_TRUE(std::find(status.serving_runtimes[0].consumer_session_ids.begin(),
+                          status.serving_runtimes[0].consumer_session_ids.end(),
+                          first.session_id) !=
+                status.serving_runtimes[0].consumer_session_ids.end());
+    EXPECT_TRUE(std::find(status.serving_runtimes[0].consumer_session_ids.begin(),
+                          status.serving_runtimes[0].consumer_session_ids.end(),
+                          second.session_id) !=
+                status.serving_runtimes[0].consumer_session_ids.end());
+
+    SessionRecord stopped;
+    EXPECT_TRUE(sessions.stop_session(second.session_id,
+                                      stopped,
+                                      error_status,
+                                      error_code,
+                                      error_message));
+
+    status = sessions.runtime_status();
+    EXPECT_EQ(status.total_serving_runtimes, 1);
+    EXPECT_EQ(status.serving_runtimes[0].consumer_count, 1);
+    EXPECT_TRUE(!status.serving_runtimes[0].rtsp_enabled);
+    EXPECT_EQ(status.serving_runtimes[0].consumer_session_ids[0], first.session_id);
+
+    EXPECT_TRUE(sessions.stop_session(first.session_id,
+                                      stopped,
+                                      error_status,
+                                      error_code,
+                                      error_message));
+    status = sessions.runtime_status();
+    EXPECT_EQ(status.total_serving_runtimes, 0);
+    EXPECT_TRUE(status.serving_runtimes.empty());
 }
 
 }  // namespace
