@@ -4,8 +4,17 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 8
+- version: 10
 - major changes:
+  - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap, added a
+    focused discovery regression test, and updated the operator guide so it no
+    longer describes generic V4L2 fallback as an open caveat when SDK-backed
+    Orbbec discovery is absent
+  - 2026-03-26 rechecked the task-5 control-plane slice on the development
+    host, confirmed exact source responses now expose
+    `resolved_exact_stream_id`, confirmed app-source stop/start preserves the
+    durable declaration, confirmed referenced-session delete returns
+    `409 Conflict`, and added a focused control-plane review walkthrough
   - 2026-03-26 closed grouped-member-route delete cleanup in the guide,
     replaced the old bug reproduction with a live cleanup smoke test, and kept
     the app/route/source walkthrough aligned with the current backend
@@ -24,6 +33,8 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
+  - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
@@ -234,6 +245,74 @@ Current audit result on the development host:
 - the direct-session smoke flow using `insightos://localhost/web-camera/720p_30`
   succeeded for create, inspect, status, stop, restart, and delete
 
+### App-Source Control-Plane Review
+
+```bash
+app_id=$(curl -s -X POST http://127.0.0.1:18183/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"guide-review-app"}' | jq -r '.app_id')
+
+curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"yolov5","expect":{"media":"video"}}'
+
+source_json=$(curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"}')
+printf '%s\n' "${source_json}" | jq
+
+source_id=$(printf '%s' "${source_json}" | jq -r '.source_id')
+
+curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}/stop \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}/start \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+mismatch_app_id=$(curl -s -X POST http://127.0.0.1:18183/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"guide-mismatch-app"}' | jq -r '.app_id')
+
+curl -s -X POST http://127.0.0.1:18183/api/apps/${mismatch_app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}'
+
+curl -s -i -X POST http://127.0.0.1:18183/api/apps/${mismatch_app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"orbbec/depth"}'
+
+session_id=$(curl -s -X POST http://127.0.0.1:18183/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+
+bind_app_id=$(curl -s -X POST http://127.0.0.1:18183/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"guide-delete-conflict-app"}' | jq -r '.app_id')
+
+curl -s -X POST http://127.0.0.1:18183/api/apps/${bind_app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"cam","expect":{"media":"video"}}'
+
+curl -s -X POST http://127.0.0.1:18183/api/apps/${bind_app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"cam\"}" | jq
+
+curl -s -i -X DELETE http://127.0.0.1:18183/api/sessions/${session_id}
+```
+
+Current audit result on the development host:
+
+- exact app-source responses now include `target`, `uri`, `state`,
+  `rtsp_enabled`, `resolved_exact_stream_id`, and nested session metadata
+- `POST /api/apps/{id}/sources/{source_id}/stop` keeps the durable source row
+  and clears only the active runtime link
+- `POST /api/apps/{id}/sources/{source_id}/start` recreates runtime state and
+  links a fresh app-owned session to the same durable source row
+- `POST /api/apps/{id}/sources` now returns `422 Unprocessable Content` with
+  `route_expectation_mismatch` when source media and route expectation disagree
+- `DELETE /api/sessions/{id}` now returns `409 Conflict` while one app-source
+  row still references that session
+
 ### SQLite Review
 
 ```bash
@@ -254,21 +333,13 @@ session and app-source smoke flows, `apps`, `app_routes`, `app_sources`,
 ### Duplicate Orbbec Suppression
 
 When Orbbec SDK discovery is enabled, the backend first asks the Orbbec path
-for its vendor IDs and then skips matching V4L2 USB nodes during generic V4L2
-enumeration. This is the current guard against the known issue where the
-Orbbec camera can otherwise look like a plain V4L2 camera in Linux device
-lists.
+for usable SDK-backed devices and only then skips matching V4L2 USB nodes
+during generic V4L2 enumeration. This is the current guard against the known
+issue where the Orbbec camera can otherwise look like a plain V4L2 camera in
+Linux device lists.
 
 If the Orbbec SDK is unavailable at build or run time, that suppression path is
 not active, so the hardware may reappear only through the generic V4L2 route.
-
-Current implementation caveat:
-
-- the skip list is keyed off the compiled-in Orbbec vendor set before the code
-  knows whether SDK discovery actually returned a usable Orbbec device
-- in practice, that means a future fallback rule is still needed so generic
-  V4L2 visibility is not hidden when SDK-backed discovery is absent or
-  incomplete
 
 ## Direct Session Slice
 

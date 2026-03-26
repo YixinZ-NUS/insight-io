@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 11,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -70,7 +70,7 @@
         "Inspect runtime status",
         "Verify the backend either reuses one compatible grouped runtime or rejects the newer request with a compatibility error"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orbbec-depth-480-direct-session-investigation",
@@ -84,7 +84,7 @@
         "Repeat with `orbbec/depth/400p_30` and then with `orbbec/preset/480p_30`",
         "Record whether aligned depth-only use works, and whether the grouped preset delivers stable color plus aligned depth"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "orbbec-depth-480-sdk-probe",
@@ -158,7 +158,7 @@
         "Inspect the created session through REST",
         "Verify the same flow is representable through POST /api/sessions"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "shared-runtime-with-additive-rtsp-publication",
@@ -198,7 +198,7 @@
         "Verify the API returns 409 Conflict",
         "Verify the session and app-source records remain unchanged"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "idle-app-registers-and-exposes-app-id",
@@ -396,7 +396,7 @@
         "Inspect the source response",
         "Verify target, uri, state, rtsp_enabled, resolved_exact_stream_id, resolved_members_json when grouped, and session metadata are present"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "app-source-stop-and-start-preserve-declaration",
@@ -409,7 +409,7 @@
         "Call the app-source start endpoint",
         "Verify a fresh runtime session is linked to the same app-source record"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "app-route-rebind-at-runtime",

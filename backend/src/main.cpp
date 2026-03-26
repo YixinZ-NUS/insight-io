@@ -1,8 +1,9 @@
 // role: standalone backend entrypoint for the current insight-io slices.
-// revision: 2026-03-26 app-route-source-persistence
+// revision: 2026-03-26 orbbec-v4l2-fallback-fix
 // major changes: starts the SQLite-backed catalog, session, and durable
 // app/route/source services while keeping media-runtime realization
-// intentionally lightweight.
+// intentionally lightweight, and binds the aggregate discovery entrypoint
+// through an overload-safe callback. See docs/past-tasks.md.
 
 #include "insightio/backend/app_service.hpp"
 #include "insightio/backend/catalog.hpp"
@@ -64,7 +65,11 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        CatalogService catalog(store, discover_all, "localhost", rtsp_host);
+        CatalogService catalog(
+            store,
+            []() { return discover_all(); },
+            "localhost",
+            rtsp_host);
         if (!catalog.initialize()) {
             std::cerr << "Failed to initialize discovery catalog\n";
             return 1;

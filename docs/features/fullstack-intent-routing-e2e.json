@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 13,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -203,7 +203,7 @@
         "Verify the backend creates a logical session",
         "Verify the SDK receives callbacks on the declared route"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "inject-depth-source",
@@ -287,7 +287,7 @@
         "Inject a normal video URI into that route",
         "Verify the backend rejects the request with a compatibility error"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "persist-stopped-sources-across-restart",

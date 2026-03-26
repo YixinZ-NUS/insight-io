@@ -4,8 +4,17 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 12
+- version: 14
 - major changes:
+  - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap, added a
+    focused aggregate-discovery regression test, verified the current host
+    still lists one Orbbec plus one webcam without duplication, and swept the
+    guide/report to remove the old fallback caveat
+  - 2026-03-26 rechecked the task-5 worktree against live host behavior,
+    corrected tracker underclaims for route-mismatch rejection, exact
+    source-response identity, source stop/start declaration preservation, and
+    referenced-session delete conflict, and recorded the explicit task-6 start
+    order plus donor-reuse recheck
   - 2026-03-26 fixed the defect-level PR #5 review items, covering route JSON
     field naming, 64-bit path-id validation, app-delete failure propagation,
     and safer post-insert reloads with focused tests plus live REST probes
@@ -34,6 +43,188 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage
+
+### What Changed
+
+- fixed aggregate discovery in
+  [discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/discovery.cpp)
+  so generic V4L2 duplicate suppression now activates only after
+  SDK-backed Orbbec discovery actually yields at least one usable Orbbec device
+- kept the existing duplicate-suppression behavior when Orbbec discovery does
+  succeed, but stopped suppressing generic V4L2 fallback when Orbbec discovery
+  returns no usable devices or throws
+- removed the now-unused hardcoded vendor-id export from
+  [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp)
+  and moved the aggregate fallback boundary into testable discovery hooks in
+  [discovery.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/discovery.hpp)
+- added focused regression coverage in
+  [discovery_test.cpp](/home/yixin/Coding/insight-io/backend/tests/discovery_test.cpp)
+  for three cases:
+  - empty Orbbec SDK discovery keeps V4L2 fallback visible
+  - Orbbec SDK discovery failure keeps V4L2 fallback visible
+  - usable Orbbec SDK discovery still enables V4L2 duplicate suppression
+- updated the build graph in
+  [backend/CMakeLists.txt](/home/yixin/Coding/insight-io/backend/CMakeLists.txt)
+  to build and run the new focused `discovery_test` target
+- refreshed the active docs in:
+  - [README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+
+### Why
+
+- the existing duplicate-suppression rule was safe only when Orbbec SDK
+  discovery worked reliably; if it returned nothing usable, the generic V4L2
+  fallback path could be hidden even though the hardware was still reachable
+- that made the fallback boundary too brittle for the real host setup where the
+  Orbbec camera sometimes looks like a V4L2 camera as well
+- task 6 depends on runtime reuse and attach behavior, so discovery needed to
+  be made resilient first rather than carrying an avoidable hardware-visibility
+  defect into the next slice
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4 --target \
+  discovery_test \
+  catalog_service_test \
+  session_service_test \
+  app_service_test \
+  rest_server_test \
+  insightiod
+
+ctest --test-dir build --output-on-failure -R \
+  'discovery_test|catalog_service_test|session_service_test|app_service_test|rest_server_test'
+
+mkdir -p /tmp/insight-io-orbbec-fix-frontend
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18188 \
+  --db-path /tmp/insight-io-orbbec-fix.sqlite3 \
+  --frontend /tmp/insight-io-orbbec-fix-frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18188/api/devices | jq -r \
+  '.devices[] | [.public_name, .driver] | @tsv'
+```
+
+## 2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order
+
+### What Changed
+
+- rechecked the current task-5 worktree against both the code and a fresh live
+  run on the development host
+- corrected four tracker underclaims that were already implementation-backed
+  and verification-backed:
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+    now marks `reject-incompatible-route-expectation` as passing
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+    now marks `delete-referenced-session-conflicts`,
+    `source-response-exposes-exact-stream-identity`, and
+    `app-source-stop-and-start-preserve-declaration` as passing
+- refreshed the active docs to match the recheck:
+  - [README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+- made the task-6 handoff more explicit in
+  [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md):
+  start with serving-runtime reuse keyed by `stream_id` plus publication
+  intent, then teach direct sessions and app sources to attach to that reuse
+  layer before porting IPC and RTSP serving
+- rechecked donor reuse against `../insightos`:
+  discovery remains the only substantial checked-in donor reuse, while donor
+  IPC, control-server, and `session_manager.cpp` still remain reference
+  material for tasks 6 through 8 rather than active reuse in this repo
+
+### Why
+
+- task 5 is closed, so the next planning handoff needs the feature scoreboards
+  to distinguish real runtime gaps from simple tracker drift
+- several `false` tracker entries were now actively hiding already-verified
+  control-plane behavior, which made the remaining scope look larger and less
+  ordered than it really is
+- task 6 is the first runtime slice where donor reuse matters again, so the
+  start order needed to be concrete before implementation resumes
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4 --target \
+  schema_store_test \
+  catalog_service_test \
+  session_service_test \
+  app_service_test \
+  rest_server_test \
+  insightiod
+
+ctest --test-dir build --output-on-failure
+
+mkdir -p /tmp/insight-io-review-frontend
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18186 \
+  --db-path /tmp/insight-io-review-live.sqlite3 \
+  --frontend /tmp/insight-io-review-frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18186/api/health | jq
+curl -s http://127.0.0.1:18186/api/devices | jq
+
+app_id=$(curl -s -X POST http://127.0.0.1:18186/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"tracker-review-app"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18186/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"yolov5","expect":{"media":"video"}}'
+source_json=$(curl -s -X POST http://127.0.0.1:18186/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"}')
+printf '%s\n' "${source_json}" | jq
+source_id=$(printf '%s' "${source_json}" | jq -r '.source_id')
+
+curl -s -X POST http://127.0.0.1:18186/api/apps/${app_id}/sources/${source_id}/stop \
+  -H 'Content-Type: application/json' -d '{}' | jq
+curl -s -X POST http://127.0.0.1:18186/api/apps/${app_id}/sources/${source_id}/start \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+mismatch_app_id=$(curl -s -X POST http://127.0.0.1:18186/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"tracker-mismatch-app"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18186/api/apps/${mismatch_app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}'
+curl -s -i -X POST http://127.0.0.1:18186/api/apps/${mismatch_app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"orbbec/depth"}'
+
+session_id=$(curl -s -X POST http://127.0.0.1:18186/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+bind_app_id=$(curl -s -X POST http://127.0.0.1:18186/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"delete-conflict-app"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18186/api/apps/${bind_app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"cam","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18186/api/apps/${bind_app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"cam\"}" | jq
+curl -s -i -X DELETE http://127.0.0.1:18186/api/sessions/${session_id}
+
+diff -u ../insightos/backend/src/discovery/v4l2_discovery.cpp \
+  backend/src/discovery/v4l2_discovery.cpp
+diff -u ../insightos/backend/src/discovery/pipewire_discovery.cpp \
+  backend/src/discovery/pipewire_discovery.cpp
+diff -u ../insightos/backend/src/discovery/orbbec_discovery.cpp \
+  backend/src/discovery/orbbec_discovery.cpp
+find ../insightos/backend -maxdepth 3 -type f \
+  \( -iname '*ipc*' -o -iname '*session_manager*' -o -iname '*worker*' \) | sort
+find backend/src -maxdepth 2 -type f | sort
+```
 
 ## 2026-03-26 – Fix PR #5 Defect-Level Review Items
 

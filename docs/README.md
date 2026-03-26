@@ -4,8 +4,17 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 19
+- version: 21
 - major changes:
+  - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap so generic
+    V4L2 suppression now activates only after usable SDK-backed Orbbec
+    discovery succeeds, added focused aggregate-discovery regression coverage,
+    and refreshed the guide/report to remove the old fallback caveat
+  - 2026-03-26 rechecked the task-5 worktree against live host behavior,
+    corrected tracker underclaims for route-mismatch rejection, exact source
+    response identity, source stop/start declaration preservation, and
+    referenced-session delete conflict, and made the task-6 start order more
+    explicit in the tech report
   - 2026-03-26 fixed the defect-level PR #5 review items by hardening
     app/route post-insert reloads, propagating app-delete session-stop
     failures, aligning REST route payloads on `expect`, and rejecting
@@ -60,6 +69,8 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
+  - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
   - `2026-03-26 – Fix PR #5 Defect-Level Review Items`
   - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
