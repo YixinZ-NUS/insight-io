@@ -4,11 +4,17 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 8
+- version: 10
 - major changes:
+  - 2026-03-26 documented the checked-in direct-session slice as current API,
+    removed unimplemented app endpoints from the active index, and marked the
+    app/app-source sections below as planned contract only
+  - 2026-03-26 removed redundant stored app-source kind fields from the active
+    schema guidance and documented bind-kind inference from existing foreign
+    keys instead
   - 2026-03-26 aligned device-catalog selector naming with the reviewed
-    contract, removed redundant `selector_key` from the checked-in response
-    shape, and documented the next direct-session slice
+    contract and removed redundant `selector_key` from the checked-in response
+    shape
   - 2026-03-26 documented the catalog and alias request/response shape now used
     by the checked-in implementation slice
   - 2026-03-25 removed stale source variant/group response fields, made RTSP
@@ -21,6 +27,9 @@
     than a peer to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI contract
 - past tasks:
+  - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
+  - `2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying`
+  - `2026-03-26 – Take Back Redundant App-Source Kind Columns`
   - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
@@ -50,19 +59,28 @@ Important rule:
 | `POST` | `/api/sessions/{id}/start` | rehydrate one persisted logical session |
 | `POST` | `/api/sessions/{id}/stop` | stop one logical session |
 | `DELETE` | `/api/sessions/{id}` | destroy one unreferenced logical session |
-| `POST` | `/api/apps` | create one durable app record |
-| `GET` | `/api/apps` | list durable apps |
-| `GET` | `/api/apps/{id}` | inspect one app |
-| `DELETE` | `/api/apps/{id}` | delete one app and its owned records |
-| `POST` | `/api/apps/{id}/routes` | create one route on an app |
-| `GET` | `/api/apps/{id}/routes` | list one app's routes |
-| `DELETE` | `/api/apps/{id}/routes/{route}` | delete one unused route |
-| `GET` | `/api/apps/{id}/sources` | list one app's sources |
-| `POST` | `/api/apps/{id}/sources` | create one app-source bind from one URI or one existing session |
-| `POST` | `/api/apps/{id}/sources/{source_id}/start` | restart one persisted app source |
-| `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop one running app source |
-| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | replace one target binding at runtime |
 | `GET` | `/api/status` | inspect shared capture and publication state |
+
+The checked-in backend does not yet implement the app, route, or app-source
+endpoints from the broader contract.
+
+## Planned App APIs
+
+These endpoints remain planned and are documented below as future contract, not
+as currently served routes:
+
+- `POST /api/apps`
+- `GET /api/apps`
+- `GET /api/apps/{id}`
+- `DELETE /api/apps/{id}`
+- `POST /api/apps/{id}/routes`
+- `GET /api/apps/{id}/routes`
+- `DELETE /api/apps/{id}/routes/{route}`
+- `GET /api/apps/{id}/sources`
+- `POST /api/apps/{id}/sources`
+- `POST /api/apps/{id}/sources/{source_id}/start`
+- `POST /api/apps/{id}/sources/{source_id}/stop`
+- `POST /api/apps/{id}/sources/{source_id}/rebind`
 
 ## Device Catalog Publication Notes
 
@@ -103,9 +121,10 @@ Rules:
 
 ## App Route Request Contract
 
-This section describes the REST payload for `POST /api/apps/{id}/routes`.
-It is not an alternative to the SDK `app.route(...)` API. In the normal SDK
-flow, `app.route(...).expect(...)` serializes into this request shape.
+This section describes the planned REST payload for
+`POST /api/apps/{id}/routes`. It is not an alternative to the SDK
+`app.route(...)` API. In the normal SDK flow,
+`app.route(...).expect(...)` serializes into this request shape.
 
 Create routes before binding sources:
 
@@ -365,7 +384,6 @@ Rules:
 
 App-source responses include:
 
-- `source_kind`
 - `uri`
 - `target`
 - `target_resource_name` when the target resolves to one exact route, formatted
@@ -387,6 +405,15 @@ which resolved exact stream was connected to the target. A successful
 session-backed bind records both the referenced `source_session_id` and the
 currently serving `active_session_id`. Grouped binds additionally record their
 member-to-route mapping in `resolved_members_json`.
+
+Bind-kind inference rules:
+
+- if `target_resource_name` is present, the bind resolves to one exact declared
+  route
+- if `target_resource_name` is absent and `resolved_members_json` is present,
+  the bind resolves to one grouped target root
+- if `source_session_id` is present, the bind is session-backed
+- if `source_session_id` is absent, the bind is URI-backed
 
 Why both session ids are exposed:
 

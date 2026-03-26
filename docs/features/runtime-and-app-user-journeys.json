@@ -1,5 +1,5 @@
 {
-  "version": 8,
+  "version": 9,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -146,7 +146,7 @@
         "Verify the returned payload includes session and exact stream metadata",
         "Verify the session can be inspected through GET /api/sessions/{id}"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "insightos-open-equivalent-session-flow",
@@ -185,7 +185,7 @@
         "Call POST /api/sessions/{id}/start",
         "Verify a fresh runtime session is active"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "delete-referenced-session-conflicts",

@@ -4,8 +4,15 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 11
+- version: 15
 - major changes:
+  - 2026-03-26 synced the docs set to the checked-in direct-session slice,
+    added a direct-session sequence diagram, and moved the handoff to app,
+    route, and source persistence
+  - 2026-03-26 took back redundant `app_sources.target_kind` and
+    `app_sources.source_kind`, made durable bind kind inferred from the row
+    shape itself, made app-source uniqueness explicit in the canonical SQL,
+    and scoped exact-route binds to one app-local route owner
   - 2026-03-26 aligned the active docs with the reviewed selector contract:
     plain V4L2 selectors such as `720p_30`, retained `orbbec/...` namespacing
     for grouped RGBD families, and removed redundant stored `selector_key`
@@ -42,6 +49,9 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
+  - `2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying`
+  - `2026-03-26 – Take Back Redundant App-Source Kind Columns`
   - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
@@ -79,6 +89,9 @@
   an app must not declare both one exact route `x` and any route below `x/`
 - exact-member URIs still mean one delivered stream
 - grouped preset URIs may mean one fixed related stream bundle
+- the checked-in backend now serves health, device catalog, alias, direct
+  session lifecycle, and runtime-status endpoints; durable app/app-source
+  management remains the next slice
 - discovery publishes selectable choices; sessions and workers realize them
   later
 - RTSP is optional durable publication intent on `app_sources` and `sessions`
@@ -120,6 +133,13 @@
 - `streams` uniqueness should be enforced at the ownership boundary with
   `UNIQUE(device_id, selector)` rather than by storing a concatenated
   `selector_key`
+- `app_sources` should not store extra `target_kind` or `source_kind` columns;
+  exact versus grouped bind kind is inferred from `route_id`, and URI-backed
+  versus session-backed bind kind is inferred from `source_session_id`
+- exact app-route binds should be owned by the same app row they serve, using
+  one composite route reference `(app_id, route_id) -> app_routes(app_id,
+  route_id)` so deleting a route cascades only the exact-route bindings that
+  use it
 
 ## Doc Map
 
@@ -142,6 +162,7 @@
 | `docs/diagram/intent-routing-runtime.md` | runtime/control-plane diagram | active |
 | `docs/diagram/bootstrap-health-sequence.md` | sequence diagram for backend bootstrap and health | active |
 | `docs/diagram/catalog-discovery-sequence.md` | sequence diagram for discovery refresh and alias-backed catalog reads | active |
+| `docs/diagram/direct-session-sequence.md` | sequence diagram for direct-session create, restart, and delete flow | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
 ## Status Rules

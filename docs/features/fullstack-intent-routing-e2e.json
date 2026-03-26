@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -176,6 +176,20 @@
         "Open the device catalog API for a grouped-source device",
         "Verify fixed grouped preset URIs are listed when supported",
         "Verify the bind contract still posts only one app-local `target`"
+      ],
+      "passes": true
+    },
+    {
+      "id": "direct-session-rest-lifecycle",
+      "category": "functional",
+      "description": "Backend can create, inspect, stop, restart, and delete a direct logical session from one listed URI",
+      "steps": [
+        "Start the backend and inspect the listed device catalog",
+        "Call POST /api/sessions with one listed exact URI",
+        "Verify GET /api/sessions, GET /api/sessions/{id}, and GET /api/status reflect the created session",
+        "Call POST /api/sessions/{id}/stop and POST /api/sessions/{id}/start",
+        "Restart the backend with the same database and verify the persisted session can be inspected and restarted",
+        "Stop the session and call DELETE /api/sessions/{id} to verify the unreferenced session is removed"
       ],
       "passes": true
     },

@@ -4,8 +4,12 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 4
+- version: 6
 - major changes:
+  - 2026-03-26 reran the checked-in direct-session slice on the development
+    host: focused tests are green, live discovery returns the webcam, Orbbec,
+    and PipeWire devices, and the guide now includes a direct-session smoke
+    walkthrough
   - 2026-03-26 aligned the guide with the reviewed selector contract: V4L2
     selectors are plain `720p_30` style, Orbbec selectors remain namespaced,
     and SQLite inspection now shows device-scoped selector uniqueness
@@ -17,6 +21,7 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
   - `2026-03-26 – Review Current Scaffold, Discovery Reuse, And Schema Keying`
   - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
@@ -31,8 +36,10 @@ This guide covers the currently implemented slice only:
 - query `GET /api/health`
 - inspect `GET /api/devices`
 - update `POST /api/devices/{device}/alias`
+- create, inspect, start, stop, and delete direct sessions through the REST API
+- inspect `/api/status`
 
-Catalog discovery, session creation, app routing, frontend management, and SDK
+App routing, persistent app/source management, frontend management, and SDK
 callbacks are not yet available in this checked-in slice.
 
 ## Build
@@ -47,6 +54,7 @@ Expected binaries:
 - `build/bin/insightiod`
 - `build/bin/schema_store_test`
 - `build/bin/catalog_service_test`
+- `build/bin/session_service_test`
 - `build/bin/rest_server_test`
 
 ## Test
@@ -54,6 +62,13 @@ Expected binaries:
 ```bash
 ctest --test-dir build --output-on-failure
 ```
+
+Current checked-in result on the development host:
+
+- `schema_store_test`: pass
+- `catalog_service_test`: pass
+- `session_service_test`: pass
+- `rest_server_test`: pass
 
 ## Run
 
@@ -86,6 +101,7 @@ Expected response shape:
   "catalog_device_count": 4,
   "db_path": "/tmp/insight-io.sqlite3",
   "frontend_path": "/tmp/frontend",
+  "session_count": 0,
   "status": "ok",
   "version": "0.1.0"
 }
@@ -97,12 +113,12 @@ Expected response shape:
 curl -s http://127.0.0.1:18180/api/devices | jq
 ```
 
-On the current development machine, the catalog should show:
+On the current development machine, the catalog currently shows:
 
 - one V4L2 webcam with selectors such as `720p_30`
 - one Orbbec device with selectors including `orbbec/depth/400p_30`,
   `orbbec/depth/480p_30`, and `orbbec/preset/480p_30`
-- PipeWire audio sources when PipeWire discovery is enabled
+- two PipeWire audio sources when PipeWire discovery is enabled
 
 ## Device Alias
 
@@ -114,6 +130,43 @@ curl -s -X POST http://127.0.0.1:18180/api/devices/web-camera/alias \
 
 After aliasing, both the derived `insightos://` URI and
 `publications_json.rtsp.url` should use `front-camera` in the device path.
+
+## Direct Session Smoke Test
+
+Create one direct session from a listed URI:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}' | jq
+```
+
+Inspect the persisted direct-session slice:
+
+```bash
+curl -s http://127.0.0.1:18180/api/sessions | jq
+curl -s http://127.0.0.1:18180/api/sessions/1 | jq
+curl -s http://127.0.0.1:18180/api/status | jq
+```
+
+Exercise the remaining lifecycle endpoints:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1/stop \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1/start \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1/stop \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+curl -i -X DELETE http://127.0.0.1:18180/api/sessions/1
+```
+
+To verify restart normalization, stop the session, restart `insightiod` with
+the same `--db-path`, and then inspect `GET /api/sessions/1` before calling
+`POST /api/sessions/1/start` again.
 
 ## Review Walkthrough
 
@@ -132,7 +185,15 @@ The current checked-in test scope is intentionally narrow:
 
 - schema bootstrap
 - persisted catalog shaping
-- REST health, catalog, and alias surfaces
+- direct-session lifecycle and status verification
+- REST health, catalog, alias, and direct-session surfaces
+
+Current audit result:
+
+- `ctest` is green
+- focused coverage now includes schema bootstrap, catalog shaping, direct
+  session lifecycle, restart normalization, delete-conflict handling, and REST
+  surface checks
 
 ### Live Discovery Review
 
@@ -148,24 +209,17 @@ curl -s http://127.0.0.1:18183/api/health | jq
 curl -s http://127.0.0.1:18183/api/devices | jq
 ```
 
-On the current development machine, the review run observed four catalog
-devices:
+Current audit result on the development host:
 
-- one Orbbec device published as `sv1301s-u3`
-- one V4L2 webcam published as `web-camera`
-- two PipeWire audio sources
-
-The observed Orbbec catalog included:
-
-- `orbbec/depth/400p_30`
-- `orbbec/depth/480p_30`
-- `orbbec/preset/480p_30`
-
-The observed V4L2 webcam catalog included selectors such as:
-
-- `720p_30`
-- `1080p_30`
-- `2160p_30`
+- `GET /api/devices` returned four online devices on this host:
+  - one V4L2 webcam
+  - one Orbbec camera
+  - two PipeWire audio devices
+- the webcam retained compact selectors such as `720p_30`
+- the Orbbec device exposed `orbbec/depth/400p_30`,
+  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30`
+- the direct-session smoke flow using `insightos://localhost/web-camera/720p_30`
+  succeeded for create, inspect, status, stop, restart, and delete
 
 ### SQLite Review
 
@@ -179,8 +233,9 @@ sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
    FROM streams ORDER BY device_id, selector;"
 ```
 
-This confirms that the current runtime is persisting only the `devices` and
-`streams` portions of the seven-table schema.
+During discovery-only runs this confirms that the current runtime is
+persisting the catalog rows in `devices` and `streams`. During the direct
+session smoke flow, `sessions` and `session_logs` also gain rows as expected.
 
 ### Duplicate Orbbec Suppression
 
@@ -192,3 +247,28 @@ lists.
 
 If the Orbbec SDK is unavailable at build or run time, that suppression path is
 not active, so the hardware may reappear only through the generic V4L2 route.
+
+Current implementation caveat:
+
+- the skip list is keyed off the compiled-in Orbbec vendor set before the code
+  knows whether SDK discovery actually returned a usable Orbbec device
+- in practice, that means a future fallback rule is still needed so generic
+  V4L2 visibility is not hidden when SDK-backed discovery is absent or
+  incomplete
+
+## Direct Session Slice
+
+The current backend now exposes these session endpoints:
+
+- `POST /api/sessions`
+- `GET /api/sessions`
+- `GET /api/sessions/{id}`
+- `POST /api/sessions/{id}/start`
+- `POST /api/sessions/{id}/stop`
+- `DELETE /api/sessions/{id}`
+- `GET /api/status`
+
+The focused tests plus the live smoke flow above verify the direct-session
+REST and persistence slice on this host. Media-worker reuse, app/app-source
+flows, grouped attach, and active RTSP publication runtime are still future
+work.

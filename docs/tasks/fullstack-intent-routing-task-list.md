@@ -4,10 +4,13 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 9
+- version: 10
 - major changes:
-  - 2026-03-26 documented the reviewed selector/schema cleanup and made the
-    next direct-session slice explicit
+  - 2026-03-26 marked the direct-session REST and status slice complete in the
+    checked-in backend and moved the next handoff to durable apps, routes, and
+    sources
+  - 2026-03-26 documented the reviewed selector/schema cleanup before the
+    direct-session implementation landed
   - 2026-03-26 reintroduced persisted discovery, alias control, grouped Orbbec
     catalog shaping, and queryable RTSP publication metadata
   - 2026-03-25 reintroduced the first buildable backend slice with the explicit
@@ -22,6 +25,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
   - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
@@ -29,15 +33,19 @@
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
-The bootstrap implementation has restarted. The current checked-in code covers
-the explicit v1 schema, a versioned health endpoint, persisted discovery and
-catalog reads, device alias updates, and focused build/runtime tests. The
-ordered tasks below describe the remaining feature work.
+The current checked-in code covers the explicit v1 schema, a versioned health
+endpoint, persisted discovery and catalog reads, device alias updates, direct
+session REST/status flow, and focused build/runtime tests. The ordered tasks
+below describe the remaining feature work.
 
-The next implementation slice is still task 4:
+Completed slices:
 
-- reintroduce direct session APIs and runtime status inspection on top of the
-  now-reviewed catalog contract
+- tasks 1 through 4 are now implemented in checked-in form
+
+The next implementation slice is task 5:
+
+- reintroduce persistent apps, routes, and sources on top of the reviewed
+  catalog and direct-session contract
 
 ## Ordered Tasks
 

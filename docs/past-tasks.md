@@ -4,8 +4,14 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 4
+- version: 8
 - major changes:
+  - 2026-03-26 recorded the checked-in direct-session REST and status slice,
+    including live smoke verification, doc/task/tracker sync, and a direct
+    session sequence diagram
+  - 2026-03-26 recorded the app-source schema takeback, removing redundant bind
+    kind columns, adding the missing canonical uniqueness indexes, and
+    tightening exact-route ownership to the same app row
   - 2026-03-26 recorded the selector/schema review follow-up, including the
     reviewed V4L2 selector rename, the retained Orbbec namespace, and the
     removal of redundant stored `selector_key`
@@ -14,6 +20,81 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-26 – Reintroduce Direct Session REST And Status Slice
+
+### What Changed
+
+- added the checked-in direct-session service in:
+  - [session_service.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/session_service.hpp)
+  - [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+- threaded that service into the backend binary and REST surface in:
+  - [backend/CMakeLists.txt](/home/yixin/Coding/insight-io/backend/CMakeLists.txt)
+  - [rest_server.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/rest_server.hpp)
+  - [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  - [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp)
+- added focused lifecycle coverage in:
+  - [session_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/session_service_test.cpp)
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+- updated the checked-in docs so guide, report, REST reference, task handoff,
+  diagrams, and trackers all reflect the same slice:
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+  - [direct-session-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/direct-session-sequence.md)
+
+### Why
+
+- the repo had the direct-session code path in flight, but the surrounding docs
+  and trackers still mixed older scaffold notes, stale failure claims, and
+  future-work wording
+- the slice is now strong enough to be treated as checked in:
+  focused tests are green and the live backend can create, inspect, stop,
+  restart, and delete a direct session from a real catalog entry on this host
+- the next handoff needs to be app, route, and app-source persistence rather
+  than another pass of ambiguity about whether direct sessions exist at all
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18186 \
+  --db-path /tmp/insight-io-direct-session-smoke.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18186/api/health
+curl -s http://127.0.0.1:18186/api/devices
+curl -s -X POST http://127.0.0.1:18186/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}'
+curl -s http://127.0.0.1:18186/api/sessions
+curl -s http://127.0.0.1:18186/api/status
+curl -s -X POST http://127.0.0.1:18186/api/sessions/1/stop \
+  -H 'Content-Type: application/json' -d '{}'
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18186 \
+  --db-path /tmp/insight-io-direct-session-smoke.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18186/api/sessions/1
+curl -s -X POST http://127.0.0.1:18186/api/sessions/1/start \
+  -H 'Content-Type: application/json' -d '{}'
+curl -s -X POST http://127.0.0.1:18186/api/sessions/1/stop \
+  -H 'Content-Type: application/json' -d '{}'
+curl -i -X DELETE http://127.0.0.1:18186/api/sessions/1
+```
 
 ## 2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying
 
@@ -77,6 +158,73 @@ sqlite3 /tmp/insight-io-selector-review.sqlite3 ".mode box" \
 sqlite3 /tmp/insight-io-selector-review.sqlite3 ".mode box" \
   "SELECT stream_id, device_id, selector, media_kind, shape_kind \
    FROM streams ORDER BY device_id, selector;"
+```
+
+## 2026-03-26 – Take Back Redundant App-Source Kind Columns
+
+### What Changed
+
+- updated the canonical SQL schema in
+  [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
+  so it now:
+  - removes redundant `app_sources.target_kind`
+  - removes redundant `app_sources.source_kind`
+  - makes `sessions.stream_id` required
+  - makes `app_sources.stream_id` required
+  - adds the canonical app-source uniqueness indexes on `(app_id, target_name)`
+    and `(app_id, route_id) WHERE route_id IS NOT NULL`
+  - makes exact-route binds app-local by adding
+    `UNIQUE(app_id, route_id)` on `app_routes`
+  - replaces the global `route_id -> app_routes.route_id` reference with
+    `(app_id, route_id) -> app_routes(app_id, route_id)`
+  - makes route deletion cascade only the exact-route `app_sources` rows that
+    target that declared route
+- tightened the schema regression test in
+  [schema_store_test.cpp](/home/yixin/Coding/insight-io/backend/tests/schema_store_test.cpp)
+  so it now verifies:
+  - redundant app-source kind columns stay absent
+  - `stream_id` is required on `sessions` and `app_sources`
+  - the canonical app-source uniqueness indexes exist
+  - exact-route ownership is enforced through the composite route foreign key
+- updated the active contract docs in:
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+
+### Why
+
+- `target_kind` duplicated information already encoded by whether `route_id`
+  is present
+- `source_kind` duplicated information already encoded by whether
+  `source_session_id` is present
+- leaving those kind columns in the canonical SQL would create avoidable
+  divergence between the stored row shape and the real ownership model
+- the docs already promised app-source uniqueness semantics that the SQL had
+  not yet enforced, so the canonical schema needed the missing indexes before
+  implementation work starts depending on that table
+- exact-route binds should not be able to drift across apps by pointing at
+  someone else's `route_id`, so route ownership also needed to become a schema
+  rule instead of an application-side convention
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA table_info(app_sources);"
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA table_info(sessions);"
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA index_list(app_sources);"
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA foreign_key_list(app_sources);"
 ```
 
 ## 2026-03-26 – Review Current Scaffold, Discovery Reuse, And Schema Keying
