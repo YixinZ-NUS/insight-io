@@ -1,7 +1,8 @@
 # role: bootstrap the standalone insight-io backend build.
-# revision: 2026-03-26 app-route-source-persistence
-# major changes: adds the durable app/route/source service and tests while
-# keeping the standalone backend build aligned with docs/past-tasks.md.
+# revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+# major changes: vendors the Orbbec SDK under this repository, keeps the
+# durable app/route/source build graph, and aligns SQLite access with the
+# threaded REST server.
 
 include(FetchContent)
 include(FindPkgConfig)
@@ -27,7 +28,7 @@ set(INSIGHTIO_HAS_PIPEWIRE OFF)
 
 if (ENABLE_ORBBEC)
     set(INSIGHTIO_ORBBEC_SDK_ROOT
-        "${CMAKE_SOURCE_DIR}/../insightos/third_party/orbbec_sdk/SDK"
+        "${CMAKE_SOURCE_DIR}/third_party/orbbec_sdk/SDK"
         CACHE PATH "Orbbec SDK root")
     set(INSIGHTIO_ORBBEC_SDK_INCLUDE "${INSIGHTIO_ORBBEC_SDK_ROOT}/include")
     set(INSIGHTIO_ORBBEC_SDK_LIB "${INSIGHTIO_ORBBEC_SDK_ROOT}/lib")

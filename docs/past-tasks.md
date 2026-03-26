@@ -4,8 +4,12 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 10
+- version: 11
 - major changes:
+  - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
+    `FULLMUTEX`, confirmed Orbbec pipeline-profile fallback, recorded pure D2C
+    capability gating as TODO, and refreshed the donor-reuse status from code
+    plus live catalog output
   - 2026-03-26 recorded grouped-route delete cleanup closeout, regression
     tests, live host verification, task-list refresh, tracker correction for
     callback-dependent flows, and a grouped-route-delete sequence diagram
@@ -27,6 +31,100 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status
+
+### What Changed
+
+- reviewed the three requested post-task-5 follow-ups against the checked-in
+  code, focused tests, live discovery output, and the donor repo at
+  `../insightos`
+- confirmed the SQLite threading review item landed in:
+  [schema_store.cpp](/home/yixin/Coding/insight-io/backend/src/schema_store.cpp)
+  and
+  [schema_store_test.cpp](/home/yixin/Coding/insight-io/backend/tests/schema_store_test.cpp)
+  by switching the shared database handle from `SQLITE_OPEN_NOMUTEX` to
+  `SQLITE_OPEN_FULLMUTEX`
+- confirmed the Orbbec discovery fallback review item landed in
+  [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp):
+  when the raw sensor list does not populate `color` or `depth`, discovery now
+  retries those profiles through `ob::Pipeline::getStreamProfileList(...)`
+- recorded the third review item as not fully closed yet:
+  [catalog.cpp](/home/yixin/Coding/insight-io/backend/src/catalog.cpp) no
+  longer uses a literal serial allowlist, but aligned/grouped `480p_30`
+  publication still falls back to the proven `sv1301s-u3` family and to the
+  no-probe path
+- added an explicit TODO note that a pure SDK D2C capability gate should
+  replace the current hardcoded/family-gated `480p_30` publication rule later;
+  for now the hardcoded `480p` path is retained as acceptable behavior
+- refreshed the active docs in:
+  [README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  and
+  [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  so they now describe the current donor-reuse boundary accurately:
+  - discovery remains substantial donor reuse
+  - the Orbbec SDK is vendored locally in this repo
+  - donor IPC, worker, and `session_manager` code are still reference material,
+    not checked-in reuse in `insight-io`
+- did not flip any additional feature tracker entries because the remaining
+  `false` items still depend on unported IPC/runtime delivery, RTSP runtime,
+  SDK callbacks, or broader end-to-end verification
+
+### Why
+
+- task 5 is closed, but the follow-up review items needed a precise
+  code-versus-doc check before the next runtime slice starts
+- the docs were starting to overstate the aligned/grouped `480p` gate as if the
+  pure capability-probe version were already the active rule
+- the donor reuse boundary matters for task 6 onward because discovery is
+  already ported while IPC, workers, and runtime reuse are still absent from
+  this repo
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4 --target \
+  schema_store_test \
+  catalog_service_test \
+  app_service_test \
+  rest_server_test \
+  insightiod
+
+./build/bin/schema_store_test
+./build/bin/catalog_service_test
+./build/bin/app_service_test
+./build/bin/rest_server_test
+
+mkdir -p /tmp/insight-io-review-frontend
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18185 \
+  --db-path /tmp/insight-io-review.sqlite3 \
+  --frontend /tmp/insight-io-review-frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18185/api/health | jq
+curl -s http://127.0.0.1:18185/api/devices | jq
+
+sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
+  "SELECT device_id, device_key, public_name, driver, status \
+   FROM devices ORDER BY public_name;"
+
+sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
+  "SELECT stream_id, device_id, selector, media_kind, shape_kind \
+   FROM streams ORDER BY device_id, selector;"
+
+diff -u ../insightos/backend/src/discovery/v4l2_discovery.cpp \
+  backend/src/discovery/v4l2_discovery.cpp
+diff -u ../insightos/backend/src/discovery/pipewire_discovery.cpp \
+  backend/src/discovery/pipewire_discovery.cpp
+diff -u ../insightos/backend/src/discovery/orbbec_discovery.cpp \
+  backend/src/discovery/orbbec_discovery.cpp
+
+find backend -maxdepth 3 \
+  \( -iname '*ipc*' -o -iname '*worker*' -o -iname '*session_manager*' \) | sort
+```
 
 ## 2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff
 

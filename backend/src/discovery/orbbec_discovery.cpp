@@ -1,7 +1,8 @@
 // role: Orbbec SDK discovery for the standalone backend.
-// revision: 2026-03-26 catalog-discovery-slice
-// major changes: discovers Orbbec color and depth capabilities and supplies
-// the Orbbec USB vendor skip set used by V4L2 discovery.
+// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+// major changes: discovers Orbbec color and depth capabilities, falls back to
+// pipeline profile enumeration when the sensor list is incomplete, and
+// supplies the Orbbec USB vendor skip set used by V4L2 discovery.
 
 #ifdef INSIGHTIO_HAS_ORBBEC
 
@@ -9,12 +10,16 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <iomanip>
 #include <set>
+#include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include <libobsensor/ObSensor.hpp>
 #include <libobsensor/hpp/Error.hpp>
+#include <libobsensor/hpp/Pipeline.hpp>
 #include <libobsensor/hpp/Sensor.hpp>
 #include <libobsensor/hpp/StreamProfile.hpp>
 
@@ -56,6 +61,13 @@ std::string ob_format_to_string(OBFormat format) {
         default:
             return "unknown";
     }
+}
+
+std::string hex_usb_identifier(int value) {
+    std::ostringstream stream;
+    stream << std::hex << std::nouppercase << std::setw(4) << std::setfill('0')
+           << (value & 0xffff);
+    return stream.str();
 }
 
 std::string resolve_orbbec_config_path() {
@@ -143,6 +155,26 @@ void add_stream(DeviceInfo& device,
     device.streams.push_back(std::move(stream));
 }
 
+bool has_stream(const DeviceInfo& device, std::string_view stream_id) {
+    for (const auto& stream : device.streams) {
+        if (stream.stream_id == stream_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::shared_ptr<ob::StreamProfileList> get_pipeline_profiles(
+    const std::shared_ptr<ob::Device>& handle,
+    OBSensorType type) {
+    try {
+        ob::Pipeline pipeline(handle);
+        return pipeline.getStreamProfileList(type);
+    } catch (...) {
+        return nullptr;
+    }
+}
+
 }  // namespace
 
 std::set<std::string> get_orbbec_vendor_ids() {
@@ -171,17 +203,24 @@ std::vector<DeviceInfo> discover_orbbec() {
             auto info = handle->getDeviceInfo();
             const std::string name = info ? info->name() : "Orbbec";
             const std::string serial = info ? info->serialNumber() : "";
+            const std::string uid = info ? info->uid() : "";
+            const std::string device_token =
+                !serial.empty() ? serial
+                                : (!uid.empty() ? uid
+                                                : std::to_string(index));
 
             DeviceInfo device;
             device.kind = DeviceKind::kOrbbec;
             device.name = name;
-            device.uri = serial.empty() ? ("orbbec://" + std::to_string(index))
-                                        : ("orbbec://" + serial);
+            device.uri = "orbbec://" + device_token;
             device.identity.device_uri = device.uri;
-            device.identity.device_id = serial.empty() ? std::to_string(index) : serial;
+            device.identity.device_id = device_token;
             device.identity.kind_str = "orbbec";
             device.identity.hardware_name = name;
-            device.identity.usb_vendor_id = "2bc5";
+            device.identity.usb_vendor_id =
+                info ? hex_usb_identifier(info->vid()) : "2bc5";
+            device.identity.usb_product_id =
+                info ? hex_usb_identifier(info->pid()) : "";
             device.identity.usb_serial = serial;
             device.description = name + (serial.empty() ? "" : " (S/N " + serial + ")");
 
@@ -197,6 +236,17 @@ std::vector<DeviceInfo> discover_orbbec() {
                     add_stream(device, "depth", sensor->getStreamProfileList());
                 }
             } catch (...) {
+            }
+
+            if (!has_stream(device, "color")) {
+                add_stream(device,
+                           "color",
+                           get_pipeline_profiles(handle, OB_SENSOR_COLOR));
+            }
+            if (!has_stream(device, "depth")) {
+                add_stream(device,
+                           "depth",
+                           get_pipeline_profiles(handle, OB_SENSOR_DEPTH));
             }
 
             if (device.streams.empty()) {

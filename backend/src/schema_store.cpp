@@ -1,7 +1,7 @@
 // role: SQLite bootstrap implementation for the standalone insight-io backend.
-// revision: 2026-03-25 bootstrap-runtime-build
-// major changes: opens the database, enables safe SQLite pragmas, and applies
-// the checked-in seven-table schema. See docs/past-tasks.md.
+// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+// major changes: opens the database in serialized SQLite mode, enables safe
+// pragmas, and applies the checked-in seven-table schema. See docs/past-tasks.md.
 
 #include "insightio/backend/schema_store.hpp"
 
@@ -63,7 +63,7 @@ bool SchemaStore::open() {
     const int rc = sqlite3_open_v2(
         db_path_.c_str(),
         &db_,
-        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX,
+        SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX,
         nullptr);
     if (rc != SQLITE_OK) {
         std::cerr << "[SchemaStore] sqlite3_open failed: "

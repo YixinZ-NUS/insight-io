@@ -1,7 +1,8 @@
 // role: focused catalog service tests for the standalone backend.
-// revision: 2026-03-26 selector-schema-review
+// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
 // major changes: verifies alias persistence, reviewed V4L2 selector naming,
-// and Orbbec selector shaping against synthetic discovery input.
+// and Orbbec selector shaping without a serial-specific allowlist against
+// synthetic discovery input.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -83,15 +84,15 @@ DeviceInfo make_webcam() {
 
 DeviceInfo make_orbbec() {
     DeviceInfo device;
-    device.uri = "orbbec://AY27552002M";
+    device.uri = "orbbec://ORB001";
     device.kind = DeviceKind::kOrbbec;
     device.name = "Desk RGBD";
     device.identity.device_uri = device.uri;
-    device.identity.device_id = "AY27552002M";
+    device.identity.device_id = "ORB001";
     device.identity.kind_str = "orbbec";
     device.identity.hardware_name = device.name;
     device.identity.usb_vendor_id = "2bc5";
-    device.identity.usb_serial = "AY27552002M";
+    device.identity.usb_serial = "ORB001";
 
     StreamInfo color;
     color.stream_id = "color";

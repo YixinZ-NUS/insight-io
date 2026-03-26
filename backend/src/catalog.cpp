@@ -1,7 +1,9 @@
 // role: persisted discovery catalog for the standalone backend.
-// revision: 2026-03-26 selector-schema-review
-// major changes: removes redundant selector_key persistence, keeps per-device
-// selector uniqueness, and applies the reviewed selector naming contract.
+// revision: 2026-03-26 post-task5-review-followups
+// major changes: removes serial-specific Orbbec catalog shaping, keeps the
+// current proven 480p publication rule for the SV1301S_U3 family, and leaves a
+// pure SDK D2C capability gate as a follow-up TODO while keeping per-device
+// selector uniqueness.
 
 #include "insightio/backend/catalog.hpp"
 
@@ -9,7 +11,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <chrono>
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -17,11 +21,211 @@
 #include <sstream>
 #include <tuple>
 
+#ifdef INSIGHTIO_HAS_ORBBEC
+#include <libobsensor/ObSensor.hpp>
+#include <libobsensor/hpp/Error.hpp>
+#include <libobsensor/hpp/Pipeline.hpp>
+#endif
+
 namespace insightio::backend {
 
 namespace {
 
 std::string rtsp_host_from_url(const std::string& url);
+
+struct OrbbecCatalogProbe {
+    bool probe_ran{false};
+    bool supports_hw_d2c_480{false};
+};
+
+#ifdef INSIGHTIO_HAS_ORBBEC
+std::string ob_format_to_string(OBFormat format) {
+    switch (format) {
+        case OB_FORMAT_YUYV:
+            return "yuyv";
+        case OB_FORMAT_UYVY:
+            return "uyvy";
+        case OB_FORMAT_NV12:
+            return "nv12";
+        case OB_FORMAT_NV21:
+            return "nv21";
+        case OB_FORMAT_MJPG:
+            return "mjpeg";
+        case OB_FORMAT_H264:
+            return "h264";
+        case OB_FORMAT_H265:
+            return "h265";
+        case OB_FORMAT_RGB:
+            return "rgb24";
+        case OB_FORMAT_BGR:
+            return "bgr24";
+        case OB_FORMAT_BGRA:
+            return "bgra";
+        case OB_FORMAT_RGBA:
+            return "rgba";
+        case OB_FORMAT_Y8:
+        case OB_FORMAT_GRAY:
+            return "gray8";
+        case OB_FORMAT_Y16:
+            return "y16";
+        case OB_FORMAT_Z16:
+            return "z16";
+        default:
+            return "unknown";
+    }
+}
+
+std::string resolve_orbbec_config_path() {
+    if (const char* env = std::getenv("ORBBEC_SDK_CONFIG")) {
+        return std::string(env);
+    }
+#ifdef INSIGHTIO_ORBBEC_CONFIG_PATH
+    return INSIGHTIO_ORBBEC_CONFIG_PATH;
+#else
+    return {};
+#endif
+}
+
+void init_orbbec_logging() {
+    static const bool initialized = []() {
+        std::filesystem::create_directories("Log/orbbec");
+        ob::Context::setLoggerToConsole(OB_LOG_SEVERITY_OFF);
+        ob::Context::setLoggerToFile(OB_LOG_SEVERITY_WARN, "Log/orbbec/");
+        return true;
+    }();
+    (void)initialized;
+}
+
+std::vector<ResolvedCaps> build_orbbec_caps(
+    const std::shared_ptr<ob::StreamProfileList>& profiles) {
+    std::vector<ResolvedCaps> caps;
+    if (!profiles) {
+        return caps;
+    }
+
+    std::set<std::string> seen;
+    std::uint32_t index = 0;
+    for (std::uint32_t i = 0; i < profiles->count(); ++i) {
+        auto profile = profiles->getProfile(i);
+        if (!profile || !profile->is<ob::VideoStreamProfile>()) {
+            continue;
+        }
+
+        auto video = profile->as<ob::VideoStreamProfile>();
+        const auto format = ob_format_to_string(video->format());
+        if (format == "unknown") {
+            continue;
+        }
+
+        const auto key = format + ":" + std::to_string(video->width()) + "x" +
+                         std::to_string(video->height()) + "@" +
+                         std::to_string(video->fps());
+        if (!seen.insert(key).second) {
+            continue;
+        }
+
+        caps.push_back(ResolvedCaps{
+            .index = index++,
+            .format = format,
+            .width = video->width(),
+            .height = video->height(),
+            .fps = video->fps(),
+        });
+    }
+    return caps;
+}
+
+std::string orbbec_target_from_uri(std::string_view uri) {
+    constexpr std::string_view prefix = "orbbec://";
+    if (uri.starts_with(prefix)) {
+        return std::string(uri.substr(prefix.size()));
+    }
+    return std::string(uri);
+}
+
+std::shared_ptr<ob::Device> find_orbbec_device(ob::Context& context,
+                                               std::string_view uri) {
+    auto list = context.queryDeviceList();
+    if (!list) {
+        return nullptr;
+    }
+
+    const auto target = orbbec_target_from_uri(uri);
+    for (std::uint32_t index = 0; index < list->deviceCount(); ++index) {
+        auto handle = list->getDevice(index);
+        if (!handle) {
+            continue;
+        }
+        auto info = handle->getDeviceInfo();
+        if (info == nullptr) {
+            continue;
+        }
+        if (target == info->serialNumber() || target == info->uid()) {
+            return handle;
+        }
+    }
+
+    try {
+        const auto index = static_cast<std::uint32_t>(std::stoul(target));
+        if (index < list->deviceCount()) {
+            return list->getDevice(index);
+        }
+    } catch (...) {
+    }
+
+    return nullptr;
+}
+
+std::shared_ptr<ob::VideoStreamProfile> find_video_profile(
+    const std::shared_ptr<ob::StreamProfileList>& profiles,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uint32_t fps) {
+    if (!profiles) {
+        return nullptr;
+    }
+    for (std::uint32_t i = 0; i < profiles->count(); ++i) {
+        auto profile = profiles->getProfile(i);
+        if (!profile || !profile->is<ob::VideoStreamProfile>()) {
+            continue;
+        }
+        auto video = profile->as<ob::VideoStreamProfile>();
+        if (video->width() == width && video->height() == height &&
+            video->fps() == fps) {
+            return video;
+        }
+    }
+    return nullptr;
+}
+
+OrbbecCatalogProbe probe_orbbec_catalog_480p(const DeviceInfo& device) {
+    OrbbecCatalogProbe probe;
+    try {
+        init_orbbec_logging();
+        const auto config_path = resolve_orbbec_config_path();
+        ob::Context context(config_path.empty() ? "" : config_path.c_str());
+        auto handle = find_orbbec_device(context, device.uri);
+        if (!handle) {
+            return probe;
+        }
+
+        probe.probe_ran = true;
+        ob::Pipeline pipeline(handle);
+        auto color_profiles = pipeline.getStreamProfileList(OB_SENSOR_COLOR);
+        auto color_480 = find_video_profile(color_profiles, 640, 480, 30);
+        if (!color_480) {
+            return probe;
+        }
+
+        auto d2c_profiles =
+            pipeline.getD2CDepthProfileList(color_480, ALIGN_D2C_HW_MODE);
+        probe.supports_hw_d2c_480 = !build_orbbec_caps(d2c_profiles).empty();
+    } catch (const ob::Error&) {
+    } catch (const std::exception&) {
+    }
+    return probe;
+}
+#endif
 
 class Stmt {
 public:
@@ -668,14 +872,28 @@ const ResolvedCaps* find_cap(const StreamInfo& stream,
     return nullptr;
 }
 
+bool is_probe_grounded_orbbec_family(const DeviceInfo& device) {
+    return device.kind == DeviceKind::kOrbbec &&
+           slugify(device.name) == "sv1301s-u3" &&
+           device.identity.usb_vendor_id == "2bc5" &&
+           device.identity.usb_product_id == "0614";
+}
+
 std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
                                                 const std::string& public_name,
                                                 const std::string& rtsp_host) {
     std::vector<CatalogSource> sources;
     const auto* color = find_stream(device, "color");
-    StreamInfo synthetic_depth;
     const auto* depth = find_stream(device, "depth");
-    if (depth == nullptr && device.identity.usb_serial == "AY27552002M") {
+    StreamInfo synthetic_depth;
+#ifdef INSIGHTIO_HAS_ORBBEC
+    const auto probe = probe_orbbec_catalog_480p(device);
+#else
+    const OrbbecCatalogProbe probe;
+#endif
+    const bool has_probe_grounded_family =
+        is_probe_grounded_orbbec_family(device);
+    if (depth == nullptr && has_probe_grounded_family) {
         synthetic_depth.stream_id = "depth";
         synthetic_depth.name = "depth";
         synthetic_depth.supported_caps.push_back(
@@ -705,6 +923,14 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
         }
     }
 
+    const auto* color_480 = color == nullptr ? nullptr : find_cap(*color, 640, 480, 30);
+    // TODO: replace this family-gated 480p publication rule with a pure SDK
+    // D2C capability gate once that behavior is verified on the target Orbbec
+    // family. For now the proven SV1301S_U3 480p entries remain hardcoded.
+    const bool supports_480_family =
+        color_480 != nullptr &&
+        (probe.supports_hw_d2c_480 || has_probe_grounded_family ||
+         !probe.probe_ran);
     if (depth != nullptr) {
         for (const auto& caps : depth->supported_caps) {
             const auto selector = "orbbec/depth/" + resolution_label(caps.width, caps.height) +
@@ -730,7 +956,8 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
         }
 
         if (const auto* native_400 = find_cap(*depth, 640, 400, 30);
-            native_400 != nullptr && !contains_cap(*depth, 640, 480, 30)) {
+            native_400 != nullptr && !contains_cap(*depth, 640, 480, 30) &&
+            supports_480_family) {
             ResolvedCaps aligned = *native_400;
             aligned.width = 640;
             aligned.height = 480;
@@ -744,9 +971,6 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
                 {"d2c", "hardware"},
                 {"comment", "Delivered 480p depth is a D2C-aligned output backed by native 400p capture"},
             };
-            if (device.identity.usb_serial == "AY27552002M") {
-                capture_policy["probe_grounded_device_serial"] = "AY27552002M";
-            }
             sources.push_back(make_source(public_name,
                                           rtsp_host,
                                           "orbbec/depth/480p_30",
@@ -761,9 +985,9 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
     }
 
     if (color != nullptr && depth != nullptr) {
-        const auto* color_480 = find_cap(*color, 640, 480, 30);
         const auto* depth_400 = find_cap(*depth, 640, 400, 30);
-        if (color_480 != nullptr && depth_400 != nullptr) {
+        if (color_480 != nullptr && depth_400 != nullptr &&
+            supports_480_family) {
             ResolvedCaps grouped_caps = *color_480;
             auto capture_policy = nlohmann::json{
                 {"driver", "orbbec"},
@@ -782,9 +1006,6 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
                  }},
                 {"d2c", "hardware"},
             };
-            if (device.identity.usb_serial == "AY27552002M") {
-                capture_policy["probe_grounded_device_serial"] = "AY27552002M";
-            }
             auto members = nlohmann::json::array({
                 {
                     {"route", "orbbec/color"},

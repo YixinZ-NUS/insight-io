@@ -1,8 +1,8 @@
 // role: focused REST tests for the standalone backend slices.
-// revision: 2026-03-26 grouped-route-delete-cleanup
+// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
 // major changes: verifies catalog, direct-session, app/route/source,
 // grouped-route delete cleanup, and runtime-status behavior on the
-// SQLite-backed HTTP surface.
+// SQLite-backed HTTP surface without relying on a fixed Orbbec serial.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -95,16 +95,16 @@ DeviceInfo make_v4l2_camera() {
 
 DeviceInfo make_orbbec_device() {
     DeviceInfo device;
-    device.uri = "orbbec://AY27552002M";
+    device.uri = "orbbec://ORB001";
     device.kind = DeviceKind::kOrbbec;
     device.name = "Desk RGBD";
     device.identity.device_uri = device.uri;
-    device.identity.device_id = "AY27552002M";
+    device.identity.device_id = "ORB001";
     device.identity.kind_str = "orbbec";
     device.identity.hardware_name = device.name;
     device.identity.usb_vendor_id = "2bc5";
     device.identity.usb_product_id = "0511";
-    device.identity.usb_serial = "AY27552002M";
+    device.identity.usb_serial = "ORB001";
 
     StreamInfo color;
     color.stream_id = "color";

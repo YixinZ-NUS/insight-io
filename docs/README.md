@@ -4,8 +4,12 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 17
+- version: 18
 - major changes:
+  - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
+    `FULLMUTEX` and Orbbec pipeline-profile fallback in code, and recorded pure
+    D2C capability gating as remaining TODO while refreshing the donor-reuse
+    status
   - 2026-03-26 closed the grouped-member-route delete cleanup gap, added a
     grouped-route-delete sequence diagram, and refreshed the next-slice handoff
     toward reuse, IPC, RTSP runtime, SDK callbacks, and frontend work
@@ -52,6 +56,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`

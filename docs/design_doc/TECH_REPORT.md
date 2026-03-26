@@ -4,8 +4,12 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 10
+- version: 11
 - major changes:
+  - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
+    `FULLMUTEX`, confirmed Orbbec pipeline-profile fallback, recorded pure D2C
+    capability gating as a remaining TODO, and refreshed the donor-reuse
+    status
   - 2026-03-26 closed grouped-route delete cleanup, runtime-verified the fix
     on the development host, refreshed the donor-reuse writeup, added a
     grouped-route-delete sequence diagram, and rewrote the next-slice handoff
@@ -23,10 +27,11 @@
     status writeup, a schema-keying recommendation for `streams`, and a
     Mermaid backlog for the next runtime slices
   - 2026-03-26 added the persisted discovery catalog slice, including the
-    probe-grounded Orbbec depth and grouped preset publication path
+    proven Orbbec depth and grouped preset publication path
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
@@ -500,13 +505,19 @@ adding are:
   mismatched baseline
 - the connected Orbbec device currently exposes incomplete raw SDK discovery in
   this environment, so the catalog synthesizes `orbbec/depth/400p_30`,
-  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30` for serial
-  `AY27552002M` from the documented 2026-03-23 probe evidence rather than
-  regressing the public contract
+  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30` for the proven
+  `sv1301s-u3` family (`2bc5:0614`) from the documented 2026-03-23 probe
+  evidence rather than regressing the public contract
+- serial-specific gating is gone, but pure SDK D2C capability gating is not yet
+  the authoritative publication rule:
+  the current catalog still accepts the proven family/hardcoded 480p path, and
+  replacing that with a pure capability probe remains follow-up work
 - the donor `cpp-httplib` integration pattern was reused, but the runtime
   contract remains grounded in the `insight-io` docs rather than donor REST
   behavior
-- the donor discovery code is already reused substantially, but the donor IPC,
+- donor reuse status is currently split:
+  V4L2, PipeWire, and Orbbec discovery are substantially donor-derived, the
+  Orbbec SDK is now vendored locally under this repo, and the donor IPC,
   request-normalization, and worker/session-manager layers are still pending
   integration work rather than checked-in reuse
 - grouped-route delete cleanup is now handled in repo-native

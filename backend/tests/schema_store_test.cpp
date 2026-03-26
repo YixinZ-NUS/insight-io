@@ -1,9 +1,10 @@
 // role: focused schema bootstrap test for the standalone insight-io backend.
-// revision: 2026-03-26 app-route-source-persistence
+// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
 // major changes: verifies the checked-in seven-table schema is applied, the
 // reviewed per-device selector uniqueness is present, redundant app-source
-// kind columns stay removed, exact app-route ownership is enforced, and the
-// app-route ambiguity/session-stream invariants are wired into the schema.
+// kind columns stay removed, exact app-route ownership is enforced, the shared
+// SQLite handle is serialized, and the app-route ambiguity/session-stream
+// invariants are wired into the schema.
 
 #include "insightio/backend/schema_store.hpp"
 
@@ -178,6 +179,12 @@ TEST(initialize_creates_the_documented_tables) {
     EXPECT_TRUE(tables.contains("app_sources"));
     EXPECT_TRUE(tables.contains("sessions"));
     EXPECT_TRUE(tables.contains("session_logs"));
+}
+
+TEST(open_uses_serialized_sqlite_handle) {
+    insightio::backend::SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.open());
+    EXPECT_TRUE(sqlite3_db_mutex(store.db()) != nullptr);
 }
 
 TEST(streams_table_uses_device_scoped_selector_uniqueness) {
