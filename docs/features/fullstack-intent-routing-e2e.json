@@ -1,5 +1,5 @@
 {
-  "version": 10,
+  "version": 12,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -106,7 +106,7 @@
         "Restart the backend with the same database",
         "Verify the app still appears in GET /api/apps"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "declare-video-route-yolov5",
@@ -118,7 +118,7 @@
         "List routes for the app",
         "Verify yolov5 appears with the declared expectation"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "declare-route-orbbec-color",
@@ -130,7 +130,7 @@
         "List routes for the app",
         "Verify orbbec/color appears with the declared expectation"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "declare-route-orbbec-depth",
@@ -142,7 +142,7 @@
         "List routes for the app",
         "Verify orbbec/depth appears with the declared expectation"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "browse-listed-uri-catalog",
@@ -299,7 +299,20 @@
         "List the app sources",
         "Verify the source is still present and its state is stopped"
       ],
-      "passes": false
+      "passes": true
+    },
+    {
+      "id": "delete-grouped-member-route-invalidates-grouped-source",
+      "category": "functional",
+      "description": "Deleting one grouped member route does not leave one grouped app-source row or grouped app-owned session behind with stale resolved-member metadata",
+      "steps": [
+        "Create an app and declare routes orbbec/color and orbbec/depth",
+        "Create one grouped source bind such as insightos://host/desk-rgbd/orbbec/preset/480p_30 with target orbbec",
+        "Delete route orbbec/depth",
+        "Verify the grouped source is removed or marked invalid",
+        "Verify stale resolved_members_json is not still returned or persisted"
+      ],
+      "passes": true
     },
     {
       "id": "rebind-route-at-runtime",
@@ -311,7 +324,7 @@
         "Verify durable state points at the new binding",
         "Verify obsolete route-owned runtime is stopped when appropriate"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "browser-app-route-source-flow",

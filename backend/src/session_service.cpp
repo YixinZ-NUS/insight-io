@@ -172,6 +172,22 @@ bool parse_insight_uri(std::string_view input,
     return true;
 }
 
+bool validate_local_uri_host(std::string_view actual_host,
+                             std::string_view expected_host,
+                             int& error_status,
+                             std::string& error_code,
+                             std::string& error_message) {
+    if (actual_host == expected_host) {
+        return true;
+    }
+
+    error_status = 422;
+    error_code = "invalid_input";
+    error_message = "Input URI host must match the local catalog host '" +
+                    std::string(expected_host) + "'";
+    return false;
+}
+
 std::optional<StreamLookupResult> lookup_stream(sqlite3* db,
                                                 const ParsedInsightUri& parsed,
                                                 const std::string& uri_host,
@@ -380,6 +396,13 @@ bool SessionService::create_direct_session(const std::string& input,
     if (!parse_insight_uri(input, parsed, error_message)) {
         error_status = 422;
         error_code = "invalid_input";
+        return false;
+    }
+    if (!validate_local_uri_host(parsed.host,
+                                 uri_host_,
+                                 error_status,
+                                 error_code,
+                                 error_message)) {
         return false;
     }
 

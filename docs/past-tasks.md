@@ -4,8 +4,15 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 8
+- version: 10
 - major changes:
+  - 2026-03-26 recorded grouped-route delete cleanup closeout, regression
+    tests, live host verification, task-list refresh, tracker correction for
+    callback-dependent flows, and a grouped-route-delete sequence diagram
+  - 2026-03-26 recorded the current app/route/source persistence review,
+    runtime verification, doc sweep, donor-reuse writeup refresh, new
+    app-route-source sequence diagram, and reproduction of the grouped
+    member-route delete bug
   - 2026-03-26 recorded the checked-in direct-session REST and status slice,
     including live smoke verification, doc/task/tracker sync, and a direct
     session sequence diagram
@@ -20,6 +27,245 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff
+
+### What Changed
+
+- fixed grouped member-route delete cleanup in
+  [app_service.cpp](/home/yixin/Coding/insight-io/backend/src/app_service.cpp)
+  so route deletion now:
+  - discovers grouped `app_sources` whose `resolved_routes_json` references the
+    deleted route
+  - removes those grouped bind rows
+  - deletes any linked app-owned grouped `sessions` row in the same
+    transaction
+- added regression coverage in:
+  - [app_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/app_service_test.cpp)
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+- swept the active docs and trackers to reflect task 5 closeout in:
+  - [README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+- added one new sequence diagram for the lifecycle fix:
+  - [grouped-route-delete-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-route-delete-sequence.md)
+- refreshed the donor reuse writeup after checking the current repo against
+  `../insightos`:
+  - discovery and Orbbec SDK linkage are still properly reused
+  - donor IPC, `session_manager.cpp`, and worker runtime pieces are still
+    reference material only and remain the next runtime-porting targets
+- corrected one tracker overclaim:
+  [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  now keeps `inject-yolov5-source` at `false` because SDK callback delivery is
+  still not implemented in this repository
+
+### Why
+
+- task 5 was blocked only by grouped member-route delete cleanup, so the
+  backend needed one repo-native lifecycle fix rather than more schema changes
+- the next planning handoff needed to move past persistence closeout and focus
+  on serving-session reuse, IPC delivery, RTSP runtime, SDK callbacks, and the
+  frontend
+- the feature trackers needed to distinguish what is control-plane verified now
+  from what still requires actual runtime callback delivery
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4 --target app_service_test rest_server_test insightiod
+ctest --test-dir build --output-on-failure
+
+./build/bin/app_service_test
+./build/bin/rest_server_test
+
+mkdir -p /tmp/frontend
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18184 \
+  --db-path /tmp/insight-io-task5.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18184/api/devices
+
+app_id=$(curl -s -X POST http://127.0.0.1:18184/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"grouped-delete-live"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18184/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/color","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18184/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}'
+bind_json=$(curl -s -X POST http://127.0.0.1:18184/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30","target":"orbbec"}')
+session_id=$(printf '%s' "$bind_json" | jq -r '.active_session_id')
+
+curl -i -X DELETE http://127.0.0.1:18184/api/apps/${app_id}/routes/orbbec%2Fdepth
+curl -s http://127.0.0.1:18184/api/apps/${app_id}/sources
+curl -i http://127.0.0.1:18184/api/sessions/${session_id}
+sqlite3 /tmp/insight-io-task5.sqlite3 \
+  "SELECT COUNT(*) FROM app_sources WHERE app_id = ${app_id};"
+sqlite3 /tmp/insight-io-task5.sqlite3 \
+  "SELECT COUNT(*) FROM sessions WHERE session_id = ${session_id};"
+```
+
+## 2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug
+
+### What Changed
+
+- reviewed the current worktree implementation for durable apps, routes, and
+  app sources across:
+  - [app_service.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/app_service.hpp)
+  - [app_service.cpp](/home/yixin/Coding/insight-io/backend/src/app_service.cpp)
+  - [rest_server.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/rest_server.hpp)
+  - [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  - [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
+  - [app_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/app_service_test.cpp)
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+- updated the active docs so the repo no longer claims app persistence is only
+  future work:
+  - [README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+- added one new current-slice sequence diagram:
+  - [app-route-source-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/app-route-source-sequence.md)
+- refreshed the donor reuse writeup so it now states more clearly that:
+  - discovery and Orbbec SDK linkage are substantially reused from
+    `../insightos`
+  - IPC, workers, and session-manager runtime are still reference material only
+  - the current open grouped-route delete bug is in repo-native app lifecycle
+    code rather than donor code
+- recorded and tracked one open lifecycle bug:
+  deleting a grouped member route leaves the grouped `app_sources` row and the
+  grouped app-owned `sessions` row behind with stale resolved-member metadata
+
+### Why
+
+- the current worktree already contains a substantial app/route/source slice,
+  but the docs still described that functionality as future work
+- the feature trackers needed pass-state updates only where verification had
+  actually run, plus one new false entry for the reproduced grouped-route
+  cleanup gap
+- the user specifically asked for a reuse-status writeup against the donor repo
+  and a doc sweep that keeps the guide and internal diagrams explainable
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+mkdir -p /tmp/frontend
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18190 \
+  --db-path /tmp/insight-io-review.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18190/api/health
+curl -s http://127.0.0.1:18190/api/devices
+
+# App, route, and exact source verification
+curl -s -X POST http://127.0.0.1:18190/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"persist-app"}'
+curl -s http://127.0.0.1:18190/api/apps
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"yolov5","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/color","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}'
+curl -s http://127.0.0.1:18190/api/apps/2/routes
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/sources/2/stop \
+  -H 'Content-Type: application/json' -d '{}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/sources/2/start \
+  -H 'Content-Type: application/json' -d '{}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/sources/2/rebind \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/1080p_30"}'
+
+# Route expectation rejection
+curl -s -X POST http://127.0.0.1:18190/api/apps/2/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"orbbec/depth"}'
+
+# Host validation on both paths
+curl -s -X POST http://127.0.0.1:18190/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://not-local/web-camera/720p_30"}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/4/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://not-local/web-camera/720p_30","target":"cam"}'
+
+# Session-backed bind + referenced delete conflict
+curl -s -X POST http://127.0.0.1:18190/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}'
+curl -s -X POST http://127.0.0.1:18190/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"session-bind-app"}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/3/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"cam","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/3/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":5,"target":"cam"}'
+curl -i -X DELETE http://127.0.0.1:18190/api/sessions/5
+
+# Grouped bind verification and grouped-route delete bug reproduction
+curl -s -X POST http://127.0.0.1:18190/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"rgbd-review"}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/color","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}'
+curl -s -X POST http://127.0.0.1:18190/api/apps/1/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30","target":"orbbec"}'
+curl -i -X DELETE http://127.0.0.1:18190/api/apps/1/routes/orbbec%2Fdepth
+curl -s http://127.0.0.1:18190/api/apps/1/sources
+sqlite3 /tmp/insight-io-review.sqlite3 \
+  "SELECT source_id, app_id, route_id, stream_id, source_session_id, active_session_id, \
+          target_name, state, resolved_routes_json \
+   FROM app_sources;"
+sqlite3 /tmp/insight-io-review.sqlite3 \
+  "SELECT session_id, session_kind, stream_id, state, resolved_members_json \
+   FROM sessions;"
+
+# Restart persistence verification
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18190 \
+  --db-path /tmp/insight-io-review.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+curl -s http://127.0.0.1:18190/api/apps
+curl -s http://127.0.0.1:18190/api/apps/2/sources
+curl -s http://127.0.0.1:18190/api/status
+```
 
 ## 2026-03-26 – Reintroduce Direct Session REST And Status Slice
 

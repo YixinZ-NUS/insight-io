@@ -1,7 +1,7 @@
 // role: REST server implementation for the current standalone backend slices.
-// revision: 2026-03-26 direct-session-slice
-// major changes: exposes catalog, direct-session, and runtime-status
-// endpoints while keeping media realization intentionally lightweight.
+// revision: 2026-03-26 app-route-source-persistence
+// major changes: exposes catalog, direct-session, app/route/source, and
+// runtime-status endpoints while keeping media realization lightweight.
 
 #include "insightio/backend/rest_server.hpp"
 
@@ -90,6 +90,39 @@ nlohmann::json resolved_source_to_json(const SessionResolvedSource& source) {
     return json;
 }
 
+nlohmann::json app_to_json(const AppRecord& app) {
+    nlohmann::json json = {
+        {"app_id", app.app_id},
+        {"name", app.name},
+        {"created_at_ms", app.created_at_ms},
+        {"updated_at_ms", app.updated_at_ms},
+    };
+    if (!app.description.empty()) {
+        json["description"] = app.description;
+    }
+    if (!app.config_json.is_null() && !app.config_json.empty()) {
+        json["config_json"] = app.config_json;
+    }
+    return json;
+}
+
+nlohmann::json route_to_json(const RouteRecord& route) {
+    nlohmann::json json = {
+        {"route_id", route.route_id},
+        {"route_name", route.route_name},
+        {"target_resource_name", route.target_resource_name},
+        {"created_at_ms", route.created_at_ms},
+        {"updated_at_ms", route.updated_at_ms},
+    };
+    if (!route.expect_json.is_null() && !route.expect_json.empty()) {
+        json["expect_json"] = route.expect_json;
+    }
+    if (!route.config_json.is_null() && !route.config_json.empty()) {
+        json["config_json"] = route.config_json;
+    }
+    return json;
+}
+
 nlohmann::json session_to_json(const SessionRecord& session) {
     nlohmann::json json = {
         {"session_id", session.session_id},
@@ -125,6 +158,46 @@ nlohmann::json session_to_json(const SessionRecord& session) {
     return json;
 }
 
+nlohmann::json source_binding_to_json(const AppSourceRecord& source) {
+    nlohmann::json json = {
+        {"source_id", source.source_id},
+        {"target", source.target_name},
+        {"uri", source.source.uri},
+        {"state", source.state},
+        {"rtsp_enabled", source.rtsp_enabled},
+        {"resolved_exact_stream_id", source.stream_id},
+        {"delivered_caps_json", source.source.delivered_caps_json},
+        {"capture_policy_json", source.source.capture_policy_json},
+        {"created_at_ms", source.created_at_ms},
+        {"updated_at_ms", source.updated_at_ms},
+    };
+    if (!source.target_resource_name.empty()) {
+        json["target_resource_name"] = source.target_resource_name;
+    }
+    if (!source.last_error.empty()) {
+        json["last_error"] = source.last_error;
+    }
+    if (!source.resolved_members_json.is_null() && !source.resolved_members_json.empty()) {
+        json["resolved_members_json"] = source.resolved_members_json;
+    }
+    if (source.source_session_id > 0) {
+        json["source_session_id"] = source.source_session_id;
+    }
+    if (source.active_session_id > 0) {
+        json["active_session_id"] = source.active_session_id;
+    }
+    if (!source.rtsp_url.empty()) {
+        json["rtsp_url"] = source.rtsp_url;
+    }
+    if (source.source_session.has_value()) {
+        json["source_session"] = session_to_json(*source.source_session);
+    }
+    if (source.active_session.has_value()) {
+        json["active_session"] = session_to_json(*source.active_session);
+    }
+    return json;
+}
+
 bool parse_json_body(const httplib::Request& request,
                      httplib::Response& response,
                      nlohmann::json& body) {
@@ -153,10 +226,12 @@ void send_error(httplib::Response& response,
 RestServer::RestServer(SchemaStore& store,
                        CatalogService& catalog,
                        SessionService& sessions,
+                       AppService& apps,
                        std::string frontend_dir)
     : store_(store),
       catalog_(catalog),
       sessions_(sessions),
+      apps_(apps),
       frontend_dir_(std::move(frontend_dir)) {}
 
 RestServer::~RestServer() {
@@ -323,6 +398,384 @@ void RestServer::setup_routes() {
         }
         response.set_content(body.dump(2), "application/json");
     });
+
+    server_->Post("/api/apps",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      nlohmann::json body;
+                      if (!parse_json_body(request, response, body)) {
+                          return;
+                      }
+                      if (!body.contains("name") || !body.at("name").is_string()) {
+                          send_error(response, 400, "bad_request",
+                                     "Request body must contain string field 'name'");
+                          return;
+                      }
+
+                      std::string description;
+                      if (body.contains("description")) {
+                          if (!body.at("description").is_string()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'description' must be string when present");
+                              return;
+                          }
+                          description = body.at("description").get<std::string>();
+                      }
+
+                      nlohmann::json config_json = nullptr;
+                      if (body.contains("config_json")) {
+                          if (!body.at("config_json").is_object()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'config_json' must be object when present");
+                              return;
+                          }
+                          config_json = body.at("config_json");
+                      }
+
+                      AppRecord created;
+                      int error_status = 500;
+                      std::string error_code;
+                      std::string error_message;
+                      if (!apps_.create_app(body.at("name").get<std::string>(),
+                                            description,
+                                            config_json,
+                                            created,
+                                            error_status,
+                                            error_code,
+                                            error_message)) {
+                          send_error(response, error_status, error_code, error_message);
+                          return;
+                      }
+
+                      response.status = 201;
+                      response.set_content(app_to_json(created).dump(2),
+                                           "application/json");
+                  });
+
+    server_->Get("/api/apps", [this](const httplib::Request&, httplib::Response& response) {
+        nlohmann::json body = {
+            {"apps", nlohmann::json::array()},
+        };
+        for (const auto& app : apps_.list_apps()) {
+            body["apps"].push_back(app_to_json(app));
+        }
+        response.set_content(body.dump(2), "application/json");
+    });
+
+    server_->Get(R"(/api/apps/(\d+))",
+                 [this](const httplib::Request& request, httplib::Response& response) {
+                     const auto app_id = std::stoll(request.matches[1].str());
+                     const auto app = apps_.get_app(app_id);
+                     if (!app.has_value()) {
+                         send_error(response, 404, "not_found",
+                                    "App '" + std::to_string(app_id) + "' not found");
+                         return;
+                     }
+                     response.set_content(app_to_json(*app).dump(2),
+                                          "application/json");
+                 });
+
+    server_->Delete(R"(/api/apps/(\d+))",
+                    [this](const httplib::Request& request, httplib::Response& response) {
+                        const auto app_id = std::stoll(request.matches[1].str());
+                        int error_status = 500;
+                        std::string error_code;
+                        std::string error_message;
+                        if (!apps_.delete_app(app_id,
+                                              error_status,
+                                              error_code,
+                                              error_message)) {
+                            send_error(response, error_status, error_code, error_message);
+                            return;
+                        }
+                        response.status = 204;
+                    });
+
+    server_->Post(R"(/api/apps/(\d+)/routes)",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      const auto app_id = std::stoll(request.matches[1].str());
+                      nlohmann::json body;
+                      if (!parse_json_body(request, response, body)) {
+                          return;
+                      }
+                      if (!body.contains("route_name") ||
+                          !body.at("route_name").is_string()) {
+                          send_error(response, 400, "bad_request",
+                                     "Request body must contain string field 'route_name'");
+                          return;
+                      }
+
+                      nlohmann::json expect_json = nullptr;
+                      if (body.contains("expect")) {
+                          if (!body.at("expect").is_object()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'expect' must be object when present");
+                              return;
+                          }
+                          expect_json = body.at("expect");
+                      }
+
+                      nlohmann::json config_json = nullptr;
+                      if (body.contains("config_json")) {
+                          if (!body.at("config_json").is_object()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'config_json' must be object when present");
+                              return;
+                          }
+                          config_json = body.at("config_json");
+                      }
+
+                      RouteRecord created;
+                      int error_status = 500;
+                      std::string error_code;
+                      std::string error_message;
+                      if (!apps_.create_route(app_id,
+                                              body.at("route_name").get<std::string>(),
+                                              expect_json,
+                                              config_json,
+                                              created,
+                                              error_status,
+                                              error_code,
+                                              error_message)) {
+                          send_error(response, error_status, error_code, error_message);
+                          return;
+                      }
+
+                      response.status = 201;
+                      response.set_content(route_to_json(created).dump(2),
+                                           "application/json");
+                  });
+
+    server_->Get(R"(/api/apps/(\d+)/routes)",
+                 [this](const httplib::Request& request, httplib::Response& response) {
+                     const auto app_id = std::stoll(request.matches[1].str());
+                     std::vector<RouteRecord> routes;
+                     int error_status = 500;
+                     std::string error_code;
+                     std::string error_message;
+                     if (!apps_.list_routes(app_id,
+                                            routes,
+                                            error_status,
+                                            error_code,
+                                            error_message)) {
+                         send_error(response, error_status, error_code, error_message);
+                         return;
+                     }
+                     nlohmann::json body = {
+                         {"routes", nlohmann::json::array()},
+                     };
+                     for (const auto& route : routes) {
+                         body["routes"].push_back(route_to_json(route));
+                     }
+                     response.set_content(body.dump(2), "application/json");
+                 });
+
+    server_->Delete(R"(/api/apps/(\d+)/routes/(.+))",
+                    [this](const httplib::Request& request, httplib::Response& response) {
+                        const auto app_id = std::stoll(request.matches[1].str());
+                        const auto route_name = request.matches[2].str();
+                        int error_status = 500;
+                        std::string error_code;
+                        std::string error_message;
+                        if (!apps_.delete_route(app_id,
+                                                route_name,
+                                                error_status,
+                                                error_code,
+                                                error_message)) {
+                            send_error(response, error_status, error_code, error_message);
+                            return;
+                        }
+                        response.status = 204;
+                    });
+
+    server_->Get(R"(/api/apps/(\d+)/sources)",
+                 [this](const httplib::Request& request, httplib::Response& response) {
+                     const auto app_id = std::stoll(request.matches[1].str());
+                     std::vector<AppSourceRecord> sources;
+                     int error_status = 500;
+                     std::string error_code;
+                     std::string error_message;
+                     if (!apps_.list_sources(app_id,
+                                             sources,
+                                             error_status,
+                                             error_code,
+                                             error_message)) {
+                         send_error(response, error_status, error_code, error_message);
+                         return;
+                     }
+                     nlohmann::json body = {
+                         {"sources", nlohmann::json::array()},
+                     };
+                     for (const auto& source : sources) {
+                         body["sources"].push_back(source_binding_to_json(source));
+                     }
+                     response.set_content(body.dump(2), "application/json");
+                 });
+
+    server_->Post(R"(/api/apps/(\d+)/sources)",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      const auto app_id = std::stoll(request.matches[1].str());
+                      nlohmann::json body;
+                      if (!parse_json_body(request, response, body)) {
+                          return;
+                      }
+                      if (!body.contains("target") || !body.at("target").is_string()) {
+                          send_error(response, 400, "bad_request",
+                                     "Request body must contain string field 'target'");
+                          return;
+                      }
+
+                      std::optional<std::string> input;
+                      if (body.contains("input")) {
+                          if (!body.at("input").is_string()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'input' must be string when present");
+                              return;
+                          }
+                          input = body.at("input").get<std::string>();
+                      }
+
+                      std::optional<std::int64_t> session_id;
+                      if (body.contains("session_id")) {
+                          if (!body.at("session_id").is_number_integer()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'session_id' must be integer when present");
+                              return;
+                          }
+                          session_id = body.at("session_id").get<std::int64_t>();
+                      }
+
+                      bool rtsp_enabled = false;
+                      if (body.contains("rtsp_enabled")) {
+                          if (!body.at("rtsp_enabled").is_boolean()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'rtsp_enabled' must be boolean when present");
+                              return;
+                          }
+                          rtsp_enabled = body.at("rtsp_enabled").get<bool>();
+                      }
+
+                      AppSourceRecord created;
+                      int error_status = 500;
+                      std::string error_code;
+                      std::string error_message;
+                      if (!apps_.create_source(app_id,
+                                               input,
+                                               session_id,
+                                               body.at("target").get<std::string>(),
+                                               rtsp_enabled,
+                                               created,
+                                               error_status,
+                                               error_code,
+                                               error_message)) {
+                          send_error(response, error_status, error_code, error_message);
+                          return;
+                      }
+
+                      response.status = 201;
+                      response.set_content(source_binding_to_json(created).dump(2),
+                                           "application/json");
+                  });
+
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/start)",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      const auto app_id = std::stoll(request.matches[1].str());
+                      const auto source_id = std::stoll(request.matches[2].str());
+                      AppSourceRecord updated;
+                      int error_status = 500;
+                      std::string error_code;
+                      std::string error_message;
+                      if (!apps_.start_source(app_id,
+                                              source_id,
+                                              updated,
+                                              error_status,
+                                              error_code,
+                                              error_message)) {
+                          send_error(response, error_status, error_code, error_message);
+                          return;
+                      }
+                      response.set_content(source_binding_to_json(updated).dump(2),
+                                           "application/json");
+                  });
+
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/stop)",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      const auto app_id = std::stoll(request.matches[1].str());
+                      const auto source_id = std::stoll(request.matches[2].str());
+                      AppSourceRecord updated;
+                      int error_status = 500;
+                      std::string error_code;
+                      std::string error_message;
+                      if (!apps_.stop_source(app_id,
+                                             source_id,
+                                             updated,
+                                             error_status,
+                                             error_code,
+                                             error_message)) {
+                          send_error(response, error_status, error_code, error_message);
+                          return;
+                      }
+                      response.set_content(source_binding_to_json(updated).dump(2),
+                                           "application/json");
+                  });
+
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/rebind)",
+                  [this](const httplib::Request& request, httplib::Response& response) {
+                      const auto app_id = std::stoll(request.matches[1].str());
+                      const auto source_id = std::stoll(request.matches[2].str());
+                      nlohmann::json body;
+                      if (!parse_json_body(request, response, body)) {
+                          return;
+                      }
+
+                      std::optional<std::string> input;
+                      if (body.contains("input")) {
+                          if (!body.at("input").is_string()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'input' must be string when present");
+                              return;
+                          }
+                          input = body.at("input").get<std::string>();
+                      }
+
+                      std::optional<std::int64_t> session_id;
+                      if (body.contains("session_id")) {
+                          if (!body.at("session_id").is_number_integer()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'session_id' must be integer when present");
+                              return;
+                          }
+                          session_id = body.at("session_id").get<std::int64_t>();
+                      }
+
+                      bool rtsp_enabled = false;
+                      if (body.contains("rtsp_enabled")) {
+                          if (!body.at("rtsp_enabled").is_boolean()) {
+                              send_error(response, 400, "bad_request",
+                                         "Field 'rtsp_enabled' must be boolean when present");
+                              return;
+                          }
+                          rtsp_enabled = body.at("rtsp_enabled").get<bool>();
+                      }
+
+                      AppSourceRecord updated;
+                      int error_status = 500;
+                      std::string error_code;
+                      std::string error_message;
+                      if (!apps_.rebind_source(app_id,
+                                               source_id,
+                                               input,
+                                               session_id,
+                                               rtsp_enabled,
+                                               updated,
+                                               error_status,
+                                               error_code,
+                                               error_message)) {
+                          send_error(response, error_status, error_code, error_message);
+                          return;
+                      }
+                      response.set_content(source_binding_to_json(updated).dump(2),
+                                           "application/json");
+                  });
 
     server_->Get(R"(/api/sessions/(\d+))",
                  [this](const httplib::Request& request, httplib::Response& response) {
