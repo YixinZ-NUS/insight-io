@@ -1,8 +1,8 @@
 // role: durable app, route, and app-source implementation for the backend.
-// revision: 2026-03-26 grouped-route-delete-cleanup
+// revision: 2026-03-26 pr5-review-fixes
 // major changes: cleans grouped source rows when one member route is deleted,
 // removes app-owned grouped sessions that would retain stale member metadata,
-// and keeps the app/route/source lifecycle persisted in SQLite.
+// propagates app-delete session stop failures, and hardens post-insert reloads.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -985,7 +985,15 @@ bool AppService::create_app(const std::string& name,
         return false;
     }
 
-    created = *load_app(store_.db(), sqlite3_last_insert_rowid(store_.db()));
+    auto loaded = load_app(store_.db(), sqlite3_last_insert_rowid(store_.db()));
+    if (!loaded.has_value()) {
+        error_status = 500;
+        error_code = "internal";
+        error_message = "App insert succeeded but reload failed";
+        return false;
+    }
+
+    created = std::move(*loaded);
     return true;
 }
 
@@ -1005,7 +1013,18 @@ bool AppService::delete_app(std::int64_t app_id,
         int stop_status = 0;
         std::string stop_code;
         std::string stop_message;
-        sessions_.stop_session(session_id, ignored, stop_status, stop_code, stop_message);
+        if (!sessions_.stop_session(session_id,
+                                    ignored,
+                                    stop_status,
+                                    stop_code,
+                                    stop_message)) {
+            error_status = stop_status == 0 ? 500 : stop_status;
+            error_code = stop_code.empty() ? "internal" : stop_code;
+            error_message = stop_message.empty()
+                                ? "Failed to stop app-owned session before deleting app"
+                                : stop_message;
+            return false;
+        }
     }
 
     Stmt erase(store_.db(), "DELETE FROM apps WHERE app_id = ?");
@@ -1093,7 +1112,15 @@ bool AppService::create_route(std::int64_t app_id,
         return false;
     }
 
-    created = *find_route_by_name(store_.db(), app_id, route_name);
+    auto loaded = find_route_by_name(store_.db(), app_id, route_name);
+    if (!loaded.has_value()) {
+        error_status = 500;
+        error_code = "internal";
+        error_message = "Route insert succeeded but reload failed";
+        return false;
+    }
+
+    created = std::move(*loaded);
     return true;
 }
 

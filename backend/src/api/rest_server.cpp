@@ -1,16 +1,21 @@
 // role: REST server implementation for the current standalone backend slices.
-// revision: 2026-03-26 app-route-source-persistence
+// revision: 2026-03-26 pr5-review-fixes
 // major changes: exposes catalog, direct-session, app/route/source, and
-// runtime-status endpoints while keeping media realization lightweight.
+// runtime-status endpoints while keeping media realization lightweight, route
+// responses aligned with the documented `expect` field, and path-id parsing
+// hardened against 64-bit overflow.
 
 #include "insightio/backend/rest_server.hpp"
 
 #include "insightio/backend/version.hpp"
 
+#include <charconv>
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
 #include <chrono>
+#include <cstdint>
+#include <string_view>
 #include <thread>
 
 namespace insightio::backend {
@@ -115,7 +120,7 @@ nlohmann::json route_to_json(const RouteRecord& route) {
         {"updated_at_ms", route.updated_at_ms},
     };
     if (!route.expect_json.is_null() && !route.expect_json.empty()) {
-        json["expect_json"] = route.expect_json;
+        json["expect"] = route.expect_json;
     }
     if (!route.config_json.is_null() && !route.config_json.empty()) {
         json["config_json"] = route.config_json;
@@ -219,6 +224,27 @@ void send_error(httplib::Response& response,
     response.set_content(
         nlohmann::json{{"error", code}, {"message", message}}.dump(2),
         "application/json");
+}
+
+bool parse_path_id(const httplib::Request& request,
+                   httplib::Response& response,
+                   size_t match_index,
+                   std::string_view field_name,
+                   std::int64_t& value) {
+    const auto raw = request.matches[match_index].str();
+    const auto* begin = raw.data();
+    const auto* end = begin + raw.size();
+    const auto result = std::from_chars(begin, end, value);
+    if (result.ec == std::errc{} && result.ptr == end) {
+        return true;
+    }
+
+    send_error(response,
+               400,
+               "bad_request",
+               "Path parameter '" + std::string(field_name) +
+                   "' must fit in a signed 64-bit integer");
+    return false;
 }
 
 }  // namespace
@@ -463,7 +489,10 @@ void RestServer::setup_routes() {
 
     server_->Get(R"(/api/apps/(\d+))",
                  [this](const httplib::Request& request, httplib::Response& response) {
-                     const auto app_id = std::stoll(request.matches[1].str());
+                     std::int64_t app_id = 0;
+                     if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                         return;
+                     }
                      const auto app = apps_.get_app(app_id);
                      if (!app.has_value()) {
                          send_error(response, 404, "not_found",
@@ -476,7 +505,10 @@ void RestServer::setup_routes() {
 
     server_->Delete(R"(/api/apps/(\d+))",
                     [this](const httplib::Request& request, httplib::Response& response) {
-                        const auto app_id = std::stoll(request.matches[1].str());
+                        std::int64_t app_id = 0;
+                        if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                            return;
+                        }
                         int error_status = 500;
                         std::string error_code;
                         std::string error_message;
@@ -492,7 +524,10 @@ void RestServer::setup_routes() {
 
     server_->Post(R"(/api/apps/(\d+)/routes)",
                   [this](const httplib::Request& request, httplib::Response& response) {
-                      const auto app_id = std::stoll(request.matches[1].str());
+                      std::int64_t app_id = 0;
+                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                          return;
+                      }
                       nlohmann::json body;
                       if (!parse_json_body(request, response, body)) {
                           return;
@@ -547,7 +582,10 @@ void RestServer::setup_routes() {
 
     server_->Get(R"(/api/apps/(\d+)/routes)",
                  [this](const httplib::Request& request, httplib::Response& response) {
-                     const auto app_id = std::stoll(request.matches[1].str());
+                     std::int64_t app_id = 0;
+                     if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                         return;
+                     }
                      std::vector<RouteRecord> routes;
                      int error_status = 500;
                      std::string error_code;
@@ -571,7 +609,10 @@ void RestServer::setup_routes() {
 
     server_->Delete(R"(/api/apps/(\d+)/routes/(.+))",
                     [this](const httplib::Request& request, httplib::Response& response) {
-                        const auto app_id = std::stoll(request.matches[1].str());
+                        std::int64_t app_id = 0;
+                        if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                            return;
+                        }
                         const auto route_name = request.matches[2].str();
                         int error_status = 500;
                         std::string error_code;
@@ -589,7 +630,10 @@ void RestServer::setup_routes() {
 
     server_->Get(R"(/api/apps/(\d+)/sources)",
                  [this](const httplib::Request& request, httplib::Response& response) {
-                     const auto app_id = std::stoll(request.matches[1].str());
+                     std::int64_t app_id = 0;
+                     if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                         return;
+                     }
                      std::vector<AppSourceRecord> sources;
                      int error_status = 500;
                      std::string error_code;
@@ -613,7 +657,10 @@ void RestServer::setup_routes() {
 
     server_->Post(R"(/api/apps/(\d+)/sources)",
                   [this](const httplib::Request& request, httplib::Response& response) {
-                      const auto app_id = std::stoll(request.matches[1].str());
+                      std::int64_t app_id = 0;
+                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                          return;
+                      }
                       nlohmann::json body;
                       if (!parse_json_body(request, response, body)) {
                           return;
@@ -678,8 +725,14 @@ void RestServer::setup_routes() {
 
     server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/start)",
                   [this](const httplib::Request& request, httplib::Response& response) {
-                      const auto app_id = std::stoll(request.matches[1].str());
-                      const auto source_id = std::stoll(request.matches[2].str());
+                      std::int64_t app_id = 0;
+                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                          return;
+                      }
+                      std::int64_t source_id = 0;
+                      if (!parse_path_id(request, response, 2, "source_id", source_id)) {
+                          return;
+                      }
                       AppSourceRecord updated;
                       int error_status = 500;
                       std::string error_code;
@@ -699,8 +752,14 @@ void RestServer::setup_routes() {
 
     server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/stop)",
                   [this](const httplib::Request& request, httplib::Response& response) {
-                      const auto app_id = std::stoll(request.matches[1].str());
-                      const auto source_id = std::stoll(request.matches[2].str());
+                      std::int64_t app_id = 0;
+                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                          return;
+                      }
+                      std::int64_t source_id = 0;
+                      if (!parse_path_id(request, response, 2, "source_id", source_id)) {
+                          return;
+                      }
                       AppSourceRecord updated;
                       int error_status = 500;
                       std::string error_code;
@@ -720,8 +779,14 @@ void RestServer::setup_routes() {
 
     server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/rebind)",
                   [this](const httplib::Request& request, httplib::Response& response) {
-                      const auto app_id = std::stoll(request.matches[1].str());
-                      const auto source_id = std::stoll(request.matches[2].str());
+                      std::int64_t app_id = 0;
+                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                          return;
+                      }
+                      std::int64_t source_id = 0;
+                      if (!parse_path_id(request, response, 2, "source_id", source_id)) {
+                          return;
+                      }
                       nlohmann::json body;
                       if (!parse_json_body(request, response, body)) {
                           return;
@@ -779,7 +844,10 @@ void RestServer::setup_routes() {
 
     server_->Get(R"(/api/sessions/(\d+))",
                  [this](const httplib::Request& request, httplib::Response& response) {
-                     const auto session_id = std::stoll(request.matches[1].str());
+                     std::int64_t session_id = 0;
+                     if (!parse_path_id(request, response, 1, "session_id", session_id)) {
+                         return;
+                     }
                      const auto session = sessions_.get_session(session_id);
                      if (!session.has_value()) {
                          send_error(response, 404, "not_found",
@@ -792,7 +860,10 @@ void RestServer::setup_routes() {
 
     server_->Post(R"(/api/sessions/(\d+)/start)",
                   [this](const httplib::Request& request, httplib::Response& response) {
-                      const auto session_id = std::stoll(request.matches[1].str());
+                      std::int64_t session_id = 0;
+                      if (!parse_path_id(request, response, 1, "session_id", session_id)) {
+                          return;
+                      }
                       SessionRecord updated;
                       int error_status = 500;
                       std::string error_code;
@@ -811,7 +882,10 @@ void RestServer::setup_routes() {
 
     server_->Post(R"(/api/sessions/(\d+)/stop)",
                   [this](const httplib::Request& request, httplib::Response& response) {
-                      const auto session_id = std::stoll(request.matches[1].str());
+                      std::int64_t session_id = 0;
+                      if (!parse_path_id(request, response, 1, "session_id", session_id)) {
+                          return;
+                      }
                       SessionRecord updated;
                       int error_status = 500;
                       std::string error_code;
@@ -830,7 +904,10 @@ void RestServer::setup_routes() {
 
     server_->Delete(R"(/api/sessions/(\d+))",
                     [this](const httplib::Request& request, httplib::Response& response) {
-                        const auto session_id = std::stoll(request.matches[1].str());
+                        std::int64_t session_id = 0;
+                        if (!parse_path_id(request, response, 1, "session_id", session_id)) {
+                            return;
+                        }
                         int error_status = 500;
                         std::string error_code;
                         std::string error_message;

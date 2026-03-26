@@ -1,8 +1,9 @@
 // role: focused durable app/route/source service tests for the backend.
-// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+// revision: 2026-03-26 pr5-review-fixes
 // major changes: verifies app CRUD, route guards, exact and grouped source
 // binds, grouped-route delete cleanup, restart normalization, and route
-// rebind behavior without relying on a fixed Orbbec serial.
+// rebind behavior without relying on a fixed Orbbec serial, and covers
+// app-delete stop-failure propagation.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -10,10 +11,13 @@
 #include "insightio/backend/schema_store.hpp"
 #include "insightio/backend/session_service.hpp"
 
+#include <sqlite3.h>
+
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <unistd.h>
 #include <vector>
 
@@ -56,6 +60,19 @@ std::vector<TestEntry>& tests() {
     } while (0)
 
 using namespace insightio::backend;
+
+int deny_session_updates(void*,
+                         int action_code,
+                         const char* arg1,
+                         const char*,
+                         const char*,
+                         const char*) {
+    if (action_code == SQLITE_UPDATE && arg1 != nullptr &&
+        std::string_view(arg1) == "sessions") {
+        return SQLITE_DENY;
+    }
+    return SQLITE_OK;
+}
 
 std::string make_temp_db_path() {
     static int counter = 0;
@@ -510,6 +527,58 @@ TEST(rebind_replaces_app_owned_runtime_session) {
     const auto old_session = fx.sessions.get_session(old_session_id);
     EXPECT_TRUE(old_session.has_value());
     EXPECT_EQ(old_session->state, "stopped");
+}
+
+TEST(delete_app_propagates_stop_session_failures) {
+    Fixture fx;
+
+    AppRecord app;
+    int error_status = 0;
+    std::string error_code;
+    std::string error_message;
+    EXPECT_TRUE(fx.apps.create_app("delete-app-stop-failure",
+                                   "",
+                                   nullptr,
+                                   app,
+                                   error_status,
+                                   error_code,
+                                   error_message));
+
+    RouteRecord route;
+    EXPECT_TRUE(fx.apps.create_route(app.app_id,
+                                     "yolov5",
+                                     nlohmann::json{{"media", "video"}},
+                                     nullptr,
+                                     route,
+                                     error_status,
+                                     error_code,
+                                     error_message));
+
+    AppSourceRecord source;
+    EXPECT_TRUE(fx.apps.create_source(app.app_id,
+                                      std::optional<std::string>{
+                                          "insightos://localhost/web-camera/720p_30"},
+                                      std::nullopt,
+                                      "yolov5",
+                                      false,
+                                      source,
+                                      error_status,
+                                      error_code,
+                                      error_message));
+    EXPECT_TRUE(source.active_session_id > 0);
+
+    EXPECT_EQ(sqlite3_set_authorizer(fx.store.db(), deny_session_updates, nullptr),
+              SQLITE_OK);
+    EXPECT_TRUE(!fx.apps.delete_app(app.app_id,
+                                    error_status,
+                                    error_code,
+                                    error_message));
+    EXPECT_EQ(sqlite3_set_authorizer(fx.store.db(), nullptr, nullptr), SQLITE_OK);
+
+    EXPECT_EQ(error_status, 500);
+    EXPECT_EQ(error_code, "internal");
+    EXPECT_TRUE(!error_message.empty());
+    EXPECT_TRUE(fx.apps.get_app(app.app_id).has_value());
 }
 
 TEST(route_expectation_rejects_incompatible_exact_source) {

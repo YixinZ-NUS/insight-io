@@ -4,8 +4,12 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 18
+- version: 19
 - major changes:
+  - 2026-03-26 fixed the defect-level PR #5 review items by hardening
+    app/route post-insert reloads, propagating app-delete session-stop
+    failures, aligning REST route payloads on `expect`, and rejecting
+    oversized path IDs with `400 Bad Request`
   - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
     `FULLMUTEX` and Orbbec pipeline-profile fallback in code, and recorded pure
     D2C capability gating as remaining TODO while refreshing the donor-reuse
@@ -56,6 +60,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Fix PR #5 Defect-Level Review Items`
   - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`

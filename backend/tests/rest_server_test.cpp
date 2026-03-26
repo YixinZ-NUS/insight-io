@@ -1,8 +1,9 @@
 // role: focused REST tests for the standalone backend slices.
-// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+// revision: 2026-03-26 pr5-review-fixes
 // major changes: verifies catalog, direct-session, app/route/source,
 // grouped-route delete cleanup, and runtime-status behavior on the
-// SQLite-backed HTTP surface without relying on a fixed Orbbec serial.
+// SQLite-backed HTTP surface without relying on a fixed Orbbec serial, while
+// covering route JSON shape and path-id overflow handling.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -369,6 +370,10 @@ TEST(app_endpoints_cover_exact_and_grouped_bind_flow) {
         "application/json");
     EXPECT_TRUE(create_route);
     EXPECT_EQ(create_route->status, 201);
+    const auto created_route_json = nlohmann::json::parse(create_route->body);
+    EXPECT_TRUE(created_route_json.contains("expect"));
+    EXPECT_TRUE(!created_route_json.contains("expect_json"));
+    EXPECT_EQ(created_route_json.at("expect").at("media").get<std::string>(), "video");
 
     const auto bind_exact = client.Post(
         ("/api/apps/" + std::to_string(app_id) + "/sources").c_str(),
@@ -447,6 +452,57 @@ TEST(app_endpoints_cover_exact_and_grouped_bind_flow) {
     EXPECT_TRUE(list_sources);
     EXPECT_EQ(list_sources->status, 200);
     EXPECT_EQ(nlohmann::json::parse(list_sources->body).at("sources").size(), 1u);
+
+    const auto list_routes =
+        client.Get(("/api/apps/" + std::to_string(app_id) + "/routes").c_str());
+    EXPECT_TRUE(list_routes);
+    EXPECT_EQ(list_routes->status, 200);
+    const auto listed_routes = nlohmann::json::parse(list_routes->body).at("routes");
+    EXPECT_EQ(listed_routes.size(), 1u);
+    EXPECT_TRUE(listed_routes[0].contains("expect"));
+    EXPECT_TRUE(!listed_routes[0].contains("expect_json"));
+    EXPECT_EQ(listed_routes[0].at("expect").at("media").get<std::string>(), "video");
+
+    server.stop();
+}
+
+TEST(oversized_path_ids_return_bad_request) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    const auto huge_app = client.Get("/api/apps/9223372036854775808");
+    EXPECT_TRUE(huge_app);
+    EXPECT_EQ(huge_app->status, 400);
+    EXPECT_EQ(nlohmann::json::parse(huge_app->body).at("error").get<std::string>(),
+              "bad_request");
+
+    const auto huge_session = client.Get("/api/sessions/9223372036854775808");
+    EXPECT_TRUE(huge_session);
+    EXPECT_EQ(huge_session->status, 400);
+    EXPECT_EQ(nlohmann::json::parse(huge_session->body).at("error").get<std::string>(),
+              "bad_request");
 
     server.stop();
 }

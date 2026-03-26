@@ -4,8 +4,11 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 11
+- version: 12
 - major changes:
+  - 2026-03-26 fixed the defect-level PR #5 review items, covering route JSON
+    field naming, 64-bit path-id validation, app-delete failure propagation,
+    and safer post-insert reloads with focused tests plus live REST probes
   - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
     `FULLMUTEX`, confirmed Orbbec pipeline-profile fallback, recorded pure D2C
     capability gating as TODO, and refreshed the donor-reuse status from code
@@ -31,6 +34,71 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-26 – Fix PR #5 Defect-Level Review Items
+
+### What Changed
+
+- fixed the five defect-level PR #5 review items in the checked-in backend:
+  - [app_service.cpp](/home/yixin/Coding/insight-io/backend/src/app_service.cpp)
+    now propagates `stop_session(...)` failures during `delete_app(...)`
+    instead of deleting the app after silently ignoring a failed stop
+  - [app_service.cpp](/home/yixin/Coding/insight-io/backend/src/app_service.cpp)
+    now checks the post-insert reload path for both app creation and route
+    creation instead of dereferencing an empty `std::optional`
+  - [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+    now serializes route expectations under the documented `expect` field
+    rather than the internal `expect_json` name
+  - [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+    now parses every numeric path id through one checked 64-bit helper so
+    oversized values return `400 Bad Request` instead of bubbling out as
+    generic `500` failures
+- added focused regression coverage in:
+  - [app_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/app_service_test.cpp)
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+- kept the scope on real fixes only:
+  cleanup, duplicate, and not-actionable PR review items remain untouched in
+  this change
+
+### Why
+
+- PR #5 still had five review items that could produce either incorrect HTTP
+  behavior or unsafe internal failure handling
+- the app-delete path needed to fail closed if runtime session stop fails
+  because silently deleting the durable app while the session stop path errors
+  would leave the control plane inconsistent
+- the REST layer needed explicit checked parsing because large numeric path
+  inputs are user-controlled and were reproducing `500` responses live
+
+### Verification
+
+```bash
+cmake --build build -j4 --target app_service_test rest_server_test insightiod
+
+./build/bin/app_service_test
+./build/bin/rest_server_test
+
+mkdir -p /tmp/insight-io-pr5-fix-frontend
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18187 \
+  --db-path /tmp/insight-io-pr5-fix.sqlite3 \
+  --frontend /tmp/insight-io-pr5-fix-frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s -X POST http://127.0.0.1:18187/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"review-fix-live"}'
+
+curl -s -X POST http://127.0.0.1:18187/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"yolov5","expect":{"media":"video"}}'
+
+curl -s http://127.0.0.1:18187/api/apps/1/routes
+
+curl -s -i http://127.0.0.1:18187/api/apps/9223372036854775808
+curl -s -i http://127.0.0.1:18187/api/sessions/9223372036854775808
+```
 
 ## 2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status
 
