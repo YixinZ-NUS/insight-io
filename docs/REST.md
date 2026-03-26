@@ -4,8 +4,11 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 7
+- version: 8
 - major changes:
+  - 2026-03-26 aligned device-catalog selector naming with the reviewed
+    contract, removed redundant `selector_key` from the checked-in response
+    shape, and documented the next direct-session slice
   - 2026-03-26 documented the catalog and alias request/response shape now used
     by the checked-in implementation slice
   - 2026-03-25 removed stale source variant/group response fields, made RTSP
@@ -70,6 +73,11 @@ Rules:
 
 - `publications_json.rtsp.url` is queryable publication metadata for that source
   shape
+- catalog responses expose `selector` only; they do not need a redundant
+  concatenated `selector_key`
+- single-stream V4L2 selectors stay compact, for example `720p_30`
+- grouped Orbbec selectors keep the `orbbec/...` namespace so grouped preset
+  selectors and grouped target names stay aligned
 - the RTSP URL should keep the same `/<device>/<selector>` path as the derived
   `insightos://` URI while replacing `localhost` with the configured RTSP host
 - the presence of that URL does not by itself guarantee an active RTSP
@@ -184,7 +192,7 @@ Bind one listed URI to one app-local target:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/video-720p_30",
+  "input": "insightos://localhost/front-camera/720p_30",
   "target": "vision/detector"
 }
 ```

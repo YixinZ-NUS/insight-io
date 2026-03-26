@@ -4,8 +4,11 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 3
+- version: 4
 - major changes:
+  - 2026-03-26 resolved the selector/schema review by removing stored
+    `selector_key`, adopting compact V4L2 selectors, retaining `orbbec/...`
+    namespacing for grouped RGBD selectors, and documenting the next slice
   - 2026-03-26 added a review snapshot of the current scaffold, a donor-reuse
     status writeup, a schema-keying recommendation for `streams`, and a
     Mermaid backlog for the next runtime slices
@@ -125,27 +128,21 @@ Evidence:
 
 ### Current `streams` Keying
 
-The current schema stores both:
+The reviewed implementation now stores:
 
-- `selector_key TEXT NOT NULL UNIQUE`
 - `selector TEXT NOT NULL`
+- `UNIQUE(device_id, selector)`
 
-and the implementation derives `selector_key` as:
-
-- `device_key + "::" + selector`
-
-That means `selector_key` is not independent data. It is a stored copy of a key
-that is already recoverable from the stable parent device identity plus the
-selector.
+This keeps selector identity attached to the owning device row instead of
+storing a duplicated concatenated identifier.
 
 ### Recommendation
 
-For the durable schema, prefer:
+The recommendation from the previous review is now the active design:
 
 - keep `selector` as the stable per-device terminal identifier
-- enforce `UNIQUE(device_id, selector)` or `UNIQUE(device_key, selector)` via
-  the parent relation
-- derive any compound resource name at the API boundary instead of storing the
+- enforce `UNIQUE(device_id, selector)` via the parent relation
+- derive any compound resource name at the API boundary instead of storing a
   concatenated `selector_key`
 
 If a separate immutable identifier is genuinely needed later, add one opaque
@@ -175,6 +172,47 @@ Not recommended:
 
 - treating `selector_key` as if it were a first-class immutable resource id
   when it is currently just `device_key` plus `selector`
+
+### Selector Naming Review
+
+The review comment about selector names split into two different cases.
+
+Resolved decision:
+
+- plain V4L2 webcam selectors should be compact terminal identifiers such as
+  `720p_30` and `1080p_30`
+- grouped Orbbec selectors should keep the `orbbec/...` namespace
+
+Rationale for the V4L2 change:
+
+- `media_kind` already carries `video`, so `video-720p_30` duplicated meaning
+- the URI path stays shorter and easier to copy without losing information
+- the selector still remains stable within one device catalog
+
+Rationale for keeping `orbbec/...`:
+
+- the same device publishes both exact members and grouped presets, so the
+  namespace marks one selector family rather than one media kind
+- grouped target vocabulary already uses `orbbec`, `orbbec/color`, and
+  `orbbec/depth`, so keeping the selector namespace aligned reduces ambiguity
+- dropping the namespace would make grouped RGBD selectors read like generic
+  leaf names even though their meaning is tied to the grouped family contract
+
+In short:
+
+- remove redundant prefixes when they only restate media kind
+- keep namespaces when they express the grouped-device family contract
+
+## Next Step
+
+The next implementation slice remains direct sessions:
+
+- `POST /api/sessions`
+- `GET /api/sessions`
+- `GET /api/sessions/{id}`
+- `DELETE /api/sessions/{id}` with the documented `409 Conflict` guard
+- runtime-backed verification that one selected catalog URI normalizes into one
+  persisted direct logical session
 
 ## Mermaid Diagram Inventory
 

@@ -4,8 +4,11 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 3
+- version: 4
 - major changes:
+  - 2026-03-26 aligned the guide with the reviewed selector contract: V4L2
+    selectors are plain `720p_30` style, Orbbec selectors remain namespaced,
+    and SQLite inspection now shows device-scoped selector uniqueness
   - 2026-03-26 added a review-backed walkthrough for verifying the current
     discovery/catalog slice on the real development host and called out the
     current hardware observations plus the Orbbec duplicate-suppression rule
@@ -96,7 +99,7 @@ curl -s http://127.0.0.1:18180/api/devices | jq
 
 On the current development machine, the catalog should show:
 
-- one V4L2 webcam with selectors such as `video-720p_30`
+- one V4L2 webcam with selectors such as `720p_30`
 - one Orbbec device with selectors including `orbbec/depth/400p_30`,
   `orbbec/depth/480p_30`, and `orbbec/preset/480p_30`
 - PipeWire audio sources when PipeWire discovery is enabled
@@ -160,9 +163,9 @@ The observed Orbbec catalog included:
 
 The observed V4L2 webcam catalog included selectors such as:
 
-- `video-720p_30`
-- `video-1080p_30`
-- `video-2160p_30`
+- `720p_30`
+- `1080p_30`
+- `2160p_30`
 
 ### SQLite Review
 
@@ -172,7 +175,7 @@ sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
    FROM devices ORDER BY public_name;"
 
 sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
-  "SELECT stream_id, device_id, selector_key, selector, media_kind, shape_kind \
+  "SELECT stream_id, device_id, selector, media_kind, shape_kind \
    FROM streams ORDER BY device_id, selector;"
 ```
 

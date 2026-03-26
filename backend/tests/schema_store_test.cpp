@@ -1,6 +1,7 @@
 // role: focused schema bootstrap test for the standalone insight-io backend.
-// revision: 2026-03-25 bootstrap-runtime-build
-// major changes: verifies the checked-in seven-table schema is applied.
+// revision: 2026-03-26 selector-schema-review
+// major changes: verifies the checked-in seven-table schema is applied and the
+// reviewed per-device selector uniqueness is present.
 
 #include "insightio/backend/schema_store.hpp"
 
@@ -77,6 +78,21 @@ std::set<std::string> list_tables(sqlite3* db) {
     return tables;
 }
 
+std::set<std::string> list_columns(sqlite3* db, const char* table) {
+    std::set<std::string> columns;
+    sqlite3_stmt* statement = nullptr;
+    const auto sql = std::string("PRAGMA table_info(") + table + ")";
+    EXPECT_EQ(sqlite3_prepare_v2(db, sql.c_str(), -1, &statement, nullptr), SQLITE_OK);
+    while (sqlite3_step(statement) == SQLITE_ROW) {
+        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
+        if (name != nullptr) {
+            columns.emplace(name);
+        }
+    }
+    sqlite3_finalize(statement);
+    return columns;
+}
+
 TEST(initialize_creates_the_documented_tables) {
     insightio::backend::SchemaStore store(make_temp_db_path());
     EXPECT_TRUE(store.initialize());
@@ -89,6 +105,15 @@ TEST(initialize_creates_the_documented_tables) {
     EXPECT_TRUE(tables.contains("app_sources"));
     EXPECT_TRUE(tables.contains("sessions"));
     EXPECT_TRUE(tables.contains("session_logs"));
+}
+
+TEST(streams_table_uses_device_scoped_selector_uniqueness) {
+    insightio::backend::SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    const auto columns = list_columns(store.db(), "streams");
+    EXPECT_TRUE(columns.contains("selector"));
+    EXPECT_TRUE(!columns.contains("selector_key"));
 }
 
 }  // namespace

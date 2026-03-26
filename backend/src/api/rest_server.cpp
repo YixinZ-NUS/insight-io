@@ -1,6 +1,7 @@
 // role: bootstrap REST server implementation for the standalone insight-io backend.
-// revision: 2026-03-25 bootstrap-runtime-build
-// major changes: exposes the first runtime-tested HTTP surface, GET /api/health.
+// revision: 2026-03-26 selector-schema-review
+// major changes: exposes the reviewed catalog response shape without
+// redundant selector_key fields and keeps the runtime-tested HTTP surface.
 
 #include "insightio/backend/rest_server.hpp"
 
@@ -18,7 +19,6 @@ namespace {
 
 nlohmann::json source_to_json(const CatalogSource& source) {
     nlohmann::json json = {
-        {"selector_key", source.selector_key},
         {"selector", source.selector},
         {"uri", source.uri},
         {"media_kind", source.media_kind},

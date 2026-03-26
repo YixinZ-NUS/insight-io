@@ -4,14 +4,15 @@
 
 - role: durable-schema entity-relationship diagram for `insight-io`
 - status: active
-- version: 3
+- version: 4
 - major changes:
+  - 2026-03-26 removed redundant `selector_key` from the active `streams`
+    schema and kept selector identity scoped to each device
   - 2026-03-25 replaced durable `delivery_name` with `rtsp_enabled` and
     publication metadata while keeping local IPC implicit
   - 2026-03-25 replaced grouped-route public bind naming with one app-local
     `target_name`
-  - 2026-03-24 replaced stored `canonical_uri` with stable `selector_key` plus
-    derived public `uri`
+  - 2026-03-24 replaced stored `canonical_uri` with derived public `uri`
 - past tasks:
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
@@ -44,7 +45,6 @@ erDiagram
     streams {
         INTEGER stream_id PK
         INTEGER device_id FK
-        TEXT selector_key UK
         TEXT selector
         TEXT media_kind
         TEXT shape_kind

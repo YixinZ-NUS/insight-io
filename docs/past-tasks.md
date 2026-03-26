@@ -4,13 +4,80 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 3
+- version: 4
 - major changes:
+  - 2026-03-26 recorded the selector/schema review follow-up, including the
+    reviewed V4L2 selector rename, the retained Orbbec namespace, and the
+    removal of redundant stored `selector_key`
   - 2026-03-26 added the current scaffold/discovery review entry, including
     donor-reuse status and the schema-keying recommendation
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying
+
+### What Changed
+
+- updated the checked-in schema and catalog implementation so `streams` now
+  stores:
+  - `selector`
+  - `UNIQUE(device_id, selector)`
+  - no redundant durable `selector_key`
+- updated the catalog HTTP response shape to expose only the reviewed source
+  fields, which means `selector_key` is no longer returned by
+  `GET /api/devices` or `GET /api/devices/{device}`
+- changed V4L2 webcam selectors from `video-720p_30` style names to compact
+  selectors such as `720p_30`, `1080p_30`, and `2160p_30`
+- kept Orbbec selectors namespaced as `orbbec/color/...`,
+  `orbbec/depth/...`, and `orbbec/preset/...` because that namespace matches
+  the grouped RGBD target contract
+- extended focused tests to verify:
+  - `streams` no longer has a `selector_key` column
+  - V4L2 catalog entries use compact selectors
+  - REST device responses omit `selector_key`
+  - derived URI and RTSP paths follow the renamed selectors
+- updated the active docs, user guide, ER diagram, and tech report so the
+  contract and implementation now agree
+- documented the next slice as direct-session APIs and runtime verification in
+  the task list and tech report
+
+### Why
+
+- the review comments were correct that plain V4L2 webcam selectors did not
+  need a `video-` prefix because `media_kind` already carries that meaning
+- the schema review was also correct that concatenated `selector_key` storage
+  duplicated information already recoverable from the parent device identity
+  and the selector itself
+- the Orbbec namespace should stay because it does real contract work: it ties
+  exact members and grouped presets to the shared RGBD family vocabulary used
+  by grouped app targets
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18184 \
+  --db-path /tmp/insight-io-selector-review.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18184/api/devices | jq
+curl -s http://127.0.0.1:18184/api/devices/web-camera | jq
+curl -s http://127.0.0.1:18184/api/devices/sv1301s-u3 | jq
+
+sqlite3 /tmp/insight-io-selector-review.sqlite3 ".mode box" \
+  "PRAGMA table_info(streams);"
+
+sqlite3 /tmp/insight-io-selector-review.sqlite3 ".mode box" \
+  "SELECT stream_id, device_id, selector, media_kind, shape_kind \
+   FROM streams ORDER BY device_id, selector;"
+```
 
 ## 2026-03-26 – Review Current Scaffold, Discovery Reuse, And Schema Keying
 
@@ -71,7 +138,7 @@ sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
    FROM devices ORDER BY public_name;"
 
 sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
-  "SELECT stream_id, device_id, selector_key, selector, media_kind, shape_kind \
+  "SELECT stream_id, device_id, selector, media_kind, shape_kind \
    FROM streams ORDER BY device_id, selector;"
 
 diff -u ../insightos/backend/src/discovery/v4l2_discovery.cpp \

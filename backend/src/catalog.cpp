@@ -1,7 +1,7 @@
 // role: persisted discovery catalog for the standalone backend.
-// revision: 2026-03-26 catalog-discovery-slice
-// major changes: normalizes discovered devices into derived URI source shapes,
-// persists them into devices/streams, and preserves device aliases across refresh.
+// revision: 2026-03-26 selector-schema-review
+// major changes: removes redundant selector_key persistence, keeps per-device
+// selector uniqueness, and applies the reviewed selector naming contract.
 
 #include "insightio/backend/catalog.hpp"
 
@@ -350,13 +350,11 @@ private:
                        std::int64_t timestamp) const {
         Stmt statement(
             db_,
-            "INSERT INTO streams (device_id, selector_key, selector, media_kind, shape_kind, "
-            "channel, group_key, caps_json, capture_policy_json, members_json, "
-            "publications_json, is_present, created_at_ms, updated_at_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) "
-            "ON CONFLICT(selector_key) DO UPDATE SET "
-            "device_id = excluded.device_id, "
-            "selector = excluded.selector, "
+            "INSERT INTO streams (device_id, selector, media_kind, shape_kind, channel, "
+            "group_key, caps_json, capture_policy_json, members_json, publications_json, "
+            "is_present, created_at_ms, updated_at_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) "
+            "ON CONFLICT(device_id, selector) DO UPDATE SET "
             "media_kind = excluded.media_kind, "
             "shape_kind = excluded.shape_kind, "
             "channel = excluded.channel, "
@@ -372,18 +370,17 @@ private:
         }
 
         statement.bind_int64(1, device_id);
-        statement.bind_text(2, source.selector_key);
-        statement.bind_text(3, source.selector);
-        statement.bind_text(4, source.media_kind);
-        statement.bind_text(5, source.shape_kind);
-        statement.bind_text_or_null(6, source.channel);
-        statement.bind_text_or_null(7, source.group_key);
-        statement.bind_text(8, source.caps_json.dump());
-        statement.bind_json_or_null(9, source.capture_policy_json);
-        statement.bind_json_or_null(10, source.members_json);
-        statement.bind_text(11, source.publications_json.dump());
+        statement.bind_text(2, source.selector);
+        statement.bind_text(3, source.media_kind);
+        statement.bind_text(4, source.shape_kind);
+        statement.bind_text_or_null(5, source.channel);
+        statement.bind_text_or_null(6, source.group_key);
+        statement.bind_text(7, source.caps_json.dump());
+        statement.bind_json_or_null(8, source.capture_policy_json);
+        statement.bind_json_or_null(9, source.members_json);
+        statement.bind_text(10, source.publications_json.dump());
+        statement.bind_int64(11, timestamp);
         statement.bind_int64(12, timestamp);
-        statement.bind_int64(13, timestamp);
         return statement.exec();
     }
 
@@ -404,7 +401,7 @@ private:
         std::vector<CatalogSource> sources;
         Stmt query(
             db_,
-            "SELECT selector_key, selector, media_kind, shape_kind, channel, group_key, "
+            "SELECT selector, media_kind, shape_kind, channel, group_key, "
             "caps_json, capture_policy_json, members_json, publications_json "
             "FROM streams WHERE device_id = ? AND is_present = 1 ORDER BY selector");
         if (!query) {
@@ -413,17 +410,16 @@ private:
         query.bind_int64(1, device_id);
         while (query.step()) {
             CatalogSource source;
-            source.selector_key = query.col_text(0);
-            source.selector = query.col_text(1);
+            source.selector = query.col_text(0);
             source.uri = "insightos://localhost/" + public_name + "/" + source.selector;
-            source.media_kind = query.col_text(2);
-            source.shape_kind = query.col_text(3);
-            source.channel = query.col_text(4);
-            source.group_key = query.col_text(5);
-            source.caps_json = parse_json(query.col_text(6));
-            source.capture_policy_json = parse_json(query.col_text(7));
-            source.members_json = parse_json(query.col_text(8));
-            source.publications_json = parse_json(query.col_text(9));
+            source.media_kind = query.col_text(1);
+            source.shape_kind = query.col_text(2);
+            source.channel = query.col_text(3);
+            source.group_key = query.col_text(4);
+            source.caps_json = parse_json(query.col_text(5));
+            source.capture_policy_json = parse_json(query.col_text(6));
+            source.members_json = parse_json(query.col_text(7));
+            source.publications_json = parse_json(query.col_text(8));
             if (source.publications_json.contains("rtsp") &&
                 source.publications_json["rtsp"].contains("url") &&
                 source.publications_json["rtsp"]["url"].is_string()) {
@@ -531,8 +527,7 @@ std::string rtsp_host_from_url(const std::string& url) {
     return url.substr(host_start, slash - host_start);
 }
 
-CatalogSource make_source(const std::string& device_key,
-                          const std::string& public_name,
+CatalogSource make_source(const std::string& public_name,
                           const std::string& rtsp_host,
                           const std::string& selector,
                           const std::string& media_kind,
@@ -543,7 +538,6 @@ CatalogSource make_source(const std::string& device_key,
                           std::string channel = {},
                           std::string group_key = {}) {
     CatalogSource source;
-    source.selector_key = device_key + "::" + selector;
     source.selector = selector;
     source.uri = "insightos://localhost/" + public_name + "/" + selector;
     source.media_kind = media_kind;
@@ -584,7 +578,7 @@ std::vector<CatalogSource> build_v4l2_sources(const DeviceInfo& device,
     for (const auto& [key, caps] : chosen) {
         (void)key;
         const auto selector =
-            "video-" + resolution_label(caps.width, caps.height) + "_" + std::to_string(caps.fps);
+            resolution_label(caps.width, caps.height) + "_" + std::to_string(caps.fps);
         auto capture_policy = nlohmann::json{
             {"driver", "v4l2"},
             {"device_uri", device.uri},
@@ -592,8 +586,7 @@ std::vector<CatalogSource> build_v4l2_sources(const DeviceInfo& device,
             {"stream_name", stream->name},
             {"selected_caps", caps_to_json(caps)},
         };
-        sources.push_back(make_source(stable_device_key(device),
-                                      public_name,
+        sources.push_back(make_source(public_name,
                                       rtsp_host,
                                       selector,
                                       "video",
@@ -641,8 +634,7 @@ std::vector<CatalogSource> build_pipewire_sources(const DeviceInfo& device,
             {"stream_name", stream->name},
             {"selected_caps", caps_to_json(caps)},
         };
-        sources.push_back(make_source(stable_device_key(device),
-                                      public_name,
+        sources.push_back(make_source(public_name,
                                       rtsp_host,
                                       selector,
                                       "audio",
@@ -690,8 +682,6 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
             ResolvedCaps{0, "y16", 640, 400, 30});
         depth = &synthetic_depth;
     }
-    const auto device_key = stable_device_key(device);
-
     if (color != nullptr) {
         for (const auto& caps : color->supported_caps) {
             const auto selector = "orbbec/color/" + resolution_label(caps.width, caps.height) +
@@ -702,8 +692,7 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
                 {"stream_id", "color"},
                 {"selected_caps", caps_to_json(caps)},
             };
-            sources.push_back(make_source(device_key,
-                                          public_name,
+            sources.push_back(make_source(public_name,
                                           rtsp_host,
                                           selector,
                                           "video",
@@ -728,8 +717,7 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
                 {"mode", "native_depth"},
                 {"d2c", "off"},
             };
-            sources.push_back(make_source(device_key,
-                                          public_name,
+            sources.push_back(make_source(public_name,
                                           rtsp_host,
                                           selector,
                                           "depth",
@@ -759,8 +747,7 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
             if (device.identity.usb_serial == "AY27552002M") {
                 capture_policy["probe_grounded_device_serial"] = "AY27552002M";
             }
-            sources.push_back(make_source(device_key,
-                                          public_name,
+            sources.push_back(make_source(public_name,
                                           rtsp_host,
                                           "orbbec/depth/480p_30",
                                           "depth",
@@ -810,8 +797,7 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
                     {"media", "depth"},
                 },
             });
-            sources.push_back(make_source(device_key,
-                                          public_name,
+            sources.push_back(make_source(public_name,
                                           rtsp_host,
                                           "orbbec/preset/480p_30",
                                           "grouped",

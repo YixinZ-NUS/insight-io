@@ -1,9 +1,9 @@
 #pragma once
 
 // role: persisted device/source catalog service for the standalone backend.
-// revision: 2026-03-26 catalog-discovery-slice
-// major changes: defines derived URI catalog entries, refresh behavior, and
-// alias control grounded on the v1 devices/streams schema.
+// revision: 2026-03-26 selector-schema-review
+// major changes: defines derived URI catalog entries using per-device selector
+// uniqueness and the reviewed selector naming contract.
 
 #include "insightio/backend/discovery.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -20,7 +20,6 @@
 namespace insightio::backend {
 
 struct CatalogSource {
-    std::string selector_key;
     std::string selector;
     std::string uri;
     std::string media_kind;

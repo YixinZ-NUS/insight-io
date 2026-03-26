@@ -4,8 +4,11 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 10
+- version: 11
 - major changes:
+  - 2026-03-26 aligned the active docs with the reviewed selector contract:
+    plain V4L2 selectors such as `720p_30`, retained `orbbec/...` namespacing
+    for grouped RGBD families, and removed redundant stored `selector_key`
   - 2026-03-26 reintroduced the persisted discovery catalog, alias control, and
     runtime-verified exact/grouped source listing for the connected hardware
   - 2026-03-25 reintroduced the first buildable backend slice, added a user
@@ -109,6 +112,14 @@
   schema layer is required in v1
 - lower-level capture, publication, and worker reuse graphs stay runtime-only and
   are surfaced through status and logs rather than their own durable tables
+- single-stream V4L2 selectors stay compact, for example `720p_30` or
+  `1080p_30`, because media kind and device identity already disambiguate them
+- grouped-device selectors may stay namespaced, for example
+  `orbbec/depth/480p_30`, so exact members and grouped presets share the same
+  family vocabulary as grouped app targets such as `orbbec`
+- `streams` uniqueness should be enforced at the ownership boundary with
+  `UNIQUE(device_id, selector)` rather than by storing a concatenated
+  `selector_key`
 
 ## Doc Map
 

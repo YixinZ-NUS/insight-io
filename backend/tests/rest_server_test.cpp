@@ -1,7 +1,7 @@
 // role: focused catalog REST tests for the standalone backend.
-// revision: 2026-03-26 catalog-discovery-slice
-// major changes: verifies device listing, Orbbec grouped selectors, RTSP
-// metadata, and alias updates on the persisted catalog surface.
+// revision: 2026-03-26 selector-schema-review
+// major changes: verifies the reviewed catalog selector names, RTSP metadata,
+// and alias updates on the persisted catalog surface.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/rest_server.hpp"
@@ -161,11 +161,12 @@ TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
                                          return device.at("public_name") == "web-camera";
                                      });
     EXPECT_TRUE(webcam != json.at("devices").end());
+    EXPECT_TRUE(!(*webcam).at("sources")[0].contains("selector_key"));
     EXPECT_EQ((*webcam).at("sources")[0].at("publications_json")
                   .at("rtsp")
                   .at("url")
                   .get<std::string>(),
-              "rtsp://127.0.0.1/web-camera/video-1080p_30");
+              "rtsp://127.0.0.1/web-camera/1080p_30");
 
     const auto rgbd = std::find_if(json.at("devices").begin(),
                                    json.at("devices").end(),
@@ -213,12 +214,12 @@ TEST(alias_endpoint_updates_public_name_and_derived_uris) {
     const auto json = nlohmann::json::parse(response->body);
     EXPECT_EQ(json.at("public_name").get<std::string>(), "front-camera");
     EXPECT_EQ(json.at("sources")[0].at("uri").get<std::string>(),
-              "insightos://localhost/front-camera/video-1080p_30");
+              "insightos://localhost/front-camera/1080p_30");
     EXPECT_EQ(json.at("sources")[0].at("publications_json")
                   .at("rtsp")
                   .at("url")
                   .get<std::string>(),
-              "rtsp://127.0.0.1/front-camera/video-1080p_30");
+              "rtsp://127.0.0.1/front-camera/1080p_30");
 
     server.stop();
 }

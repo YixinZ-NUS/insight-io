@@ -1,7 +1,7 @@
 // role: focused catalog service tests for the standalone backend.
-// revision: 2026-03-26 catalog-discovery-slice
-// major changes: verifies alias persistence and Orbbec-specific selector
-// shaping against synthetic discovery input.
+// revision: 2026-03-26 selector-schema-review
+// major changes: verifies alias persistence, reviewed V4L2 selector naming,
+// and Orbbec selector shaping against synthetic discovery input.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -137,6 +137,27 @@ TEST(alias_persists_across_refresh) {
     const auto device = catalog.get_device("front-camera");
     EXPECT_TRUE(device.has_value());
     EXPECT_EQ(device->default_name, "web-camera");
+}
+
+TEST(v4l2_uses_plain_resolution_selectors) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_webcam()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto device = catalog.get_device("web-camera");
+    EXPECT_TRUE(device.has_value());
+    EXPECT_EQ(device->sources.size(), 1u);
+    EXPECT_EQ(device->sources[0].selector, "720p_30");
+    EXPECT_EQ(device->sources[0].uri,
+              "insightos://localhost/web-camera/720p_30");
 }
 
 TEST(orbbec_adds_aligned_depth_and_grouped_preset) {

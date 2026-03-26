@@ -4,8 +4,10 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 8
+- version: 9
 - major changes:
+  - 2026-03-26 documented the reviewed selector/schema cleanup and made the
+    next direct-session slice explicit
   - 2026-03-26 reintroduced persisted discovery, alias control, grouped Orbbec
     catalog shaping, and queryable RTSP publication metadata
   - 2026-03-25 reintroduced the first buildable backend slice with the explicit
@@ -31,6 +33,11 @@ The bootstrap implementation has restarted. The current checked-in code covers
 the explicit v1 schema, a versioned health endpoint, persisted discovery and
 catalog reads, device alias updates, and focused build/runtime tests. The
 ordered tasks below describe the remaining feature work.
+
+The next implementation slice is still task 4:
+
+- reintroduce direct session APIs and runtime status inspection on top of the
+  now-reviewed catalog contract
 
 ## Ordered Tasks
 

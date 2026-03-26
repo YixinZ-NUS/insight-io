@@ -4,8 +4,11 @@
 
 - role: define the minimal durable schema for `insight-io`
 - status: active
-- version: 11
+- version: 12
 - major changes:
+  - 2026-03-26 removed redundant stored `selector_key`, made selector
+    uniqueness explicit as `(device_id, selector)`, and documented the
+    reviewed selector naming contract
   - 2026-03-25 removed stale source variant/group response fields, clarified
     queryable RTSP publication metadata, and made session delete conflict
     semantics explicit
@@ -147,11 +150,14 @@ Decision:
 
 - keep one `streams` row per selectable exact member or grouped preset
 - use `device_id` to scope those rows to one device
-- keep a stable `selector_key` for each row so durable ids survive device alias
-  changes
+- enforce `UNIQUE(device_id, selector)` so selector identity is explicit at the
+  owning device boundary
 - use `shape_kind` to distinguish exact versus grouped
 - use `members_json` only when one grouped preset row needs to describe its
   fixed members
+- keep single-stream V4L2 selectors compact, for example `720p_30`
+- keep grouped-device selectors namespaced when that namespace is part of the
+  public family contract, for example `orbbec/depth/480p_30`
 
 This means `streams` is already the single per-device preset table.
 
@@ -203,7 +209,6 @@ Foreign keys:
 
 Important columns:
 
-- `selector_key TEXT NOT NULL UNIQUE`
 - `selector TEXT NOT NULL`
 - `media_kind TEXT NOT NULL`
 - `shape_kind TEXT NOT NULL`
@@ -228,6 +233,9 @@ Notes:
 
 - `uri` is derived from the current device alias plus `selector`; it is not the
   durable DB key for this row
+- selector uniqueness is durable only within one device row, so the schema
+  should enforce `UNIQUE(device_id, selector)` rather than store a duplicated
+  concatenated identifier
 - publication is not encoded in the stored source identity; discovery can
   publish one derived `uri` plus `publications_json` describing optional
   published forms such as RTSP. A minimal shape is
@@ -238,8 +246,8 @@ Notes:
   be exposed as a public source-group id field
 - `streams` is also the only per-device preset table; a separate `presets`
   table is not needed in v1
-- discovery should upsert by `selector_key` so ids stay stable across alias
-  changes and refresh
+- discovery should upsert by `(device_id, selector)` so `stream_id` values stay
+  stable across alias changes and refresh
 
 ## App Tables
 
@@ -467,8 +475,8 @@ That means:
 
 - `device_id`, `stream_id`, `app_id`, `route_id`, `source_id`, `session_id`,
   and `log_id` are integer primary keys
-- `device_key`, `public_name`, and `selector_key` stay unique business
-  identifiers
+- `device_key` and `public_name` stay unique business identifiers
+- `selector` stays unique only within its owning device row
 - public `uri` values are derived outputs, not stored business identifiers
 - route names stay unique only inside one app
 

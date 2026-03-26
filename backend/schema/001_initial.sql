@@ -1,7 +1,8 @@
 -- role: canonical v1 durable schema for the standalone insight-io rebuild.
--- revision: 2026-03-25 bootstrap-runtime-build
--- major changes: checks in the seven-table schema defined by the active data
--- model. See docs/past-tasks.md for the implementation record.
+-- revision: 2026-03-26 selector-schema-review
+-- major changes: removes redundant streams.selector_key storage, scopes
+-- selector uniqueness to each device, and keeps the seven-table v1 schema.
+-- See docs/past-tasks.md for the implementation record.
 
 PRAGMA foreign_keys = ON;
 
@@ -20,7 +21,6 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS streams (
     stream_id INTEGER PRIMARY KEY,
     device_id INTEGER NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
-    selector_key TEXT NOT NULL UNIQUE,
     selector TEXT NOT NULL,
     media_kind TEXT NOT NULL,
     shape_kind TEXT NOT NULL CHECK (shape_kind IN ('exact', 'grouped')),
@@ -32,7 +32,8 @@ CREATE TABLE IF NOT EXISTS streams (
     publications_json TEXT NOT NULL,
     is_present INTEGER NOT NULL DEFAULT 1,
     created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE (device_id, selector)
 );
 
 CREATE TABLE IF NOT EXISTS apps (
