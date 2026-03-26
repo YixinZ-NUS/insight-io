@@ -1,9 +1,10 @@
 // role: REST server implementation for the current standalone backend slices.
-// revision: 2026-03-26 pr5-review-fixes
+// revision: 2026-03-26 task6-serving-runtime-reuse
 // major changes: exposes catalog, direct-session, app/route/source, and
 // runtime-status endpoints while keeping media realization lightweight, route
-// responses aligned with the documented `expect` field, and path-id parsing
-// hardened against 64-bit overflow.
+// responses aligned with the documented `expect` field, surfacing serving
+// runtime reuse, and hardening path-id parsing against 64-bit overflow.
+// See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/rest_server.hpp"
 
@@ -128,6 +129,36 @@ nlohmann::json route_to_json(const RouteRecord& route) {
     return json;
 }
 
+nlohmann::json serving_runtime_view_to_json(
+    const SessionRecord::ServingRuntimeView& runtime) {
+    return nlohmann::json{
+        {"runtime_key", runtime.runtime_key},
+        {"owner_session_id", runtime.owner_session_id},
+        {"rtsp_enabled", runtime.rtsp_enabled},
+        {"shared", runtime.shared},
+        {"consumer_count", runtime.consumer_count},
+        {"consumer_session_ids", runtime.consumer_session_ids},
+    };
+}
+
+nlohmann::json serving_runtime_snapshot_to_json(
+    const ServingRuntimeSnapshot& runtime) {
+    nlohmann::json json = {
+        {"runtime_key", runtime.runtime_key},
+        {"stream_id", runtime.stream_id},
+        {"owner_session_id", runtime.owner_session_id},
+        {"rtsp_enabled", runtime.rtsp_enabled},
+        {"consumer_count", runtime.consumer_count},
+        {"consumer_session_ids", runtime.consumer_session_ids},
+        {"resolved_source", resolved_source_to_json(runtime.source)},
+    };
+    if (!runtime.resolved_members_json.is_null() &&
+        !runtime.resolved_members_json.empty()) {
+        json["resolved_members_json"] = runtime.resolved_members_json;
+    }
+    return json;
+}
+
 nlohmann::json session_to_json(const SessionRecord& session) {
     nlohmann::json json = {
         {"session_id", session.session_id},
@@ -159,6 +190,9 @@ nlohmann::json session_to_json(const SessionRecord& session) {
     }
     if (session.rtsp_enabled && !session.rtsp_url.empty()) {
         json["rtsp_url"] = session.rtsp_url;
+    }
+    if (session.serving_runtime.has_value()) {
+        json["serving_runtime"] = serving_runtime_view_to_json(*session.serving_runtime);
     }
     return json;
 }
@@ -927,10 +961,15 @@ void RestServer::setup_routes() {
             {"total_sessions", snapshot.total_sessions},
             {"active_sessions", snapshot.active_sessions},
             {"stopped_sessions", snapshot.stopped_sessions},
+            {"total_serving_runtimes", snapshot.total_serving_runtimes},
             {"sessions", nlohmann::json::array()},
+            {"serving_runtimes", nlohmann::json::array()},
         };
         for (const auto& session : snapshot.sessions) {
             body["sessions"].push_back(session_to_json(session));
+        }
+        for (const auto& runtime : snapshot.serving_runtimes) {
+            body["serving_runtimes"].push_back(serving_runtime_snapshot_to_json(runtime));
         }
         response.set_content(body.dump(2), "application/json");
     });

@@ -1,8 +1,9 @@
 // role: Orbbec SDK discovery for the standalone backend.
 // revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
 // major changes: discovers Orbbec color and depth capabilities, falls back to
-// pipeline profile enumeration when the sensor list is incomplete, and
-// supplies the Orbbec USB vendor skip set used by V4L2 discovery.
+// pipeline profile enumeration when the sensor list is incomplete, and emits
+// USB vendor metadata so aggregate discovery can suppress duplicate V4L2 nodes
+// only after usable SDK-backed Orbbec devices were found.
 
 #ifdef INSIGHTIO_HAS_ORBBEC
 
@@ -176,10 +177,6 @@ std::shared_ptr<ob::StreamProfileList> get_pipeline_profiles(
 }
 
 }  // namespace
-
-std::set<std::string> get_orbbec_vendor_ids() {
-    return {"2bc5"};
-}
 
 std::vector<DeviceInfo> discover_orbbec() {
     std::vector<DeviceInfo> devices;

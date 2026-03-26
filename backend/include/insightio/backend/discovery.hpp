@@ -1,12 +1,14 @@
 #pragma once
 
 // role: host-device discovery surface for the standalone insight-io backend.
-// revision: 2026-03-26 catalog-discovery-slice
-// major changes: exposes V4L2, optional Orbbec, and optional PipeWire
-// discovery used by the persisted catalog.
+// revision: 2026-03-26 orbbec-v4l2-fallback-fix
+// major changes: exposes aggregate discovery hooks so tests can verify the
+// Orbbec-to-V4L2 fallback boundary, and keeps duplicate suppression contingent
+// on usable SDK-backed Orbbec discovery. See docs/past-tasks.md.
 
 #include "insightio/backend/types.hpp"
 
+#include <functional>
 #include <set>
 #include <string>
 #include <vector>
@@ -18,7 +20,6 @@ std::vector<DeviceInfo> discover_v4l2(
 
 #ifdef INSIGHTIO_HAS_ORBBEC
 std::vector<DeviceInfo> discover_orbbec();
-std::set<std::string> get_orbbec_vendor_ids();
 #endif
 
 #ifdef INSIGHTIO_HAS_PIPEWIRE
@@ -30,6 +31,14 @@ struct DiscoveryResult {
     std::vector<std::string> errors;
 };
 
+struct DiscoveryHooks {
+    std::function<std::vector<DeviceInfo>()> discover_orbbec;
+    std::function<std::vector<DeviceInfo>(const std::set<std::string>&)>
+        discover_v4l2;
+    std::function<std::vector<DeviceInfo>()> discover_pipewire;
+};
+
 DiscoveryResult discover_all();
+DiscoveryResult discover_all(const DiscoveryHooks& hooks);
 
 }  // namespace insightio::backend

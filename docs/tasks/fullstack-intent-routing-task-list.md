@@ -4,8 +4,11 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 12
+- version: 13
 - major changes:
+  - 2026-03-26 closed task 6 by adding in-memory serving-runtime reuse across
+    direct sessions and app-owned sources, exposing serving-runtime topology in
+    `GET /api/status`, and moving the next handoff to donor IPC delivery
   - 2026-03-26 closed task 5 by fixing grouped-member-route delete cleanup and
     refreshed the remaining handoff toward session reuse, IPC delivery, RTSP
     runtime, SDK callbacks, and frontend flows
@@ -28,6 +31,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
@@ -41,15 +45,16 @@
 The current worktree covers the explicit v1 schema, a versioned health
 endpoint, persisted discovery and catalog reads, device alias updates, direct
 session REST/status flow, durable app/route/source CRUD and lifecycle
-endpoints, plus focused build/runtime tests. The ordered tasks below describe
-the remaining feature work.
+endpoints, serving-runtime reuse across identical `stream_id` requests, and
+focused build/runtime tests. The ordered tasks below describe the remaining
+feature work.
 
 Completed slices:
 
-- tasks 1 through 5 are now implemented and verification-backed in the current
+- tasks 1 through 6 are now implemented and verification-backed in the current
   worktree
 
-The next implementation slice is task 6.
+The next implementation slice is task 7.
 
 ## Ordered Tasks
 

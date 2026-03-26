@@ -4,8 +4,20 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 11
+- version: 14
 - major changes:
+  - 2026-03-26 closed task 6 by adding in-memory serving-runtime reuse keyed by
+    `stream_id`, exposing serving-runtime topology in session responses plus
+    `GET /api/status`, runtime-verifying shared exact-URI reuse on the current
+    host, and moving the next implementation handoff to donor IPC delivery
+  - 2026-03-26 fixed the Orbbec duplicate-suppression fallback gap, added a
+    focused aggregate-discovery regression test, confirmed the current host
+    still enumerates one Orbbec plus one V4L2 webcam without duplication, and
+    updated donor-reuse notes to reflect the new fallback boundary
+  - 2026-03-26 rechecked the task-5 slice against live host behavior,
+    corrected tracker underclaims for four already-verified control-plane
+    features, confirmed the current hardware inventory on the development
+    host, and expanded the task-6 handoff into an explicit start order
   - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
     `FULLMUTEX`, confirmed Orbbec pipeline-profile fallback, recorded pure D2C
     capability gating as a remaining TODO, and refreshed the donor-reuse
@@ -31,6 +43,9 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
+  - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
+  - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
   - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
@@ -44,7 +59,7 @@
 ## Current Slice
 
 The current implementation slice now covers the full durable control-plane
-surface up through app/route/source persistence:
+surface up through serving-runtime reuse:
 
 - explicit seven-table SQLite schema checked into the repository
 - one standalone backend binary, `insightiod`
@@ -54,6 +69,10 @@ surface up through app/route/source persistence:
 - durable app-route CRUD with ambiguity guards
 - durable app-source create/list/start/stop/rebind for exact, grouped, and
   session-backed binds
+- in-memory serving-runtime reuse across matching active direct sessions and
+  app-owned sessions
+- runtime-status inspection that surfaces serving-runtime ownership, consumer
+  session ids, resolved source metadata, and additive RTSP intent
 - focused tests that prove schema bootstrap, catalog shaping, REST lifecycle
   paths, app-source behavior, and direct-session behavior
 
@@ -83,7 +102,7 @@ In concrete HTTP terms, the current backend serves only:
 - `POST /api/apps/{id}/sources/{source_id}/rebind`
 - `GET /api/status`
 
-Reuse, IPC attach, RTSP serving runtime, SDK callbacks, and frontend portions
+IPC attach, active RTSP serving runtime, SDK callbacks, and frontend portions
 of the PRD remain future work.
 
 ## Review Snapshot
@@ -97,6 +116,7 @@ Observed from the current audit:
 - `ctest` is green across:
   - `schema_store_test`
   - `catalog_service_test`
+  - `discovery_test`
   - `session_service_test`
   - `rest_server_test`
   - `app_service_test`
@@ -105,6 +125,13 @@ Observed from the current audit:
   - one V4L2 webcam
   - one Orbbec RGBD camera
   - two PipeWire audio devices
+- the Orbbec duplicate-suppression fallback fix is now verified in two ways:
+  - focused `discovery_test` proves V4L2 fallback stays visible when Orbbec
+    SDK discovery is empty or throws, and proves suppression activates once a
+    usable Orbbec device is discovered
+  - live `GET /api/devices` on this host still returns exactly one Orbbec
+    device plus one V4L2 webcam, with no duplicate V4L2 shadow entry for the
+    Orbbec camera
 - the live direct-session smoke flow succeeded for
   `insightos://localhost/web-camera/720p_30`:
   - `POST /api/sessions`
@@ -127,10 +154,35 @@ Observed from the current audit:
   - backend restart with the same SQLite file
   - `GET /api/apps`
   - `GET /api/apps/{id}/sources` showing persisted rows normalized to `stopped`
+- serving-runtime reuse is now live-verified for one repeated exact URI:
+  - one direct session for `insightos://localhost/web-camera/720p_30`
+    reports one `serving_runtime` with `consumer_count = 1`
+  - a second direct session for the same URI with `rtsp_enabled = true`
+    reports the same `runtime_key` with `consumer_count = 2`,
+    `shared = true`, and additive `rtsp_enabled = true`
+  - one URI-backed app source on `yolov5` for the same URI creates one
+    app-owned logical session whose nested active-session metadata reports the
+    same shared runtime with `consumer_count = 3`
+  - `GET /api/status` now returns one `serving_runtimes` entry for that exact
+    URI with `owner_session_id`, `consumer_session_ids`, resolved source
+    metadata, and additive RTSP intent
 - session-backed bind verification also succeeded:
   - `POST /api/sessions`
   - `POST /api/apps/{id}/sources` with `session_id`
   - `DELETE /api/sessions/{id}` returning `409 Conflict`
+- exact source-response identity is now live-verified:
+  - `POST /api/apps/{id}/sources` returns `resolved_exact_stream_id`
+  - exact-source responses also include `target`, `uri`, `state`,
+    `rtsp_enabled`, and nested active-session metadata
+- exact app-source stop/start preservation is now live-verified:
+  - `POST /api/apps/{id}/sources/{source_id}/stop` keeps the durable row and
+    clears only `active_session_id`
+  - `POST /api/apps/{id}/sources/{source_id}/start` recreates runtime state
+    and links a fresh app-owned session to the same durable source row
+- exact route expectation rejection is now live-verified:
+  - `POST /api/apps/{id}/sources` returns `422 Unprocessable Content`
+    with `route_expectation_mismatch` when `web-camera/720p_30` is bound to
+    `orbbec/depth`
 - URI host validation is now live on both paths:
   - `POST /api/sessions` rejects `insightos://not-local/...`
   - `POST /api/apps/{id}/sources` rejects `insightos://not-local/...`
@@ -153,25 +205,30 @@ Important scope boundary:
   host for the checked-in slice
 - app, route, and source persistence are runtime-verified on the development
   host for the current worktree slice
-- session reuse, IPC delivery, RTSP runtime, SDK callbacks, and frontend flows
-  are not implemented in this repository yet
+- serving-runtime reuse and status topology are now implemented in this
+  repository
+- IPC delivery, active RTSP runtime, SDK callbacks, and frontend flows are not
+  implemented in this repository yet
 
 This matches the current feature trackers:
 
 - `docs/features/fullstack-intent-routing-e2e.json` now records the verified
-  grouped-route delete cleanup as passing, while callback-dependent bind flows
-  such as `inject-yolov5-source` remain `false` until IPC delivery and SDK
-  callbacks actually exist
+  grouped-route delete cleanup, route-expectation rejection, and one status
+  inspection entry for shared serving-runtime topology as passing, while
+  callback-dependent bind flows such as `inject-yolov5-source` remain `false`
+  until IPC delivery and SDK callbacks actually exist
 - `docs/features/runtime-and-app-user-journeys.json` now marks direct-session
-  create, persisted restart, and the new grouped-route delete cleanup journey
-  as passing where those flows were actually verified
-- grouped runtime reuse, IPC attach, RTSP serving runtime, SDK callbacks, and
-  frontend flows remain `false`
+  create, persisted restart, referenced-session delete conflict, exact
+  source-response identity, app-source stop/start preservation, grouped-route
+  delete cleanup, and one shared-serving-runtime status journey as passing
+  where those flows were actually verified
+- frame-delivery fanout, IPC attach, active RTSP serving runtime, SDK
+  callbacks, and frontend flows remain `false`
 
 ## Donor Reuse Status
 
 This section was rechecked against the current `../insightos` tree while
-closing task 5.
+closing task 6.
 
 ### Already Reused
 
@@ -202,7 +259,7 @@ Concrete comparison points:
   [v4l2_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/v4l2_discovery.cpp)
   matches the donor structure in
   [v4l2_discovery.cpp](/home/yixin/Coding/insightos/backend/src/discovery/v4l2_discovery.cpp)
-- current Orbbec enumeration and vendor-skip plumbing in
+- current Orbbec enumeration and conditional vendor-skip plumbing in
   [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp)
   and [discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/discovery.cpp)
   are direct ports of the donor flow in
@@ -223,10 +280,10 @@ Concrete comparison points:
   donor request layer wholesale
 - Orbbec grouped-preset shaping is not copied verbatim from donor code, but it
   is informed by donor probe evidence and the donor runtime contract
-- donor duplicate-suppression behavior for Orbbec vendor IDs is reused, but it
-  is not yet adapted to the new repo's runtime expectations:
-  when Orbbec support is compiled in, the current code suppresses matching V4L2
-  vendor IDs before it knows whether SDK discovery actually yielded a usable
+- donor duplicate-suppression behavior for Orbbec vendor IDs is reused in
+  narrowed form:
+  `insight-io` still suppresses matching V4L2 nodes by vendor ID, but only
+  after SDK-backed Orbbec discovery has actually yielded at least one usable
   Orbbec catalog device
 
 ### Not Yet Reused But Highly Relevant
@@ -256,10 +313,10 @@ Concrete comparison points:
   rather than the new `insight-io` app-target contract
 - donor runtime tables and delivery-session persistence are intentionally
   outside the v1 schema for this repository
-- donor aggregate discovery behavior should also not be copied forward blindly:
-  the inherited Orbbec vendor-skip rule is acceptable for a donor runtime that
-  prefers SDK authority, but in `insight-io` it needs a fallback rule that does
-  not hide the device when SDK discovery is unavailable or incomplete
+- donor aggregate discovery behavior should still not be copied forward
+  blindly:
+  the inherited Orbbec vendor-skip rule needed one repo-native adjustment here
+  so SDK discovery failure or emptiness no longer hides generic V4L2 fallback
 
 ## Schema Review
 
@@ -381,8 +438,8 @@ The rerun now shows three separate states:
 - donor discovery backends are clearly reused in structure and code
 - catalog shaping for focused tests is functioning
 - the real host-discovery path is now working on the development host for the
-  webcam, Orbbec, and PipeWire devices, though the Orbbec fallback rule still
-  needs a cleaner contract
+  webcam, Orbbec, and PipeWire devices, and the Orbbec fallback boundary is now
+  covered by a focused regression test plus a live host smoke
 
 That means reuse status should be read as:
 
@@ -449,15 +506,20 @@ In short:
 
 ## Next Step
 
-Task 5 is now closed. The next implementation slices are:
+Task 6 is now closed. Start task 7 from the checked-in serving-runtime reuse
+baseline:
 
-- add serving-session reuse for identical source plus publication intent
-- port donor IPC delivery and control-server pieces onto the new session and
-  app-source contract
-- add RTSP serving runtime and the runtime-only post-capture publication phase
-- wire real SDK callback delivery on top of the REST-backed route/app-source
-  control plane
-- implement the frontend flows after runtime delivery is coherent
+1. port the donor `memfd` + ring-buffer + `eventfd` transport plus control
+   server pieces from `../insightos` into repo-native runtime form
+2. keep attach lifecycle keyed by the new `sessions` and `app_sources`
+   contract rather than donor delivery tables or donor naming
+3. make one serving runtime expose local IPC attach on top of the current
+   reuse registry rather than reintroducing parallel runtime graphs
+4. preserve the new `/api/status` serving-runtime topology and extend it with
+   IPC attach visibility instead of replacing it
+5. add focused tests plus live hardware smoke that prove one repeated exact URI
+   can attach multiple local consumers through the shared runtime before task 8
+   adds active RTSP publication runtime
 
 ## Mermaid Diagram Inventory
 
@@ -475,6 +537,9 @@ Task 5 is now closed. The next implementation slices are:
   documents app create, route declaration, source bind, stop/start, and rebind
 - [grouped-route-delete-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-route-delete-sequence.md)
   documents grouped bind cleanup when one member route is deleted
+- [shared-serving-runtime-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/shared-serving-runtime-sequence.md)
+  documents shared exact-URI runtime reuse plus additive RTSP intent in the
+  current task-6 slice
 
 ## Recommended Mermaid Backlog
 
@@ -485,8 +550,6 @@ adding are:
   app-source bind using one grouped preset URI and one grouped `target`
 - existing-session attach sequence:
   attach `session_id` to one app-local target without recreating capture
-- shared-runtime reuse sequence:
-  two consumers on the same URI with additive RTSP publication
 - runtime worker graph:
   capture worker, publication phase, IPC publisher, RTSP publisher, and reuse
   ownership boundaries

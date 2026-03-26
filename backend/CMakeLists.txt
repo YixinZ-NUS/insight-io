@@ -1,8 +1,9 @@
 # role: bootstrap the standalone insight-io backend build.
-# revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+# revision: 2026-03-26 orbbec-v4l2-fallback-fix
 # major changes: vendors the Orbbec SDK under this repository, keeps the
-# durable app/route/source build graph, and aligns SQLite access with the
-# threaded REST server.
+# durable app/route/source build graph, aligns SQLite access with the threaded
+# REST server, and adds focused aggregate-discovery regression coverage. See
+# docs/past-tasks.md.
 
 include(FetchContent)
 include(FindPkgConfig)
@@ -164,6 +165,19 @@ if (INSIGHTIO_HAS_ORBBEC)
     set_target_properties(catalog_service_test PROPERTIES BUILD_RPATH "${INSIGHTIO_ORBBEC_SDK_LIB}")
 endif()
 
+add_executable(discovery_test
+    tests/discovery_test.cpp
+)
+
+target_include_directories(discovery_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(discovery_test PRIVATE cxx_std_20)
+target_compile_options(discovery_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(discovery_test PRIVATE insightio_backend_support)
+
+if (INSIGHTIO_HAS_ORBBEC)
+    set_target_properties(discovery_test PROPERTIES BUILD_RPATH "${INSIGHTIO_ORBBEC_SDK_LIB}")
+endif()
+
 add_executable(session_service_test
     tests/session_service_test.cpp
 )
@@ -205,6 +219,7 @@ endif()
 
 add_test(NAME schema_store_test COMMAND schema_store_test)
 add_test(NAME catalog_service_test COMMAND catalog_service_test)
+add_test(NAME discovery_test COMMAND discovery_test)
 add_test(NAME session_service_test COMMAND session_service_test)
 add_test(NAME rest_server_test COMMAND rest_server_test)
 add_test(NAME app_service_test COMMAND app_service_test)

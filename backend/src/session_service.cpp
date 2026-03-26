@@ -1,16 +1,171 @@
 // role: persisted direct-session implementation for the standalone backend.
-// revision: 2026-03-26 direct-session-slice
+// revision: 2026-03-26 task6-serving-runtime-reuse
 // major changes: resolves catalog URIs into durable sessions, normalizes
-// persisted runtime state on startup, and provides session/status reads.
+// persisted runtime state on startup, and provides session/status plus
+// in-memory serving-runtime reuse inspection.
+// See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/session_service.hpp"
 
 #include <sqlite3.h>
 
+#include <algorithm>
 #include <chrono>
+#include <map>
+#include <mutex>
 #include <string_view>
 
 namespace insightio::backend {
+
+class ServingRuntimeRegistry {
+public:
+    void clear() {
+        std::scoped_lock lock(mutex_);
+        entries_.clear();
+        session_to_stream_.clear();
+    }
+
+    SessionRecord::ServingRuntimeView attach(const SessionRecord& session) {
+        std::scoped_lock lock(mutex_);
+
+        if (const auto it = session_to_stream_.find(session.session_id);
+            it != session_to_stream_.end() && it->second != session.source.stream_id) {
+            detach_locked(session.session_id);
+        }
+
+        auto& entry = entries_[session.source.stream_id];
+        if (entry.runtime_key.empty()) {
+            entry.runtime_key = runtime_key_for(session.source.stream_id);
+            entry.source = session.source;
+            entry.resolved_members_json = resolved_members_for(session);
+            entry.owner_session_id = session.session_id;
+        }
+        if (entry.source.stream_id == 0) {
+            entry.source = session.source;
+        }
+        if (entry.resolved_members_json.is_null() || entry.resolved_members_json.empty()) {
+            entry.resolved_members_json = resolved_members_for(session);
+        }
+
+        entry.consumer_rtsp[session.session_id] = session.rtsp_enabled;
+        if (entry.owner_session_id == 0) {
+            entry.owner_session_id = session.session_id;
+        }
+        session_to_stream_[session.session_id] = session.source.stream_id;
+        return runtime_view_for(entry);
+    }
+
+    void detach(std::int64_t session_id) {
+        std::scoped_lock lock(mutex_);
+        detach_locked(session_id);
+    }
+
+    std::optional<SessionRecord::ServingRuntimeView> view_for_session(
+        std::int64_t session_id) const {
+        std::scoped_lock lock(mutex_);
+        const auto session_it = session_to_stream_.find(session_id);
+        if (session_it == session_to_stream_.end()) {
+            return std::nullopt;
+        }
+        const auto entry_it = entries_.find(session_it->second);
+        if (entry_it == entries_.end()) {
+            return std::nullopt;
+        }
+        return runtime_view_for(entry_it->second);
+    }
+
+    std::vector<ServingRuntimeSnapshot> snapshot() const {
+        std::scoped_lock lock(mutex_);
+        std::vector<ServingRuntimeSnapshot> snapshots;
+        snapshots.reserve(entries_.size());
+        for (const auto& [stream_id, entry] : entries_) {
+            ServingRuntimeSnapshot snapshot;
+            snapshot.runtime_key = entry.runtime_key;
+            snapshot.stream_id = stream_id;
+            snapshot.owner_session_id = entry.owner_session_id;
+            snapshot.rtsp_enabled = effective_rtsp_locked(entry);
+            snapshot.consumer_count = static_cast<int>(entry.consumer_rtsp.size());
+            snapshot.source = entry.source;
+            snapshot.resolved_members_json = entry.resolved_members_json;
+            for (const auto& [session_id, _] : entry.consumer_rtsp) {
+                snapshot.consumer_session_ids.push_back(session_id);
+            }
+            snapshots.push_back(std::move(snapshot));
+        }
+        return snapshots;
+    }
+
+private:
+    struct Entry {
+        std::string runtime_key;
+        SessionResolvedSource source;
+        nlohmann::json resolved_members_json;
+        std::int64_t owner_session_id{0};
+        std::map<std::int64_t, bool> consumer_rtsp;
+    };
+
+    static std::string runtime_key_for(std::int64_t stream_id) {
+        return "stream:" + std::to_string(stream_id);
+    }
+
+    static nlohmann::json resolved_members_for(const SessionRecord& session) {
+        if (!session.resolved_members_json.is_null() &&
+            !session.resolved_members_json.empty()) {
+            return session.resolved_members_json;
+        }
+        if (!session.source.members_json.is_null() && !session.source.members_json.empty()) {
+            return session.source.members_json;
+        }
+        return nullptr;
+    }
+
+    static bool effective_rtsp_locked(const Entry& entry) {
+        return std::any_of(entry.consumer_rtsp.begin(),
+                           entry.consumer_rtsp.end(),
+                           [](const auto& consumer) { return consumer.second; });
+    }
+
+    static SessionRecord::ServingRuntimeView runtime_view_for(const Entry& entry) {
+        SessionRecord::ServingRuntimeView view;
+        view.runtime_key = entry.runtime_key;
+        view.owner_session_id = entry.owner_session_id;
+        view.rtsp_enabled = effective_rtsp_locked(entry);
+        view.consumer_count = static_cast<int>(entry.consumer_rtsp.size());
+        view.shared = view.consumer_count > 1;
+        for (const auto& [session_id, _] : entry.consumer_rtsp) {
+            view.consumer_session_ids.push_back(session_id);
+        }
+        return view;
+    }
+
+    void detach_locked(std::int64_t session_id) {
+        const auto session_it = session_to_stream_.find(session_id);
+        if (session_it == session_to_stream_.end()) {
+            return;
+        }
+
+        const auto stream_id = session_it->second;
+        const auto entry_it = entries_.find(stream_id);
+        session_to_stream_.erase(session_it);
+        if (entry_it == entries_.end()) {
+            return;
+        }
+
+        auto& entry = entry_it->second;
+        entry.consumer_rtsp.erase(session_id);
+        if (entry.consumer_rtsp.empty()) {
+            entries_.erase(entry_it);
+            return;
+        }
+        if (entry.owner_session_id == session_id) {
+            entry.owner_session_id = entry.consumer_rtsp.begin()->first;
+        }
+    }
+
+    mutable std::mutex mutex_;
+    std::map<std::int64_t, Entry> entries_;
+    std::map<std::int64_t, std::int64_t> session_to_stream_;
+};
 
 namespace {
 
@@ -296,6 +451,19 @@ bool upsert_log(sqlite3* db,
     return statement.exec();
 }
 
+bool update_session_rtsp(sqlite3* db, std::int64_t session_id, bool rtsp_enabled) {
+    Stmt statement(
+        db,
+        "UPDATE sessions SET rtsp_enabled = ?, updated_at_ms = ? WHERE session_id = ?");
+    if (!statement) {
+        return false;
+    }
+    statement.bind_int(1, rtsp_enabled ? 1 : 0);
+    statement.bind_int64(2, now_ms());
+    statement.bind_int64(3, session_id);
+    return statement.exec();
+}
+
 }  // namespace
 
 SessionService::SessionService(SchemaStore& store,
@@ -303,7 +471,10 @@ SessionService::SessionService(SchemaStore& store,
                                std::string rtsp_host)
     : store_(store),
       uri_host_(std::move(uri_host)),
-      rtsp_host_(std::move(rtsp_host)) {}
+      rtsp_host_(std::move(rtsp_host)),
+      runtime_registry_(std::make_unique<ServingRuntimeRegistry>()) {}
+
+SessionService::~SessionService() = default;
 
 bool SessionService::initialize() {
     Stmt normalize(
@@ -316,7 +487,11 @@ bool SessionService::initialize() {
     const auto timestamp = now_ms();
     normalize.bind_int64(1, timestamp);
     normalize.bind_int64(2, timestamp);
-    return normalize.exec();
+    if (!normalize.exec()) {
+        return false;
+    }
+    runtime_registry_->clear();
+    return true;
 }
 
 std::vector<SessionRecord> SessionService::list_sessions() const {
@@ -341,7 +516,7 @@ std::vector<SessionRecord> SessionService::list_sessions() const {
     }
 
     while (query.step()) {
-        sessions.push_back(hydrate_session(query, uri_host_, rtsp_host_));
+        sessions.push_back(enrich_runtime(hydrate_session(query, uri_host_, rtsp_host_)));
     }
     return sessions;
 }
@@ -369,7 +544,7 @@ std::optional<SessionRecord> SessionService::get_session(std::int64_t session_id
     if (!query.step()) {
         return std::nullopt;
     }
-    return hydrate_session(query, uri_host_, rtsp_host_);
+    return enrich_runtime(hydrate_session(query, uri_host_, rtsp_host_));
 }
 
 RuntimeStatusSnapshot SessionService::runtime_status() const {
@@ -383,6 +558,9 @@ RuntimeStatusSnapshot SessionService::runtime_status() const {
             ++snapshot.stopped_sessions;
         }
     }
+    snapshot.serving_runtimes = runtime_registry_->snapshot();
+    snapshot.total_serving_runtimes =
+        static_cast<int>(snapshot.serving_runtimes.size());
     return snapshot;
 }
 
@@ -453,20 +631,24 @@ bool SessionService::create_direct_session(const std::string& input,
     }
 
     const auto session_id = sqlite3_last_insert_rowid(store_.db());
+    if (!attach_session_runtime(session_id,
+                                created,
+                                error_status,
+                                error_code,
+                                error_message)) {
+        return false;
+    }
     upsert_log(store_.db(),
                session_id,
                "session_created",
                "Created direct session",
-               nlohmann::json{{"input", input}, {"rtsp_enabled", rtsp_enabled}});
-
-    const auto session = get_session(session_id);
-    if (!session.has_value()) {
-        error_status = 500;
-        error_code = "internal";
-        error_message = "Created direct session could not be reloaded";
-        return false;
-    }
-    created = *session;
+               nlohmann::json{
+                   {"input", input},
+                   {"rtsp_enabled", rtsp_enabled},
+                   {"runtime_reused",
+                    created.serving_runtime.has_value() &&
+                        created.serving_runtime->shared},
+               });
     return true;
 }
 
@@ -504,12 +686,22 @@ bool SessionService::start_session(std::int64_t session_id,
         return false;
     }
 
+    if (!attach_session_runtime(session_id,
+                                updated,
+                                error_status,
+                                error_code,
+                                error_message)) {
+        return false;
+    }
     upsert_log(store_.db(),
                session_id,
                "session_started",
-               "Started direct session");
-
-    updated = *get_session(session_id);
+               "Started direct session",
+               nlohmann::json{
+                   {"runtime_reused",
+                    updated.serving_runtime.has_value() &&
+                        updated.serving_runtime->shared},
+               });
     return true;
 }
 
@@ -547,6 +739,7 @@ bool SessionService::stop_session(std::int64_t session_id,
         return false;
     }
 
+    runtime_registry_->detach(session_id);
     upsert_log(store_.db(),
                session_id,
                "session_stopped",
@@ -601,7 +794,81 @@ bool SessionService::delete_session(std::int64_t session_id,
         error_message = "Failed to delete session";
         return false;
     }
+    runtime_registry_->detach(session_id);
     return true;
+}
+
+bool SessionService::attach_session_runtime(std::int64_t session_id,
+                                            SessionRecord& updated,
+                                            int& error_status,
+                                            std::string& error_code,
+                                            std::string& error_message) const {
+    const auto session = get_session(session_id);
+    if (!session.has_value()) {
+        error_status = 404;
+        error_code = "not_found";
+        error_message = "Session '" + std::to_string(session_id) + "' not found";
+        return false;
+    }
+    if (session->source.stream_id == 0) {
+        error_status = 500;
+        error_code = "internal";
+        error_message = "Session is missing resolved source metadata";
+        return false;
+    }
+
+    updated = *session;
+    if (updated.state == "active") {
+        updated.serving_runtime = runtime_registry_->attach(updated);
+    } else {
+        runtime_registry_->detach(session_id);
+        updated.serving_runtime.reset();
+    }
+    return true;
+}
+
+bool SessionService::ensure_session_rtsp(std::int64_t session_id,
+                                         SessionRecord& updated,
+                                         int& error_status,
+                                         std::string& error_code,
+                                         std::string& error_message) const {
+    auto session = get_session(session_id);
+    if (!session.has_value()) {
+        error_status = 404;
+        error_code = "not_found";
+        error_message = "Session '" + std::to_string(session_id) + "' not found";
+        return false;
+    }
+
+    if (!session->rtsp_enabled &&
+        !update_session_rtsp(store_.db(), session_id, true)) {
+        error_status = 500;
+        error_code = "internal";
+        error_message = "Failed to update session RTSP state";
+        return false;
+    }
+
+    if (!attach_session_runtime(session_id,
+                                updated,
+                                error_status,
+                                error_code,
+                                error_message)) {
+        return false;
+    }
+    upsert_log(store_.db(),
+               session_id,
+               "session_rtsp_enabled",
+               "Enabled RTSP publication intent for active session");
+    return true;
+}
+
+SessionRecord SessionService::enrich_runtime(SessionRecord session) const {
+    if (session.state == "active") {
+        session.serving_runtime = runtime_registry_->view_for_session(session.session_id);
+    } else {
+        session.serving_runtime.reset();
+    }
+    return session;
 }
 
 }  // namespace insightio::backend

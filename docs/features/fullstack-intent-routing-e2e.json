@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 14,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -194,6 +194,19 @@
       "passes": true
     },
     {
+      "id": "status-exposes-shared-serving-runtime-topology",
+      "category": "functional",
+      "description": "Status inspection exposes one shared serving runtime for repeated identical exact-URI requests before IPC and active RTSP delivery are added",
+      "steps": [
+        "Create one direct session for one exact URI with `rtsp_enabled = false`",
+        "Create a second direct session for the same URI with `rtsp_enabled = true`",
+        "Create one URI-backed app source for the same exact URI",
+        "Inspect session responses and GET /api/status",
+        "Verify one shared serving-runtime entry reports owner session id, consumer session ids, resolved source metadata, and additive RTSP intent"
+      ],
+      "passes": true
+    },
+    {
       "id": "inject-yolov5-source",
       "category": "functional",
       "description": "Injecting an exact video URI with target yolov5 routes callbacks to the app",
@@ -203,7 +216,7 @@
         "Verify the backend creates a logical session",
         "Verify the SDK receives callbacks on the declared route"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "inject-depth-source",
@@ -287,7 +300,7 @@
         "Inject a normal video URI into that route",
         "Verify the backend rejects the request with a compatibility error"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "persist-stopped-sources-across-restart",
