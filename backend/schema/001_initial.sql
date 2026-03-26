@@ -1,7 +1,9 @@
 -- role: canonical v1 durable schema for the standalone insight-io rebuild.
--- revision: 2026-03-26 selector-schema-review
--- major changes: removes redundant streams.selector_key storage, scopes
--- selector uniqueness to each device, and keeps the seven-table v1 schema.
+-- revision: 2026-03-26 app-source-schema-takeback
+-- major changes: removes redundant app_sources kind columns, tightens
+-- session/app-source stream references, scopes exact app-route binds to their
+-- owning app, and adds the reviewed v1 uniqueness and session-kind
+-- constraints.
 -- See docs/past-tasks.md for the implementation record.
 
 PRAGMA foreign_keys = ON;
@@ -53,13 +55,14 @@ CREATE TABLE IF NOT EXISTS app_routes (
     config_json TEXT,
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
-    UNIQUE (app_id, route_name)
+    UNIQUE (app_id, route_name),
+    UNIQUE (app_id, route_id)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
     session_id INTEGER PRIMARY KEY,
-    stream_id INTEGER REFERENCES streams(stream_id) ON DELETE RESTRICT,
-    session_kind TEXT NOT NULL,
+    stream_id INTEGER NOT NULL REFERENCES streams(stream_id) ON DELETE RESTRICT,
+    session_kind TEXT NOT NULL CHECK (session_kind IN ('direct', 'app')),
     rtsp_enabled INTEGER NOT NULL DEFAULT 0,
     request_json TEXT NOT NULL,
     resolved_members_json TEXT,
@@ -74,19 +77,20 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS app_sources (
     source_id INTEGER PRIMARY KEY,
     app_id INTEGER NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE,
-    route_id INTEGER REFERENCES app_routes(route_id) ON DELETE RESTRICT,
-    stream_id INTEGER REFERENCES streams(stream_id) ON DELETE RESTRICT,
+    route_id INTEGER,
+    stream_id INTEGER NOT NULL REFERENCES streams(stream_id) ON DELETE RESTRICT,
     source_session_id INTEGER REFERENCES sessions(session_id) ON DELETE RESTRICT,
     active_session_id INTEGER REFERENCES sessions(session_id) ON DELETE RESTRICT,
-    target_kind TEXT NOT NULL,
     target_name TEXT NOT NULL,
-    source_kind TEXT NOT NULL,
     rtsp_enabled INTEGER NOT NULL DEFAULT 0,
     state TEXT NOT NULL,
     resolved_routes_json TEXT,
     last_error TEXT,
     created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms INTEGER NOT NULL,
+    FOREIGN KEY (app_id, route_id)
+        REFERENCES app_routes(app_id, route_id)
+        ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS session_logs (
@@ -106,5 +110,10 @@ CREATE INDEX IF NOT EXISTS idx_app_sources_route_id ON app_sources(route_id);
 CREATE INDEX IF NOT EXISTS idx_app_sources_stream_id ON app_sources(stream_id);
 CREATE INDEX IF NOT EXISTS idx_app_sources_source_session_id ON app_sources(source_session_id);
 CREATE INDEX IF NOT EXISTS idx_app_sources_active_session_id ON app_sources(active_session_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_app_sources_app_target_name
+    ON app_sources(app_id, target_name);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_app_sources_app_route_id_not_null
+    ON app_sources(app_id, route_id)
+    WHERE route_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_stream_id ON sessions(stream_id);
 CREATE INDEX IF NOT EXISTS idx_session_logs_session_id ON session_logs(session_id);
