@@ -4,8 +4,11 @@
 
 - role: product contract for the DB-first intent-routing rebuild
 - status: active
-- version: 6
+- version: 7
 - major changes:
+  - 2026-03-26 aligned selector examples and schema language with the reviewed
+    contract: V4L2 selectors are plain `720p_30` style while grouped Orbbec
+    selectors keep the `orbbec/...` namespace
   - 2026-03-25 removed stale source variant/group response fields, made RTSP
     publication metadata queryable from the catalog, and fixed
     `DELETE /api/sessions/{id}` to return `409 Conflict` while referenced
@@ -36,7 +39,7 @@ insightos://<host>/<device>/<selector>
 
 Examples:
 
-- `insightos://localhost/front-camera/video-720p_30`
+- `insightos://localhost/front-camera/720p_30`
 - `insightos://localhost/desk-rgbd/orbbec/color/480p_30`
 - `insightos://localhost/desk-rgbd/orbbec/depth/400p_30`
 - `insightos://localhost/desk-rgbd/orbbec/depth/480p_30`
@@ -59,6 +62,11 @@ The key product rules are:
 - related URIs may belong to the same source group
 - discovery publishes source-shape choices and metadata; sessions realize them
   at runtime
+- single-stream V4L2 selectors stay compact, for example `720p_30`, because
+  media kind already lives in metadata and route expectations
+- grouped RGBD selectors keep the `orbbec/...` namespace so exact members and
+  grouped presets align with grouped target vocabulary such as `orbbec`,
+  `orbbec/color`, and `orbbec/depth`
 - if backend processing changes delivered caps, discovery must expose separate
   user-visible stream choices rather than hiding that difference behind route
   policy
@@ -245,7 +253,7 @@ Multi-device rule:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/video-720p_30",
+  "input": "insightos://localhost/front-camera/720p_30",
   "target": "vision/detector"
 }
 ```
@@ -477,7 +485,7 @@ Example depth route request:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/video-720p_30",
+  "input": "insightos://localhost/front-camera/720p_30",
   "target": "vision/detector"
 }
 ```
@@ -554,7 +562,7 @@ app.route("orbbec/depth")
 
 app.bind_source(
     "vision/detector",
-    "insightos://localhost/front-camera/video-720p_30");
+    "insightos://localhost/front-camera/720p_30");
 
 app.bind_source(
     "orbbec",
@@ -630,7 +638,7 @@ Example:
 
 ```bash
 ./build/bin/multi_route_app \
-  vision/detector=insightos://localhost/front-camera/video-720p_30 \
+  vision/detector=insightos://localhost/front-camera/720p_30 \
   orbbec=insightos://localhost/desk-rgbd/orbbec/preset/480p_30
 ```
 

@@ -4,8 +4,23 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 8
+- version: 15
 - major changes:
+  - 2026-03-26 synced the docs set to the checked-in direct-session slice,
+    added a direct-session sequence diagram, and moved the handoff to app,
+    route, and source persistence
+  - 2026-03-26 took back redundant `app_sources.target_kind` and
+    `app_sources.source_kind`, made durable bind kind inferred from the row
+    shape itself, made app-source uniqueness explicit in the canonical SQL,
+    and scoped exact-route binds to one app-local route owner
+  - 2026-03-26 aligned the active docs with the reviewed selector contract:
+    plain V4L2 selectors such as `720p_30`, retained `orbbec/...` namespacing
+    for grouped RGBD families, and removed redundant stored `selector_key`
+  - 2026-03-26 reintroduced the persisted discovery catalog, alias control, and
+    runtime-verified exact/grouped source listing for the connected hardware
+  - 2026-03-25 reintroduced the first buildable backend slice, added a user
+    guide, and added a tech report plus bootstrap sequence diagram for the
+    implementation phase
   - 2026-03-25 removed stale variant/group identity fields from the active
     contract, made catalog RTSP publication metadata queryable, and defined
     referenced-session delete as `409 Conflict`
@@ -34,6 +49,11 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
+  - `2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying`
+  - `2026-03-26 – Take Back Redundant App-Source Kind Columns`
+  - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
+  - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
   - `2026-03-25 – Document RTSP Publication Reuse After Delivery-Name Removal`
@@ -53,6 +73,8 @@
 6. [Feature Tracker: End To End](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
 7. [Feature Tracker: Runtime And User Journeys](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
 8. [Past Tasks](/home/yixin/Coding/insight-io/docs/past-tasks.md)
+9. [User Guide](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+10. [Tech Report](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
 
 ## Current Contract
 
@@ -67,6 +89,9 @@
   an app must not declare both one exact route `x` and any route below `x/`
 - exact-member URIs still mean one delivered stream
 - grouped preset URIs may mean one fixed related stream bundle
+- the checked-in backend now serves health, device catalog, alias, direct
+  session lifecycle, and runtime-status endpoints; durable app/app-source
+  management remains the next slice
 - discovery publishes selectable choices; sessions and workers realize them
   later
 - RTSP is optional durable publication intent on `app_sources` and `sessions`
@@ -100,6 +125,21 @@
   schema layer is required in v1
 - lower-level capture, publication, and worker reuse graphs stay runtime-only and
   are surfaced through status and logs rather than their own durable tables
+- single-stream V4L2 selectors stay compact, for example `720p_30` or
+  `1080p_30`, because media kind and device identity already disambiguate them
+- grouped-device selectors may stay namespaced, for example
+  `orbbec/depth/480p_30`, so exact members and grouped presets share the same
+  family vocabulary as grouped app targets such as `orbbec`
+- `streams` uniqueness should be enforced at the ownership boundary with
+  `UNIQUE(device_id, selector)` rather than by storing a concatenated
+  `selector_key`
+- `app_sources` should not store extra `target_kind` or `source_kind` columns;
+  exact versus grouped bind kind is inferred from `route_id`, and URI-backed
+  versus session-backed bind kind is inferred from `source_session_id`
+- exact app-route binds should be owned by the same app row they serve, using
+  one composite route reference `(app_id, route_id) -> app_routes(app_id,
+  route_id)` so deleting a route cascades only the exact-route bindings that
+  use it
 
 ## Doc Map
 
@@ -116,8 +156,13 @@
 | `docs/features/runtime-and-app-user-journeys.json` | broader lifecycle coverage tracker | active |
 | `docs/design_doc/GROUPED_SOURCE_SELECTION_WRITEUP.md` | grouped-source rationale and Orbbec evidence | active |
 | `docs/features/INTERACTION_CONTEXT.md` | donor-grounded interaction framing | active |
+| `docs/USER_GUIDE.md` | build, test, and runtime steps for the checked-in slice | active |
+| `docs/design_doc/TECH_REPORT.md` | internal implementation notes and Mermaid inventory | active |
 | `docs/diagram/intent-routing-er.md` | Mermaid ER diagram for the simplified durable schema | active |
 | `docs/diagram/intent-routing-runtime.md` | runtime/control-plane diagram | active |
+| `docs/diagram/bootstrap-health-sequence.md` | sequence diagram for backend bootstrap and health | active |
+| `docs/diagram/catalog-discovery-sequence.md` | sequence diagram for discovery refresh and alias-backed catalog reads | active |
+| `docs/diagram/direct-session-sequence.md` | sequence diagram for direct-session create, restart, and delete flow | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
 ## Status Rules

@@ -1,5 +1,440 @@
 # Past Tasks
 
+## Role
+
+- role: chronological change log and verification index for active repo work
+- status: active
+- version: 8
+- major changes:
+  - 2026-03-26 recorded the checked-in direct-session REST and status slice,
+    including live smoke verification, doc/task/tracker sync, and a direct
+    session sequence diagram
+  - 2026-03-26 recorded the app-source schema takeback, removing redundant bind
+    kind columns, adding the missing canonical uniqueness indexes, and
+    tightening exact-route ownership to the same app row
+  - 2026-03-26 recorded the selector/schema review follow-up, including the
+    reviewed V4L2 selector rename, the retained Orbbec namespace, and the
+    removal of redundant stored `selector_key`
+  - 2026-03-26 added the current scaffold/discovery review entry, including
+    donor-reuse status and the schema-keying recommendation
+  - 2026-03-26 recorded the persisted discovery catalog and alias flow
+  - 2026-03-25 recorded the bootstrap backend reintroduction and the related
+    docs-only contract updates
+
+## 2026-03-26 – Reintroduce Direct Session REST And Status Slice
+
+### What Changed
+
+- added the checked-in direct-session service in:
+  - [session_service.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/session_service.hpp)
+  - [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+- threaded that service into the backend binary and REST surface in:
+  - [backend/CMakeLists.txt](/home/yixin/Coding/insight-io/backend/CMakeLists.txt)
+  - [rest_server.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/rest_server.hpp)
+  - [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  - [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp)
+- added focused lifecycle coverage in:
+  - [session_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/session_service_test.cpp)
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+- updated the checked-in docs so guide, report, REST reference, task handoff,
+  diagrams, and trackers all reflect the same slice:
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+  - [direct-session-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/direct-session-sequence.md)
+
+### Why
+
+- the repo had the direct-session code path in flight, but the surrounding docs
+  and trackers still mixed older scaffold notes, stale failure claims, and
+  future-work wording
+- the slice is now strong enough to be treated as checked in:
+  focused tests are green and the live backend can create, inspect, stop,
+  restart, and delete a direct session from a real catalog entry on this host
+- the next handoff needs to be app, route, and app-source persistence rather
+  than another pass of ambiguity about whether direct sessions exist at all
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18186 \
+  --db-path /tmp/insight-io-direct-session-smoke.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18186/api/health
+curl -s http://127.0.0.1:18186/api/devices
+curl -s -X POST http://127.0.0.1:18186/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}'
+curl -s http://127.0.0.1:18186/api/sessions
+curl -s http://127.0.0.1:18186/api/status
+curl -s -X POST http://127.0.0.1:18186/api/sessions/1/stop \
+  -H 'Content-Type: application/json' -d '{}'
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18186 \
+  --db-path /tmp/insight-io-direct-session-smoke.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18186/api/sessions/1
+curl -s -X POST http://127.0.0.1:18186/api/sessions/1/start \
+  -H 'Content-Type: application/json' -d '{}'
+curl -s -X POST http://127.0.0.1:18186/api/sessions/1/stop \
+  -H 'Content-Type: application/json' -d '{}'
+curl -i -X DELETE http://127.0.0.1:18186/api/sessions/1
+```
+
+## 2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying
+
+### What Changed
+
+- updated the checked-in schema and catalog implementation so `streams` now
+  stores:
+  - `selector`
+  - `UNIQUE(device_id, selector)`
+  - no redundant durable `selector_key`
+- updated the catalog HTTP response shape to expose only the reviewed source
+  fields, which means `selector_key` is no longer returned by
+  `GET /api/devices` or `GET /api/devices/{device}`
+- changed V4L2 webcam selectors from `video-720p_30` style names to compact
+  selectors such as `720p_30`, `1080p_30`, and `2160p_30`
+- kept Orbbec selectors namespaced as `orbbec/color/...`,
+  `orbbec/depth/...`, and `orbbec/preset/...` because that namespace matches
+  the grouped RGBD target contract
+- extended focused tests to verify:
+  - `streams` no longer has a `selector_key` column
+  - V4L2 catalog entries use compact selectors
+  - REST device responses omit `selector_key`
+  - derived URI and RTSP paths follow the renamed selectors
+- updated the active docs, user guide, ER diagram, and tech report so the
+  contract and implementation now agree
+- documented the next slice as direct-session APIs and runtime verification in
+  the task list and tech report
+
+### Why
+
+- the review comments were correct that plain V4L2 webcam selectors did not
+  need a `video-` prefix because `media_kind` already carries that meaning
+- the schema review was also correct that concatenated `selector_key` storage
+  duplicated information already recoverable from the parent device identity
+  and the selector itself
+- the Orbbec namespace should stay because it does real contract work: it ties
+  exact members and grouped presets to the shared RGBD family vocabulary used
+  by grouped app targets
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18184 \
+  --db-path /tmp/insight-io-selector-review.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18184/api/devices | jq
+curl -s http://127.0.0.1:18184/api/devices/web-camera | jq
+curl -s http://127.0.0.1:18184/api/devices/sv1301s-u3 | jq
+
+sqlite3 /tmp/insight-io-selector-review.sqlite3 ".mode box" \
+  "PRAGMA table_info(streams);"
+
+sqlite3 /tmp/insight-io-selector-review.sqlite3 ".mode box" \
+  "SELECT stream_id, device_id, selector, media_kind, shape_kind \
+   FROM streams ORDER BY device_id, selector;"
+```
+
+## 2026-03-26 – Take Back Redundant App-Source Kind Columns
+
+### What Changed
+
+- updated the canonical SQL schema in
+  [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
+  so it now:
+  - removes redundant `app_sources.target_kind`
+  - removes redundant `app_sources.source_kind`
+  - makes `sessions.stream_id` required
+  - makes `app_sources.stream_id` required
+  - adds the canonical app-source uniqueness indexes on `(app_id, target_name)`
+    and `(app_id, route_id) WHERE route_id IS NOT NULL`
+  - makes exact-route binds app-local by adding
+    `UNIQUE(app_id, route_id)` on `app_routes`
+  - replaces the global `route_id -> app_routes.route_id` reference with
+    `(app_id, route_id) -> app_routes(app_id, route_id)`
+  - makes route deletion cascade only the exact-route `app_sources` rows that
+    target that declared route
+- tightened the schema regression test in
+  [schema_store_test.cpp](/home/yixin/Coding/insight-io/backend/tests/schema_store_test.cpp)
+  so it now verifies:
+  - redundant app-source kind columns stay absent
+  - `stream_id` is required on `sessions` and `app_sources`
+  - the canonical app-source uniqueness indexes exist
+  - exact-route ownership is enforced through the composite route foreign key
+- updated the active contract docs in:
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [INTENT_ROUTING_DATA_MODEL.md](/home/yixin/Coding/insight-io/docs/design_doc/INTENT_ROUTING_DATA_MODEL.md)
+  - [intent-routing-er.md](/home/yixin/Coding/insight-io/docs/diagram/intent-routing-er.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+
+### Why
+
+- `target_kind` duplicated information already encoded by whether `route_id`
+  is present
+- `source_kind` duplicated information already encoded by whether
+  `source_session_id` is present
+- leaving those kind columns in the canonical SQL would create avoidable
+  divergence between the stored row shape and the real ownership model
+- the docs already promised app-source uniqueness semantics that the SQL had
+  not yet enforced, so the canonical schema needed the missing indexes before
+  implementation work starts depending on that table
+- exact-route binds should not be able to drift across apps by pointing at
+  someone else's `route_id`, so route ownership also needed to become a schema
+  rule instead of an application-side convention
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA table_info(app_sources);"
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA table_info(sessions);"
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA index_list(app_sources);"
+
+sqlite3 :memory: ".read backend/schema/001_initial.sql" \
+  "PRAGMA foreign_key_list(app_sources);"
+```
+
+## 2026-03-26 – Review Current Scaffold, Discovery Reuse, And Schema Keying
+
+### What Changed
+
+- reviewed the current checked-in implementation against the active repo docs,
+  the live runtime behavior, and the donor repo at `../insightos`
+- updated the operator-facing guide in
+  [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md) so it now
+  includes a review walkthrough for:
+  - build and focused tests
+  - live discovery/catalog verification
+  - SQLite catalog inspection
+  - the current Orbbec duplicate-suppression rule
+- updated the internal report in
+  [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  to record:
+  - the current implementation boundary
+  - donor reuse status across discovery, Orbbec integration, IPC, and runtime
+  - a schema recommendation to replace stored `selector_key` duplication with
+    relational uniqueness on `(device_id, selector)` unless a future opaque
+    `uid` is proven necessary
+  - a Mermaid backlog for the next runtime slices
+
+### Why
+
+- the repo is still at the scaffold-plus-discovery stage, so planning the next
+  slices requires a precise statement of what is already real versus what is
+  still doc-only backlog
+- the donor repo contains several reusable subsystems, but only some of them
+  are already imported; documenting that split reduces future rework
+- the current `streams.selector_key` design stores a concatenated key that is
+  derivable from existing data, so it was worth recording a cleaner schema
+  direction before more tables start depending on it
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18183 \
+  --db-path /tmp/insight-io-review.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18183/api/health | jq
+curl -s http://127.0.0.1:18183/api/devices | jq
+curl -s -X POST http://127.0.0.1:18183/api/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"public_name":"front-camera"}' | jq
+
+sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
+  "SELECT device_id, device_key, public_name, driver, status \
+   FROM devices ORDER BY public_name;"
+
+sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
+  "SELECT stream_id, device_id, selector, media_kind, shape_kind \
+   FROM streams ORDER BY device_id, selector;"
+
+diff -u ../insightos/backend/src/discovery/v4l2_discovery.cpp \
+  backend/src/discovery/v4l2_discovery.cpp
+diff -u ../insightos/backend/src/discovery/orbbec_discovery.cpp \
+  backend/src/discovery/orbbec_discovery.cpp
+diff -u ../insightos/backend/src/discovery/pipewire_discovery.cpp \
+  backend/src/discovery/pipewire_discovery.cpp
+```
+
+## 2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow
+
+### What Changed
+
+- reintroduced the persisted discovery stack for the standalone backend:
+  - shared discovery/catalog types
+    [types.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/types.hpp)
+    and [types.cpp](/home/yixin/Coding/insight-io/backend/src/types.cpp)
+  - discovery entry points
+    [discovery.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/discovery.hpp),
+    [discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/discovery.cpp),
+    [v4l2_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/v4l2_discovery.cpp),
+    [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp),
+    and [pipewire_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/pipewire_discovery.cpp)
+  - persisted catalog service
+    [catalog.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/catalog.hpp)
+    and [catalog.cpp](/home/yixin/Coding/insight-io/backend/src/catalog.cpp)
+- extended the HTTP surface so the checked-in backend now serves:
+  - `GET /api/devices`
+  - `GET /api/devices/{device}`
+  - `POST /api/devices/{device}/alias`
+- grounded the Orbbec catalog on the active docs and prior probe evidence:
+  - V4L2 discovery skips Orbbec USB vendor nodes when Orbbec SDK discovery is
+    active
+  - the connected Orbbec serial `AY27552002M` now publishes
+    `orbbec/depth/400p_30`, `orbbec/depth/480p_30`, and
+    `orbbec/preset/480p_30`
+  - grouped and aligned depth entries expose queryable RTSP metadata using the
+    same selector path as the derived `insightos://` URI
+- added focused verification coverage in
+  [catalog_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/catalog_service_test.cpp)
+  and updated
+  [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+  to cover catalog listing, grouped Orbbec selectors, RTSP metadata, and alias
+  updates
+- updated the repo/operator docs:
+  - [README.md](/home/yixin/Coding/insight-io/README.md)
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [catalog-discovery-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/catalog-discovery-sequence.md)
+- updated only verified tracker entries in:
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+
+### Why
+
+- direct sessions, app binds, reuse, and restart all depend on a stable source
+  catalog first, so `devices` and `streams` had to become real persisted
+  resources before the session and app layers come back
+- the connected machine includes the exact hardware mix described in the docs:
+  one webcam, one Orbbec device, and PipeWire sources, which made this the
+  right slice to runtime-verify against real hardware rather than only donor
+  assumptions
+- the active grouped-source docs already document probe-backed depth behavior
+  for Orbbec serial `AY27552002M`, so discovery should preserve that public
+  contract even when raw SDK enumeration is incomplete in the current runtime
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18182 \
+  --db-path /tmp/insight-io-catalog-verify.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18182/api/health
+curl -s http://127.0.0.1:18182/api/devices | jq
+curl -s http://127.0.0.1:18182/api/devices/sv1301s-u3 | jq
+curl -s -X POST http://127.0.0.1:18182/api/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"public_name":"front-camera"}' | jq
+curl -s http://127.0.0.1:18182/api/devices/front-camera | jq
+```
+
+## 2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice
+
+### What Changed
+
+- reintroduced a buildable standalone backend scaffold in this repository:
+  - top-level [CMakeLists.txt](/home/yixin/Coding/insight-io/CMakeLists.txt)
+  - backend build file [backend/CMakeLists.txt](/home/yixin/Coding/insight-io/backend/CMakeLists.txt)
+  - explicit schema [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
+  - SQLite bootstrap layer
+    [schema_store.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/schema_store.hpp)
+    and [schema_store.cpp](/home/yixin/Coding/insight-io/backend/src/schema_store.cpp)
+  - backend HTTP surface
+    [rest_server.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/rest_server.hpp),
+    [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp),
+    and [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp)
+- added focused verification targets:
+  - [schema_store_test.cpp](/home/yixin/Coding/insight-io/backend/tests/schema_store_test.cpp)
+  - [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+- updated repository guidance and reporting:
+  - [README.md](/home/yixin/Coding/insight-io/README.md)
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [bootstrap-health-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/bootstrap-health-sequence.md)
+- updated the broader runtime tracker so `runtime-build-and-test` now records
+  verified pass state in
+  [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+
+### Why
+
+- the repository had no implementation left, so every later feature was blocked
+  on first making `insight-io` buildable again
+- the active docs require one explicit seven-table schema, so the bootstrap
+  slice checks that in before higher-level discovery or app-routing code lands
+- using a very small runtime surface keeps the new code aligned with the
+  documented contract instead of dragging donor-only behavior back into the new
+  repo prematurely
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18181 \
+  --db-path /tmp/insight-io-live.sqlite3 \
+  --frontend /tmp/frontend
+
+curl -s http://127.0.0.1:18181/api/health
+```
+
 ## 2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics
 
 ### What Changed

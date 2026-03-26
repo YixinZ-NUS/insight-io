@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -154,7 +154,7 @@
         "Verify each listed URI corresponds to one exact member or one grouped preset bundle",
         "Verify no route expectation is required to disambiguate the source identity"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "browse-rgbd-depth-400-and-480",
@@ -166,7 +166,7 @@
         "Verify the grouped preset URI `orbbec/preset/480p_30` is also listed when enabled for that device",
         "Verify their metadata shows distinct delivered caps or capture policy"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "browse-grouped-preset-uri",
@@ -177,7 +177,21 @@
         "Verify fixed grouped preset URIs are listed when supported",
         "Verify the bind contract still posts only one app-local `target`"
       ],
-      "passes": false
+      "passes": true
+    },
+    {
+      "id": "direct-session-rest-lifecycle",
+      "category": "functional",
+      "description": "Backend can create, inspect, stop, restart, and delete a direct logical session from one listed URI",
+      "steps": [
+        "Start the backend and inspect the listed device catalog",
+        "Call POST /api/sessions with one listed exact URI",
+        "Verify GET /api/sessions, GET /api/sessions/{id}, and GET /api/status reflect the created session",
+        "Call POST /api/sessions/{id}/stop and POST /api/sessions/{id}/start",
+        "Restart the backend with the same database and verify the persisted session can be inspected and restarted",
+        "Stop the session and call DELETE /api/sessions/{id} to verify the unreferenced session is removed"
+      ],
+      "passes": true
     },
     {
       "id": "inject-yolov5-source",

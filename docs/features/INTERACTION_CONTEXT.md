@@ -4,8 +4,11 @@
 
 - role: donor-grounded interaction framing for the active `insight-io` design
 - status: active
-- version: 5
+- version: 6
 - major changes:
+  - 2026-03-26 aligned selector examples with the reviewed contract: V4L2
+    selectors are plain `720p_30` style while grouped Orbbec selectors keep
+    the `orbbec/...` namespace
   - 2026-03-25 clarified that direct sessions are standalone session-first
     sessions and that multi-device apps declare app-local logical input routes
   - 2026-03-25 replaced public grouped/exact bind selection with one
@@ -95,7 +98,7 @@ Example:
 
 ```json
 {
-  "input": "insightos://localhost/front-camera/video-720p_30",
+  "input": "insightos://localhost/front-camera/720p_30",
   "target": "yolov5"
 }
 ```

@@ -4,8 +4,15 @@
 
 - role: define the minimal durable schema for `insight-io`
 - status: active
-- version: 11
+- version: 14
 - major changes:
+  - 2026-03-26 removed redundant `app_sources.target_kind` and
+    `app_sources.source_kind`, made `stream_id` required on both sessions and
+    app sources, made app-source uniqueness explicit in the canonical SQL, and
+    scoped exact-route binds to app-local route ownership
+  - 2026-03-26 removed redundant stored `selector_key`, made selector
+    uniqueness explicit as `(device_id, selector)`, and documented the
+    reviewed selector naming contract
   - 2026-03-25 removed stale source variant/group response fields, clarified
     queryable RTSP publication metadata, and made session delete conflict
     semantics explicit
@@ -32,6 +39,8 @@
   - 2026-03-24 moved capture, delivery, and worker reuse details out of the
     SQL model and into runtime/status responsibility
 - past tasks:
+  - `2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying`
+  - `2026-03-26 – Take Back Redundant App-Source Kind Columns`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
@@ -147,11 +156,14 @@ Decision:
 
 - keep one `streams` row per selectable exact member or grouped preset
 - use `device_id` to scope those rows to one device
-- keep a stable `selector_key` for each row so durable ids survive device alias
-  changes
+- enforce `UNIQUE(device_id, selector)` so selector identity is explicit at the
+  owning device boundary
 - use `shape_kind` to distinguish exact versus grouped
 - use `members_json` only when one grouped preset row needs to describe its
   fixed members
+- keep single-stream V4L2 selectors compact, for example `720p_30`
+- keep grouped-device selectors namespaced when that namespace is part of the
+  public family contract, for example `orbbec/depth/480p_30`
 
 This means `streams` is already the single per-device preset table.
 
@@ -203,7 +215,6 @@ Foreign keys:
 
 Important columns:
 
-- `selector_key TEXT NOT NULL UNIQUE`
 - `selector TEXT NOT NULL`
 - `media_kind TEXT NOT NULL`
 - `shape_kind TEXT NOT NULL`
@@ -228,6 +239,9 @@ Notes:
 
 - `uri` is derived from the current device alias plus `selector`; it is not the
   durable DB key for this row
+- selector uniqueness is durable only within one device row, so the schema
+  should enforce `UNIQUE(device_id, selector)` rather than store a duplicated
+  concatenated identifier
 - publication is not encoded in the stored source identity; discovery can
   publish one derived `uri` plus `publications_json` describing optional
   published forms such as RTSP. A minimal shape is
@@ -238,8 +252,8 @@ Notes:
   be exposed as a public source-group id field
 - `streams` is also the only per-device preset table; a separate `presets`
   table is not needed in v1
-- discovery should upsert by `selector_key` so ids stay stable across alias
-  changes and refresh
+- discovery should upsert by `(device_id, selector)` so `stream_id` values stay
+  stable across alias changes and refresh
 
 ## App Tables
 
@@ -286,6 +300,8 @@ Important columns:
 Indexes and constraints:
 
 - `UNIQUE (app_id, route_name)`
+- `UNIQUE (app_id, route_id)` so `app_sources` can reference one route owned by
+  the same app row
 
 Notes:
 
@@ -312,16 +328,19 @@ Primary key:
 Foreign keys:
 
 - `app_id INTEGER NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE`
-- `route_id INTEGER REFERENCES app_routes(route_id) ON DELETE CASCADE`
+- `route_id INTEGER`
+- composite exact-route reference:
+  `(app_id, route_id) REFERENCES app_routes(app_id, route_id) ON DELETE CASCADE`
 - `stream_id INTEGER REFERENCES streams(stream_id)`
 - `source_session_id INTEGER REFERENCES sessions(session_id)`
 - `active_session_id INTEGER REFERENCES sessions(session_id)`
 
 Important columns:
 
-- `target_kind TEXT NOT NULL`
 - `target_name TEXT NOT NULL`
-- `source_kind TEXT NOT NULL`
+- `stream_id INTEGER NOT NULL`
+- `source_session_id INTEGER`
+- `active_session_id INTEGER`
 - `rtsp_enabled INTEGER NOT NULL DEFAULT 0`
 - `state TEXT NOT NULL`
 - `resolved_routes_json TEXT`
@@ -331,19 +350,21 @@ Important columns:
 
 Checks:
 
-- `target_kind IN ('route', 'grouped')`
-- `source_kind IN ('uri', 'session')`
-- if `target_kind = 'route'`, then `route_id IS NOT NULL`
-- if `target_kind = 'grouped'`, then `route_id IS NULL`
-- if `source_kind = 'uri'`, then `stream_id IS NOT NULL` and
-  `source_session_id IS NULL`
-- if `source_kind = 'session'`, then `source_session_id IS NOT NULL` and
-  `stream_id IS NOT NULL`
+- `stream_id` is always required because every durable bind selects one exact
+  stream row or one grouped preset row from the catalog
+- if `route_id IS NOT NULL`, the exact bind must reference one route row owned
+  by the same `app_id`
+- if `route_id IS NOT NULL`, the bind targets one exact declared route
+- if `route_id IS NULL`, the bind targets one grouped target root and
+  `target_name` must therefore stay distinct from any exact route name
+- if `source_session_id IS NULL`, the bind is URI-backed
+- if `source_session_id IS NOT NULL`, the bind is session-backed
 
 Indexes and constraints:
 
 - partial unique index on `(app_id, route_id)` where `route_id IS NOT NULL`
 - unique index on `(app_id, target_name)`
+- composite foreign key on `(app_id, route_id)` to `app_routes(app_id, route_id)`
 
 Notes:
 
@@ -351,6 +372,11 @@ Notes:
 - for exact binds, `target_name` matches one declared route name
 - for grouped binds, `target_name` is the grouped target root, for example
   `orbbec`
+- the schema does not need a separate stored `target_kind`; exact versus
+  grouped bind kind is derivable from whether `route_id` is present
+- exact-route binds should not be able to drift across apps by pointing at some
+  other app's `route_id`; the composite foreign key makes route ownership a
+  durable rule instead of an application-side convention
 - `rtsp_enabled` is the durable request to publish the serving session over
   RTSP; when true the runtime should expose `rtsp_url` using the backend
   default RTSP profile and the same `/<device>/<selector>` path as the bound
@@ -358,6 +384,9 @@ Notes:
 - local IPC attach is implicit for local app consumers and is not stored here
 - `resolved_routes_json` records grouped member-to-route resolution for grouped
   presets and grouped-session attaches
+- the schema does not need a separate stored `source_kind`; URI-backed versus
+  session-backed bind kind is derivable from whether `source_session_id` is
+  present
 - `source_session_id` records which existing session the user asked to bind
 - `active_session_id` is the latest runtime session currently serving this
   binding; in v1 it should stay IPC-capable for local SDK attach
@@ -415,6 +444,8 @@ Notes:
 - `session_kind = 'direct'` means one standalone or session-first session
   created before any app target bind exists
 - `stream_id` points at the selected exact-member or grouped-preset catalog row
+- `stream_id` should be required because every logical session is created from
+  one selected catalog-published source shape
 - `rtsp_enabled` is the durable request to publish this session over RTSP
 - local IPC attach is not a client-posted field; it remains implicit when the
   serving runtime is local and attachable
@@ -467,8 +498,8 @@ That means:
 
 - `device_id`, `stream_id`, `app_id`, `route_id`, `source_id`, `session_id`,
   and `log_id` are integer primary keys
-- `device_key`, `public_name`, and `selector_key` stay unique business
-  identifiers
+- `device_key` and `public_name` stay unique business identifiers
+- `selector` stays unique only within its owning device row
 - public `uri` values are derived outputs, not stored business identifiers
 - route names stay unique only inside one app
 
@@ -477,7 +508,7 @@ Recommended foreign-key graph:
 - `streams.device_id -> devices.device_id`
 - `app_routes.app_id -> apps.app_id`
 - `app_sources.app_id -> apps.app_id`
-- `app_sources.route_id -> app_routes.route_id`
+- `(app_sources.app_id, app_sources.route_id) -> app_routes(app_id, route_id)`
 - `app_sources.stream_id -> streams.stream_id`
 - `app_sources.source_session_id -> sessions.session_id`
 - `app_sources.active_session_id -> sessions.session_id`
