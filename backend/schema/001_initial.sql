@@ -1,9 +1,8 @@
 -- role: canonical v1 durable schema for the standalone insight-io rebuild.
--- revision: 2026-03-26 app-source-schema-takeback
--- major changes: removes redundant app_sources kind columns, tightens
--- session/app-source stream references, scopes exact app-route binds to their
--- owning app, and adds the reviewed v1 uniqueness and session-kind
--- constraints.
+-- revision: 2026-03-26 app-route-source-persistence
+-- major changes: hardens app-route ambiguity guards with triggers, enforces
+-- exact-bind target consistency, and ties app-source session references to the
+-- same durable stream row they claim to serve.
 -- See docs/past-tasks.md for the implementation record.
 
 PRAGMA foreign_keys = ON;
@@ -71,7 +70,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     started_at_ms INTEGER,
     stopped_at_ms INTEGER,
     created_at_ms INTEGER NOT NULL,
-    updated_at_ms INTEGER NOT NULL
+    updated_at_ms INTEGER NOT NULL,
+    UNIQUE (session_id, stream_id)
 );
 
 CREATE TABLE IF NOT EXISTS app_sources (
@@ -79,8 +79,8 @@ CREATE TABLE IF NOT EXISTS app_sources (
     app_id INTEGER NOT NULL REFERENCES apps(app_id) ON DELETE CASCADE,
     route_id INTEGER,
     stream_id INTEGER NOT NULL REFERENCES streams(stream_id) ON DELETE RESTRICT,
-    source_session_id INTEGER REFERENCES sessions(session_id) ON DELETE RESTRICT,
-    active_session_id INTEGER REFERENCES sessions(session_id) ON DELETE RESTRICT,
+    source_session_id INTEGER,
+    active_session_id INTEGER,
     target_name TEXT NOT NULL,
     rtsp_enabled INTEGER NOT NULL DEFAULT 0,
     state TEXT NOT NULL,
@@ -90,7 +90,13 @@ CREATE TABLE IF NOT EXISTS app_sources (
     updated_at_ms INTEGER NOT NULL,
     FOREIGN KEY (app_id, route_id)
         REFERENCES app_routes(app_id, route_id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+    FOREIGN KEY (source_session_id, stream_id)
+        REFERENCES sessions(session_id, stream_id)
+        ON DELETE RESTRICT,
+    FOREIGN KEY (active_session_id, stream_id)
+        REFERENCES sessions(session_id, stream_id)
+        ON DELETE RESTRICT
 );
 
 CREATE TABLE IF NOT EXISTS session_logs (
@@ -117,3 +123,96 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_app_sources_app_route_id_not_null
     WHERE route_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_sessions_stream_id ON sessions(stream_id);
 CREATE INDEX IF NOT EXISTS idx_session_logs_session_id ON session_logs(session_id);
+
+CREATE TRIGGER IF NOT EXISTS trg_app_routes_no_ambiguous_target_insert
+BEFORE INSERT ON app_routes
+FOR EACH ROW
+WHEN EXISTS (
+    SELECT 1
+    FROM app_routes existing
+    WHERE existing.app_id = NEW.app_id
+      AND (
+          substr(existing.route_name, 1, length(NEW.route_name) + 1) =
+              NEW.route_name || '/'
+          OR substr(NEW.route_name, 1, length(existing.route_name) + 1) =
+              existing.route_name || '/'
+      )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'ambiguous_route_target');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_app_routes_no_ambiguous_target_update
+BEFORE UPDATE OF route_name, app_id ON app_routes
+FOR EACH ROW
+WHEN EXISTS (
+    SELECT 1
+    FROM app_routes existing
+    WHERE existing.route_id != NEW.route_id
+      AND existing.app_id = NEW.app_id
+      AND (
+          substr(existing.route_name, 1, length(NEW.route_name) + 1) =
+              NEW.route_name || '/'
+          OR substr(NEW.route_name, 1, length(existing.route_name) + 1) =
+              existing.route_name || '/'
+      )
+)
+BEGIN
+    SELECT RAISE(ABORT, 'ambiguous_route_target');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_app_sources_exact_target_matches_route_insert
+BEFORE INSERT ON app_sources
+FOR EACH ROW
+WHEN NEW.route_id IS NOT NULL
+AND COALESCE((
+        SELECT route_name
+        FROM app_routes
+        WHERE app_id = NEW.app_id
+          AND route_id = NEW.route_id
+    ), '') != NEW.target_name
+BEGIN
+    SELECT RAISE(ABORT, 'exact_target_must_match_route_name');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_app_sources_exact_target_matches_route_update
+BEFORE UPDATE OF app_id, route_id, target_name ON app_sources
+FOR EACH ROW
+WHEN NEW.route_id IS NOT NULL
+AND COALESCE((
+        SELECT route_name
+        FROM app_routes
+        WHERE app_id = NEW.app_id
+          AND route_id = NEW.route_id
+    ), '') != NEW.target_name
+BEGIN
+    SELECT RAISE(ABORT, 'exact_target_must_match_route_name');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_app_sources_grouped_target_not_exact_route_insert
+BEFORE INSERT ON app_sources
+FOR EACH ROW
+WHEN NEW.route_id IS NULL
+AND EXISTS (
+    SELECT 1
+    FROM app_routes
+    WHERE app_id = NEW.app_id
+      AND route_name = NEW.target_name
+)
+BEGIN
+    SELECT RAISE(ABORT, 'grouped_target_conflicts_with_exact_route');
+END;
+
+CREATE TRIGGER IF NOT EXISTS trg_app_sources_grouped_target_not_exact_route_update
+BEFORE UPDATE OF app_id, route_id, target_name ON app_sources
+FOR EACH ROW
+WHEN NEW.route_id IS NULL
+AND EXISTS (
+    SELECT 1
+    FROM app_routes
+    WHERE app_id = NEW.app_id
+      AND route_name = NEW.target_name
+)
+BEGIN
+    SELECT RAISE(ABORT, 'grouped_target_conflicts_with_exact_route');
+END;

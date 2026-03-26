@@ -1,8 +1,10 @@
 // role: standalone backend entrypoint for the current insight-io slices.
-// revision: 2026-03-26 direct-session-slice
-// major changes: starts the SQLite-backed catalog and direct-session services
-// while keeping media-runtime realization intentionally minimal.
+// revision: 2026-03-26 app-route-source-persistence
+// major changes: starts the SQLite-backed catalog, session, and durable
+// app/route/source services while keeping media-runtime realization
+// intentionally lightweight.
 
+#include "insightio/backend/app_service.hpp"
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/discovery.hpp"
 #include "insightio/backend/rest_server.hpp"
@@ -74,7 +76,13 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        RestServer server(store, catalog, sessions, frontend_dir);
+        AppService apps(store, sessions, "localhost", rtsp_host);
+        if (!apps.initialize()) {
+            std::cerr << "Failed to initialize durable app service\n";
+            return 1;
+        }
+
+        RestServer server(store, catalog, sessions, apps, frontend_dir);
         if (!server.start(host, port)) {
             std::cerr << "Failed to start REST server on " << host << ":" << port << "\n";
             return 1;

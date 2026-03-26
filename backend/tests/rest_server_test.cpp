@@ -1,8 +1,12 @@
 // role: focused REST tests for the standalone backend slices.
-// revision: 2026-03-26 direct-session-slice
-// major changes: verifies catalog, direct-session, and runtime-status
-// behavior on the SQLite-backed HTTP surface.
+// revision: 2026-03-26 pr5-review-fixes
+// major changes: verifies catalog, direct-session, app/route/source,
+// grouped-route delete cleanup, and runtime-status behavior on the
+// SQLite-backed HTTP surface without relying on a fixed Orbbec serial, while
+// covering route JSON shape and path-id overflow handling.
+// See docs/past-tasks.md for verification history.
 
+#include "insightio/backend/app_service.hpp"
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/rest_server.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -92,16 +96,16 @@ DeviceInfo make_v4l2_camera() {
 
 DeviceInfo make_orbbec_device() {
     DeviceInfo device;
-    device.uri = "orbbec://AY27552002M";
+    device.uri = "orbbec://ORB001";
     device.kind = DeviceKind::kOrbbec;
     device.name = "Desk RGBD";
     device.identity.device_uri = device.uri;
-    device.identity.device_id = "AY27552002M";
+    device.identity.device_id = "ORB001";
     device.identity.kind_str = "orbbec";
     device.identity.hardware_name = device.name;
     device.identity.usb_vendor_id = "2bc5";
     device.identity.usb_product_id = "0511";
-    device.identity.usb_serial = "AY27552002M";
+    device.identity.usb_serial = "ORB001";
 
     StreamInfo color;
     color.stream_id = "color";
@@ -145,8 +149,10 @@ TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
     EXPECT_TRUE(catalog.initialize());
     SessionService sessions(store, "localhost", "127.0.0.1");
     EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    EXPECT_TRUE(apps.initialize());
 
-    RestServer server(store, catalog, sessions, "/tmp/frontend");
+    RestServer server(store, catalog, sessions, apps, "/tmp/frontend");
     const auto port = start_test_server(server);
     EXPECT_TRUE(port != 0);
 
@@ -204,8 +210,10 @@ TEST(alias_endpoint_updates_public_name_and_derived_uris) {
     EXPECT_TRUE(catalog.initialize());
     SessionService sessions(store);
     EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions);
+    EXPECT_TRUE(apps.initialize());
 
-    RestServer server(store, catalog, sessions, "");
+    RestServer server(store, catalog, sessions, apps, "");
     const auto port = start_test_server(server);
     EXPECT_TRUE(port != 0);
 
@@ -246,8 +254,10 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
 
     SessionService sessions(store, "localhost", "127.0.0.1");
     EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    EXPECT_TRUE(apps.initialize());
 
-    RestServer server(store, catalog, sessions, "");
+    RestServer server(store, catalog, sessions, apps, "");
     const auto port = start_test_server(server);
     EXPECT_TRUE(port != 0);
 
@@ -316,6 +326,260 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     const auto missing = client.Get(("/api/sessions/" + std::to_string(session_id)).c_str());
     EXPECT_TRUE(missing);
     EXPECT_EQ(missing->status, 404);
+
+    server.stop();
+}
+
+TEST(app_endpoints_cover_exact_and_grouped_bind_flow) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera(), make_orbbec_device()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    const auto create_app = client.Post("/api/apps",
+                                        R"({"name":"vision-runner"})",
+                                        "application/json");
+    EXPECT_TRUE(create_app);
+    EXPECT_EQ(create_app->status, 201);
+    const auto app_json = nlohmann::json::parse(create_app->body);
+    const auto app_id = app_json.at("app_id").get<std::int64_t>();
+
+    const auto create_route = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/routes").c_str(),
+        R"({"route_name":"yolov5","expect":{"media":"video"}})",
+        "application/json");
+    EXPECT_TRUE(create_route);
+    EXPECT_EQ(create_route->status, 201);
+    const auto created_route_json = nlohmann::json::parse(create_route->body);
+    EXPECT_TRUE(created_route_json.contains("expect"));
+    EXPECT_TRUE(!created_route_json.contains("expect_json"));
+    EXPECT_EQ(created_route_json.at("expect").at("media").get<std::string>(), "video");
+
+    const auto bind_exact = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/sources").c_str(),
+        R"({"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"})",
+        "application/json");
+    EXPECT_TRUE(bind_exact);
+    EXPECT_EQ(bind_exact->status, 201);
+    const auto exact_json = nlohmann::json::parse(bind_exact->body);
+    EXPECT_EQ(exact_json.at("target_resource_name").get<std::string>(),
+              "apps/" + std::to_string(app_id) + "/routes/yolov5");
+    const auto source_id = exact_json.at("source_id").get<std::int64_t>();
+    const auto first_session_id = exact_json.at("active_session_id").get<std::int64_t>();
+
+    const auto stop = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/sources/" +
+         std::to_string(source_id) + "/stop")
+            .c_str(),
+        "",
+        "application/json");
+    EXPECT_TRUE(stop);
+    EXPECT_EQ(stop->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(stop->body).at("state").get<std::string>(), "stopped");
+
+    const auto start = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/sources/" +
+         std::to_string(source_id) + "/start")
+            .c_str(),
+        "",
+        "application/json");
+    EXPECT_TRUE(start);
+    EXPECT_EQ(start->status, 200);
+    const auto restarted_source = nlohmann::json::parse(start->body);
+    EXPECT_EQ(restarted_source.at("state").get<std::string>(), "active");
+    EXPECT_TRUE(restarted_source.at("active_session_id").get<std::int64_t>() != first_session_id);
+
+    const auto grouped_app = client.Post("/api/apps",
+                                         R"({"name":"rgbd-runner"})",
+                                         "application/json");
+    EXPECT_TRUE(grouped_app);
+    EXPECT_EQ(grouped_app->status, 201);
+    const auto grouped_app_id =
+        nlohmann::json::parse(grouped_app->body).at("app_id").get<std::int64_t>();
+
+    EXPECT_TRUE(client.Post(
+        ("/api/apps/" + std::to_string(grouped_app_id) + "/routes").c_str(),
+        R"({"route_name":"orbbec/color","expect":{"media":"video"}})",
+        "application/json"));
+    EXPECT_TRUE(client.Post(
+        ("/api/apps/" + std::to_string(grouped_app_id) + "/routes").c_str(),
+        R"({"route_name":"orbbec/depth","expect":{"media":"depth"}})",
+        "application/json"));
+
+    const auto create_grouped_session = client.Post(
+        "/api/sessions",
+        R"({"input":"insightos://localhost/desk-rgbd/orbbec/preset/480p_30","rtsp_enabled":false})",
+        "application/json");
+    EXPECT_TRUE(create_grouped_session);
+    EXPECT_EQ(create_grouped_session->status, 201);
+    const auto grouped_session_id =
+        nlohmann::json::parse(create_grouped_session->body).at("session_id").get<std::int64_t>();
+
+    const auto grouped_bind = client.Post(
+        ("/api/apps/" + std::to_string(grouped_app_id) + "/sources").c_str(),
+        (std::string{"{\"session_id\":"} + std::to_string(grouped_session_id) +
+         ",\"target\":\"orbbec\"}")
+            .c_str(),
+        "application/json");
+    EXPECT_TRUE(grouped_bind);
+    EXPECT_EQ(grouped_bind->status, 201);
+    const auto grouped_json = nlohmann::json::parse(grouped_bind->body);
+    EXPECT_TRUE(!grouped_json.contains("target_resource_name"));
+    EXPECT_EQ(grouped_json.at("resolved_members_json").size(), 2u);
+
+    const auto list_sources =
+        client.Get(("/api/apps/" + std::to_string(grouped_app_id) + "/sources").c_str());
+    EXPECT_TRUE(list_sources);
+    EXPECT_EQ(list_sources->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(list_sources->body).at("sources").size(), 1u);
+
+    const auto list_routes =
+        client.Get(("/api/apps/" + std::to_string(app_id) + "/routes").c_str());
+    EXPECT_TRUE(list_routes);
+    EXPECT_EQ(list_routes->status, 200);
+    const auto listed_routes = nlohmann::json::parse(list_routes->body).at("routes");
+    EXPECT_EQ(listed_routes.size(), 1u);
+    EXPECT_TRUE(listed_routes[0].contains("expect"));
+    EXPECT_TRUE(!listed_routes[0].contains("expect_json"));
+    EXPECT_EQ(listed_routes[0].at("expect").at("media").get<std::string>(), "video");
+
+    server.stop();
+}
+
+TEST(oversized_path_ids_return_bad_request) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    const auto huge_app = client.Get("/api/apps/9223372036854775808");
+    EXPECT_TRUE(huge_app);
+    EXPECT_EQ(huge_app->status, 400);
+    EXPECT_EQ(nlohmann::json::parse(huge_app->body).at("error").get<std::string>(),
+              "bad_request");
+
+    const auto huge_session = client.Get("/api/sessions/9223372036854775808");
+    EXPECT_TRUE(huge_session);
+    EXPECT_EQ(huge_session->status, 400);
+    EXPECT_EQ(nlohmann::json::parse(huge_session->body).at("error").get<std::string>(),
+              "bad_request");
+
+    server.stop();
+}
+
+TEST(delete_grouped_member_route_cleans_up_grouped_binding) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera(), make_orbbec_device()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    const auto create_app = client.Post("/api/apps",
+                                        R"({"name":"grouped-delete-rest"})",
+                                        "application/json");
+    EXPECT_TRUE(create_app);
+    EXPECT_EQ(create_app->status, 201);
+    const auto app_id =
+        nlohmann::json::parse(create_app->body).at("app_id").get<std::int64_t>();
+
+    const auto create_color = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/routes").c_str(),
+        R"({"route_name":"orbbec/color","expect":{"media":"video"}})",
+        "application/json");
+    EXPECT_TRUE(create_color);
+    EXPECT_EQ(create_color->status, 201);
+
+    const auto create_depth = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/routes").c_str(),
+        R"({"route_name":"orbbec/depth","expect":{"media":"depth"}})",
+        "application/json");
+    EXPECT_TRUE(create_depth);
+    EXPECT_EQ(create_depth->status, 201);
+
+    const auto bind_grouped = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/sources").c_str(),
+        R"({"input":"insightos://localhost/desk-rgbd/orbbec/preset/480p_30","target":"orbbec"})",
+        "application/json");
+    EXPECT_TRUE(bind_grouped);
+    EXPECT_EQ(bind_grouped->status, 201);
+    const auto grouped_json = nlohmann::json::parse(bind_grouped->body);
+    const auto grouped_session_id =
+        grouped_json.at("active_session_id").get<std::int64_t>();
+
+    const auto destroy_route = client.Delete(
+        ("/api/apps/" + std::to_string(app_id) + "/routes/orbbec%2Fdepth").c_str());
+    EXPECT_TRUE(destroy_route);
+    EXPECT_EQ(destroy_route->status, 204);
+
+    const auto list_sources =
+        client.Get(("/api/apps/" + std::to_string(app_id) + "/sources").c_str());
+    EXPECT_TRUE(list_sources);
+    EXPECT_EQ(list_sources->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(list_sources->body).at("sources").size(), 0u);
+
+    const auto grouped_session =
+        client.Get(("/api/sessions/" + std::to_string(grouped_session_id)).c_str());
+    EXPECT_TRUE(grouped_session);
+    EXPECT_EQ(grouped_session->status, 404);
 
     server.stop();
 }

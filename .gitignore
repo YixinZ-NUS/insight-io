@@ -1,3 +1,8 @@
+# role: local ignore rules for build outputs and vendored sample artifacts.
+# revision: 2026-03-26 vendored-orbbec-sdk
+# major changes: keeps the vendored Orbbec SDK payload trackable while ignoring
+# generated example binaries and build outputs.
+
 /.DS_Store
 /build/
 /insightos-io/
@@ -7,3 +12,5 @@ CMakeFiles/
 
 Log/
 third_party/mediamtx/mediamtx
+third_party/orbbec_sdk/Example/bin/
+third_party/orbbec_sdk/Example/build/

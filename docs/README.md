@@ -4,8 +4,19 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 15
+- version: 19
 - major changes:
+  - 2026-03-26 fixed the defect-level PR #5 review items by hardening
+    app/route post-insert reloads, propagating app-delete session-stop
+    failures, aligning REST route payloads on `expect`, and rejecting
+    oversized path IDs with `400 Bad Request`
+  - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
+    `FULLMUTEX` and Orbbec pipeline-profile fallback in code, and recorded pure
+    D2C capability gating as remaining TODO while refreshing the donor-reuse
+    status
+  - 2026-03-26 closed the grouped-member-route delete cleanup gap, added a
+    grouped-route-delete sequence diagram, and refreshed the next-slice handoff
+    toward reuse, IPC, RTSP runtime, SDK callbacks, and frontend work
   - 2026-03-26 synced the docs set to the checked-in direct-session slice,
     added a direct-session sequence diagram, and moved the handoff to app,
     route, and source persistence
@@ -49,6 +60,10 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Fix PR #5 Defect-Level Review Items`
+  - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
+  - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
+  - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
   - `2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying`
   - `2026-03-26 – Take Back Redundant App-Source Kind Columns`
@@ -89,9 +104,14 @@
   an app must not declare both one exact route `x` and any route below `x/`
 - exact-member URIs still mean one delivered stream
 - grouped preset URIs may mean one fixed related stream bundle
-- the checked-in backend now serves health, device catalog, alias, direct
-  session lifecycle, and runtime-status endpoints; durable app/app-source
-  management remains the next slice
+- the current worktree now serves health, device catalog, alias, direct
+  session lifecycle, app/route/source lifecycle, and runtime-status endpoints
+- the current worktree rejects `insightos://` inputs whose host does not match
+  the configured local catalog host on both direct-session and app-source
+  creation paths
+- deleting one grouped member route now removes any grouped durable bind that
+  resolved through that route and deletes the associated app-owned grouped
+  session so stale resolved-member metadata is not retained
 - discovery publishes selectable choices; sessions and workers realize them
   later
 - RTSP is optional durable publication intent on `app_sources` and `sessions`
@@ -163,6 +183,8 @@
 | `docs/diagram/bootstrap-health-sequence.md` | sequence diagram for backend bootstrap and health | active |
 | `docs/diagram/catalog-discovery-sequence.md` | sequence diagram for discovery refresh and alias-backed catalog reads | active |
 | `docs/diagram/direct-session-sequence.md` | sequence diagram for direct-session create, restart, and delete flow | active |
+| `docs/diagram/app-route-source-sequence.md` | sequence diagram for app create, route declaration, bind, stop/start, and rebind flow | active |
+| `docs/diagram/grouped-route-delete-sequence.md` | sequence diagram for grouped bind cleanup when one member route is deleted | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
 ## Status Rules

@@ -4,8 +4,11 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 10
+- version: 12
 - major changes:
+  - 2026-03-26 closed task 5 by fixing grouped-member-route delete cleanup and
+    refreshed the remaining handoff toward session reuse, IPC delivery, RTSP
+    runtime, SDK callbacks, and frontend flows
   - 2026-03-26 marked the direct-session REST and status slice complete in the
     checked-in backend and moved the next handoff to durable apps, routes, and
     sources
@@ -25,6 +28,8 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
+  - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
   - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
@@ -33,19 +38,18 @@
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
-The current checked-in code covers the explicit v1 schema, a versioned health
+The current worktree covers the explicit v1 schema, a versioned health
 endpoint, persisted discovery and catalog reads, device alias updates, direct
-session REST/status flow, and focused build/runtime tests. The ordered tasks
-below describe the remaining feature work.
+session REST/status flow, durable app/route/source CRUD and lifecycle
+endpoints, plus focused build/runtime tests. The ordered tasks below describe
+the remaining feature work.
 
 Completed slices:
 
-- tasks 1 through 4 are now implemented in checked-in form
+- tasks 1 through 5 are now implemented and verification-backed in the current
+  worktree
 
-The next implementation slice is task 5:
-
-- reintroduce persistent apps, routes, and sources on top of the reviewed
-  catalog and direct-session contract
+The next implementation slice is task 6.
 
 ## Ordered Tasks
 
@@ -64,25 +68,34 @@ The next implementation slice is task 5:
    exact URI contract as the app layer plus durable RTSP publication intent and
    `409` delete protection while a session is still referenced by app sources.
 5. Reintroduce persistent apps, routes, and sources in SQLite, including
-   reverse-order exact and grouped attach from `session_id`.
-6. Add route validation, grouped-source metadata persistence, grouped target
-   resolution behind one public `target` field, session-backed binds under the
-   same app-source surface, identical-URI reuse, and additive RTSP publication
-   behavior in the backend.
-7. Add a runtime-only post-capture publication phase that manages publication
-   profile selection, passthrough versus transcode decisions, protocol-specific
-   publication description, and publication fanout without adding new durable
-   runtime tables.
-8. Add runtime rebind so a route can change bindings without destroying the app
-   record.
-9. Refactor the high-level SDK to named-route declarations with callbacks plus
-   explicit startup source binding, exact and grouped session attach through
-   the same `bind_source(...)` surface, and IPC-only local attach.
-10. Update examples and tests to use exact-member URIs, grouped preset URIs,
-   explicit RTSP publication intent, and cover the full lifecycle.
-11. Reintroduce the frontend app/route/source management flows.
-12. Run focused verification, update feature pass states, and record completed
-    work in `docs/past-tasks.md`.
+   reverse-order exact and grouped attach from `session_id`, and close the
+   grouped-member-route delete cleanup gap so grouped app sources cannot retain
+   stale member resolution after one member route is removed.
+6. Add serving-session reuse in the backend so identical `stream_id` plus
+   compatible publication intent can share one serving path across direct
+   sessions and app-owned sources, and surface that reuse clearly in
+   `GET /api/status`.
+7. Port the donor IPC delivery path from `../insightos` into `insight-io`
+   runtime form, reusing the `memfd` + ring-buffer + `eventfd` transport and
+   control-server patterns while keeping attach lifecycle keyed by the new
+   session and app-source contract rather than donor delivery tables.
+8. Add RTSP runtime and the runtime-only post-capture publication phase so one
+   serving runtime can add RTSP publication, choose output profile/codec
+   handling, and describe publication state without adding durable runtime
+   tables.
+9. Refactor the high-level SDK to named-route declarations with real callback
+   delivery, explicit startup binding, exact and grouped `session_id` attach,
+   and grouped target fan-out over the same REST-backed control plane.
+10. Reintroduce the frontend app/route/source flows, including catalog browse,
+   route declaration, grouped-target binding, source lifecycle, reuse/status
+   inspection, and restart recovery.
+11. Expand examples, smoke tests, and runtime verification to cover session
+   reuse, IPC delivery, grouped preset callback delivery, additive RTSP
+   publication, and browser-driven flows on the development hardware.
+12. Flip feature pass states only after the corresponding tests and live
+    verification have run, record the exact verification path in
+    `docs/past-tasks.md`, and keep the user guide plus Mermaid diagrams in sync
+    with the active implementation slice.
 
 ## Completion Rule
 
@@ -114,6 +127,8 @@ The work is complete only when:
   codec/publication handling without reintroducing durable delivery tables
 - deleting a referenced session returns `409 Conflict` instead of silently
   detaching dependent app sources
+- deleting one grouped member route must not leave one grouped app-source row
+  or grouped app-owned session behind with stale resolved-member metadata
 - local SDK attach remains IPC-only in v1 while future remote or LAN RTSP
   consumption remains a separate path
 - frontend can express the same app/route/source flow

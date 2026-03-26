@@ -233,6 +233,37 @@ TEST(delete_referenced_session_returns_conflict) {
     EXPECT_TRUE(sessions.get_session(created.session_id).has_value());
 }
 
+TEST(direct_session_rejects_non_local_uri_host) {
+    const auto db_path = make_temp_db_path();
+    SchemaStore store(db_path);
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store);
+    EXPECT_TRUE(sessions.initialize());
+
+    SessionRecord created;
+    int error_status = 0;
+    std::string error_code;
+    std::string error_message;
+    EXPECT_TRUE(!sessions.create_direct_session("insightos://not-local/web-camera/720p_30",
+                                                false,
+                                                created,
+                                                error_status,
+                                                error_code,
+                                                error_message));
+    EXPECT_EQ(error_status, 422);
+    EXPECT_EQ(error_code, "invalid_input");
+}
+
 }  // namespace
 
 int main() {

@@ -4,8 +4,15 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 8
+- version: 11
 - major changes:
+  - 2026-03-26 reviewed the three post-task-5 follow-ups, confirmed SQLite
+    `FULLMUTEX`, confirmed Orbbec pipeline-profile fallback, recorded pure D2C
+    capability gating as a remaining TODO, and refreshed the donor-reuse
+    status
+  - 2026-03-26 closed grouped-route delete cleanup, runtime-verified the fix
+    on the development host, refreshed the donor-reuse writeup, added a
+    grouped-route-delete sequence diagram, and rewrote the next-slice handoff
   - 2026-03-26 reran the checked-in direct-session slice on the development
     host, recorded green focused tests plus live direct-session smoke, added a
     direct-session sequence diagram, and moved the handoff to app persistence
@@ -20,10 +27,13 @@
     status writeup, a schema-keying recommendation for `streams`, and a
     Mermaid backlog for the next runtime slices
   - 2026-03-26 added the persisted discovery catalog slice, including the
-    probe-grounded Orbbec depth and grouped preset publication path
+    proven Orbbec depth and grouped preset publication path
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-26 – Review Post-Task-5 Follow-Ups And Refresh Donor Reuse Status`
+  - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
+  - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
   - `2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying`
   - `2026-03-26 – Take Back Redundant App-Source Kind Columns`
@@ -33,15 +43,19 @@
 
 ## Current Slice
 
-The current implementation slice is intentionally narrow and infrastructure
-first:
+The current implementation slice now covers the full durable control-plane
+surface up through app/route/source persistence:
 
 - explicit seven-table SQLite schema checked into the repository
 - one standalone backend binary, `insightiod`
 - persisted catalog reads and alias control for `devices` and `streams`
 - direct-session persistence, lifecycle, and status endpoints
+- durable app CRUD
+- durable app-route CRUD with ambiguity guards
+- durable app-source create/list/start/stop/rebind for exact, grouped, and
+  session-backed binds
 - focused tests that prove schema bootstrap, catalog shaping, REST lifecycle
-  paths, and direct-session behavior
+  paths, app-source behavior, and direct-session behavior
 
 In concrete HTTP terms, the current backend serves only:
 
@@ -55,10 +69,22 @@ In concrete HTTP terms, the current backend serves only:
 - `POST /api/sessions/{id}/start`
 - `POST /api/sessions/{id}/stop`
 - `DELETE /api/sessions/{id}`
+- `POST /api/apps`
+- `GET /api/apps`
+- `GET /api/apps/{id}`
+- `DELETE /api/apps/{id}`
+- `POST /api/apps/{id}/routes`
+- `GET /api/apps/{id}/routes`
+- `DELETE /api/apps/{id}/routes/{route}`
+- `GET /api/apps/{id}/sources`
+- `POST /api/apps/{id}/sources`
+- `POST /api/apps/{id}/sources/{source_id}/start`
+- `POST /api/apps/{id}/sources/{source_id}/stop`
+- `POST /api/apps/{id}/sources/{source_id}/rebind`
 - `GET /api/status`
 
-The app, route, grouped bind, reuse, IPC-attach, and frontend portions of the
-PRD remain future work.
+Reuse, IPC attach, RTSP serving runtime, SDK callbacks, and frontend portions
+of the PRD remain future work.
 
 ## Review Snapshot
 
@@ -73,6 +99,7 @@ Observed from the current audit:
   - `catalog_service_test`
   - `session_service_test`
   - `rest_server_test`
+  - `app_service_test`
 - live `insightiod` smoke on this host returned four devices through
   `GET /api/devices`:
   - one V4L2 webcam
@@ -88,26 +115,63 @@ Observed from the current audit:
   - backend restart with the same SQLite file
   - `POST /api/sessions/{id}/start`
   - `DELETE /api/sessions/{id}` after the session was unreferenced
+- the live app/route/source smoke flow also succeeded on this host:
+  - `POST /api/apps`
+  - `GET /api/apps`
+  - `POST /api/apps/{id}/routes`
+  - `GET /api/apps/{id}/routes`
+  - `POST /api/apps/{id}/sources` with exact URI input
+  - `POST /api/apps/{id}/sources/{source_id}/stop`
+  - `POST /api/apps/{id}/sources/{source_id}/start`
+  - `POST /api/apps/{id}/sources/{source_id}/rebind`
+  - backend restart with the same SQLite file
+  - `GET /api/apps`
+  - `GET /api/apps/{id}/sources` showing persisted rows normalized to `stopped`
+- session-backed bind verification also succeeded:
+  - `POST /api/sessions`
+  - `POST /api/apps/{id}/sources` with `session_id`
+  - `DELETE /api/sessions/{id}` returning `409 Conflict`
+- URI host validation is now live on both paths:
+  - `POST /api/sessions` rejects `insightos://not-local/...`
+  - `POST /api/apps/{id}/sources` rejects `insightos://not-local/...`
+- grouped bind verification succeeded against the live Orbbec preset:
+  - `POST /api/apps/{id}/sources` with
+    `insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
+  - grouped `resolved_members_json` persisted and returned
+- grouped member-route delete cleanup is now live-verified:
+  - deleting `orbbec/depth` from an app with one grouped `orbbec` bind
+    returns `204 No Content`
+  - `GET /api/apps/{id}/sources` returns no grouped bind afterwards
+  - the grouped app-owned session returns `404 Not Found`
+  - SQLite no longer retains the grouped bind row or the linked app-owned
+    grouped session row
 
 Important scope boundary:
 
 - discovery/catalog publication is runtime-verified on the development host
 - direct-session REST and persistence are runtime-verified on the development
   host for the checked-in slice
-- app, route, and source persistence are not implemented
-- session reuse, attach, grouped bind resolution, IPC delivery, RTSP runtime,
-  SDK callbacks, and frontend flows are not implemented in this repository yet
+- app, route, and source persistence are runtime-verified on the development
+  host for the current worktree slice
+- session reuse, IPC delivery, RTSP runtime, SDK callbacks, and frontend flows
+  are not implemented in this repository yet
 
 This matches the current feature trackers:
 
 - `docs/features/fullstack-intent-routing-e2e.json` now records the verified
-  direct-session REST lifecycle slice as passing
+  grouped-route delete cleanup as passing, while callback-dependent bind flows
+  such as `inject-yolov5-source` remain `false` until IPC delivery and SDK
+  callbacks actually exist
 - `docs/features/runtime-and-app-user-journeys.json` now marks direct-session
-  create and persisted restart as passing
-- app/app-source lifecycle, grouped runtime reuse, IPC attach, and frontend
-  flows remain `false`
+  create, persisted restart, and the new grouped-route delete cleanup journey
+  as passing where those flows were actually verified
+- grouped runtime reuse, IPC attach, RTSP serving runtime, SDK callbacks, and
+  frontend flows remain `false`
 
 ## Donor Reuse Status
+
+This section was rechecked against the current `../insightos` tree while
+closing task 5.
 
 ### Already Reused
 
@@ -119,6 +183,9 @@ This matches the current feature trackers:
 - the Orbbec SDK linkage itself is reused by building against the donor SDK
   tree under `../insightos/third_party/orbbec_sdk/SDK`
 - the `cpp-httplib` integration pattern is also reused
+- current `backend/CMakeLists.txt` still reflects that split correctly:
+  donor-backed discovery and SDK linkage are in the build graph, while donor
+  IPC and `session_manager.cpp` are not yet compiled into `insight-io`
 
 Evidence:
 
@@ -150,6 +217,10 @@ Concrete comparison points:
 
 - shared type helpers are ported and trimmed, especially stable device-key
   generation and capability naming
+- donor request-normalization ideas are reused only in narrow form:
+  the current `SessionService` and `AppService` each keep their own
+  `insightos://` parsing and local-host validation rather than importing the
+  donor request layer wholesale
 - Orbbec grouped-preset shaping is not copied verbatim from donor code, but it
   is informed by donor probe evidence and the donor runtime contract
 - donor duplicate-suppression behavior for Orbbec vendor IDs is reused, but it
@@ -172,6 +243,11 @@ Concrete comparison points:
   donor `SessionRequest`, URI parsing, and source normalization logic are only
   lightly reintroduced for the current direct-session slice; the broader
   donor request-routing layer remains unported
+- worker design:
+  donor `session_manager.cpp` and the worker files remain the right reference
+  set for reuse, attach, publication, and runtime planning, but the new
+  `insight-io` control plane should still keep the new route/app-source
+  contract rather than reviving donor request or store semantics
 
 ### Not Suitable To Copy As-Is
 
@@ -373,14 +449,15 @@ In short:
 
 ## Next Step
 
-The next implementation slice is durable app intent on top of the now-verified
-catalog and direct-session base:
+Task 5 is now closed. The next implementation slices are:
 
-- add `POST /api/apps`, `GET /api/apps`, and `GET /api/apps/{id}`
-- add app-route persistence and route validation
-- add app-source persistence for URI-backed and session-backed binds
-- keep grouped-target resolution, reuse, IPC attach, and RTSP runtime work in
-  later slices after the durable app/app-source contract is checked in
+- add serving-session reuse for identical source plus publication intent
+- port donor IPC delivery and control-server pieces onto the new session and
+  app-source contract
+- add RTSP serving runtime and the runtime-only post-capture publication phase
+- wire real SDK callback delivery on top of the REST-backed route/app-source
+  control plane
+- implement the frontend flows after runtime delivery is coherent
 
 ## Mermaid Diagram Inventory
 
@@ -394,6 +471,10 @@ catalog and direct-session base:
   documents discovery refresh, persistence, catalog reads, and alias updates
 - [direct-session-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/direct-session-sequence.md)
   documents create, restart, status, and delete flow for one direct session
+- [app-route-source-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/app-route-source-sequence.md)
+  documents app create, route declaration, source bind, stop/start, and rebind
+- [grouped-route-delete-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-route-delete-sequence.md)
+  documents grouped bind cleanup when one member route is deleted
 
 ## Recommended Mermaid Backlog
 
@@ -406,11 +487,6 @@ adding are:
   attach `session_id` to one app-local target without recreating capture
 - shared-runtime reuse sequence:
   two consumers on the same URI with additive RTSP publication
-- restart recovery sequence:
-  persisted sessions/apps/sources on backend restart
-- route rebind sequence:
-  switch one app route from one source/session to another without deleting the
-  app record
 - runtime worker graph:
   capture worker, publication phase, IPC publisher, RTSP publisher, and reuse
   ownership boundaries
@@ -429,12 +505,22 @@ adding are:
   mismatched baseline
 - the connected Orbbec device currently exposes incomplete raw SDK discovery in
   this environment, so the catalog synthesizes `orbbec/depth/400p_30`,
-  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30` for serial
-  `AY27552002M` from the documented 2026-03-23 probe evidence rather than
-  regressing the public contract
+  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30` for the proven
+  `sv1301s-u3` family (`2bc5:0614`) from the documented 2026-03-23 probe
+  evidence rather than regressing the public contract
+- serial-specific gating is gone, but pure SDK D2C capability gating is not yet
+  the authoritative publication rule:
+  the current catalog still accepts the proven family/hardcoded 480p path, and
+  replacing that with a pure capability probe remains follow-up work
 - the donor `cpp-httplib` integration pattern was reused, but the runtime
   contract remains grounded in the `insight-io` docs rather than donor REST
   behavior
-- the donor discovery code is already reused substantially, but the donor IPC,
+- donor reuse status is currently split:
+  V4L2, PipeWire, and Orbbec discovery are substantially donor-derived, the
+  Orbbec SDK is now vendored locally under this repo, and the donor IPC,
   request-normalization, and worker/session-manager layers are still pending
   integration work rather than checked-in reuse
+- grouped-route delete cleanup is now handled in repo-native
+  `AppService` lifecycle logic before the route row is removed:
+  grouped binds are discovered through `resolved_routes_json`, removed, and any
+  linked app-owned grouped session is deleted in the same transaction

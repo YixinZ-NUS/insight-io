@@ -1,8 +1,10 @@
 // role: focused schema bootstrap test for the standalone insight-io backend.
-// revision: 2026-03-26 app-source-schema-takeback
+// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
 // major changes: verifies the checked-in seven-table schema is applied, the
 // reviewed per-device selector uniqueness is present, redundant app-source
-// kind columns stay removed, and exact app-route ownership is enforced.
+// kind columns stay removed, exact app-route ownership is enforced, the shared
+// SQLite handle is serialized, and the app-route ambiguity/session-stream
+// invariants are wired into the schema.
 
 #include "insightio/backend/schema_store.hpp"
 
@@ -154,6 +156,17 @@ bool has_foreign_key(sqlite3* db,
     return found;
 }
 
+bool trigger_exists(sqlite3* db, const char* name) {
+    sqlite3_stmt* statement = nullptr;
+    const char* sql =
+        "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?";
+    EXPECT_EQ(sqlite3_prepare_v2(db, sql, -1, &statement, nullptr), SQLITE_OK);
+    sqlite3_bind_text(statement, 1, name, -1, SQLITE_TRANSIENT);
+    const bool found = sqlite3_step(statement) == SQLITE_ROW;
+    sqlite3_finalize(statement);
+    return found;
+}
+
 TEST(initialize_creates_the_documented_tables) {
     insightio::backend::SchemaStore store(make_temp_db_path());
     EXPECT_TRUE(store.initialize());
@@ -166,6 +179,12 @@ TEST(initialize_creates_the_documented_tables) {
     EXPECT_TRUE(tables.contains("app_sources"));
     EXPECT_TRUE(tables.contains("sessions"));
     EXPECT_TRUE(tables.contains("session_logs"));
+}
+
+TEST(open_uses_serialized_sqlite_handle) {
+    insightio::backend::SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.open());
+    EXPECT_TRUE(sqlite3_db_mutex(store.db()) != nullptr);
 }
 
 TEST(streams_table_uses_device_scoped_selector_uniqueness) {
@@ -191,18 +210,26 @@ TEST(app_sources_schema_removes_redundant_kind_columns_and_enforces_route_owners
     const auto indexes = list_indexes(store.db(), "app_sources");
     EXPECT_TRUE(indexes.contains("idx_app_sources_app_target_name"));
     EXPECT_TRUE(indexes.contains("idx_app_sources_app_route_id_not_null"));
+    EXPECT_TRUE(has_foreign_key(
+        store.db(), "app_sources", "app_id", "app_routes", "app_id", "CASCADE"));
+    EXPECT_TRUE(has_foreign_key(
+        store.db(), "app_sources", "route_id", "app_routes", "route_id", "CASCADE"));
     EXPECT_TRUE(has_foreign_key(store.db(),
                                 "app_sources",
-                                "app_id",
-                                "app_routes",
-                                "app_id",
-                                "CASCADE"));
+                                "source_session_id",
+                                "sessions",
+                                "session_id",
+                                "RESTRICT"));
     EXPECT_TRUE(has_foreign_key(store.db(),
                                 "app_sources",
-                                "route_id",
-                                "app_routes",
-                                "route_id",
-                                "CASCADE"));
+                                "active_session_id",
+                                "sessions",
+                                "session_id",
+                                "RESTRICT"));
+    EXPECT_TRUE(trigger_exists(store.db(),
+                               "trg_app_sources_exact_target_matches_route_insert"));
+    EXPECT_TRUE(trigger_exists(store.db(),
+                               "trg_app_sources_grouped_target_not_exact_route_insert"));
 }
 
 TEST(sessions_schema_requires_stream_reference) {
@@ -210,6 +237,16 @@ TEST(sessions_schema_requires_stream_reference) {
     EXPECT_TRUE(store.initialize());
 
     EXPECT_TRUE(column_is_not_null(store.db(), "sessions", "stream_id"));
+}
+
+TEST(app_routes_schema_installs_ambiguity_guards) {
+    insightio::backend::SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    EXPECT_TRUE(trigger_exists(store.db(),
+                               "trg_app_routes_no_ambiguous_target_insert"));
+    EXPECT_TRUE(trigger_exists(store.db(),
+                               "trg_app_routes_no_ambiguous_target_update"));
 }
 
 }  // namespace

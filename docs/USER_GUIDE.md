@@ -4,8 +4,11 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 6
+- version: 8
 - major changes:
+  - 2026-03-26 closed grouped-member-route delete cleanup in the guide,
+    replaced the old bug reproduction with a live cleanup smoke test, and kept
+    the app/route/source walkthrough aligned with the current backend
   - 2026-03-26 reran the checked-in direct-session slice on the development
     host: focused tests are green, live discovery returns the webcam, Orbbec,
     and PipeWire devices, and the guide now includes a direct-session smoke
@@ -21,6 +24,8 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
+  - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
   - `2026-03-26 – Review Current Scaffold, Discovery Reuse, And Schema Keying`
   - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
@@ -28,7 +33,7 @@
 
 ## Scope
 
-This guide covers the currently implemented slice only:
+This guide covers the current worktree slice only:
 
 - configure and build the backend
 - run the focused tests
@@ -37,10 +42,14 @@ This guide covers the currently implemented slice only:
 - inspect `GET /api/devices`
 - update `POST /api/devices/{device}/alias`
 - create, inspect, start, stop, and delete direct sessions through the REST API
+- create, inspect, and delete apps
+- create, inspect, and delete routes
+- create exact, grouped, and session-backed app-source bindings
+- stop, restart, and rebind app sources
 - inspect `/api/status`
 
-App routing, persistent app/source management, frontend management, and SDK
-callbacks are not yet available in this checked-in slice.
+SDK callbacks, IPC attach, runtime reuse, and frontend management are still not
+available in this worktree slice.
 
 ## Build
 
@@ -56,6 +65,7 @@ Expected binaries:
 - `build/bin/catalog_service_test`
 - `build/bin/session_service_test`
 - `build/bin/rest_server_test`
+- `build/bin/app_service_test`
 
 ## Test
 
@@ -69,6 +79,7 @@ Current checked-in result on the development host:
 - `catalog_service_test`: pass
 - `session_service_test`: pass
 - `rest_server_test`: pass
+- `app_service_test`: pass
 
 ## Run
 
@@ -181,19 +192,21 @@ cmake --build build -j4
 ctest --test-dir build --output-on-failure
 ```
 
-The current checked-in test scope is intentionally narrow:
+The current worktree test scope is intentionally narrow:
 
 - schema bootstrap
 - persisted catalog shaping
 - direct-session lifecycle and status verification
-- REST health, catalog, alias, and direct-session surfaces
+- durable app, route, and app-source persistence plus lifecycle verification
+- REST health, catalog, alias, direct-session, and app/route/source surfaces
 
 Current audit result:
 
 - `ctest` is green
 - focused coverage now includes schema bootstrap, catalog shaping, direct
-  session lifecycle, restart normalization, delete-conflict handling, and REST
-  surface checks
+  session lifecycle, app/route/source lifecycle, restart normalization,
+  delete-conflict handling, grouped-route delete cleanup, and REST surface
+  checks
 
 ### Live Discovery Review
 
@@ -235,7 +248,8 @@ sqlite3 /tmp/insight-io-review.sqlite3 ".mode box" \
 
 During discovery-only runs this confirms that the current runtime is
 persisting the catalog rows in `devices` and `streams`. During the direct
-session smoke flow, `sessions` and `session_logs` also gain rows as expected.
+session and app-source smoke flows, `apps`, `app_routes`, `app_sources`,
+`sessions`, and `session_logs` also gain rows as expected.
 
 ### Duplicate Orbbec Suppression
 
@@ -269,6 +283,156 @@ The current backend now exposes these session endpoints:
 - `GET /api/status`
 
 The focused tests plus the live smoke flow above verify the direct-session
-REST and persistence slice on this host. Media-worker reuse, app/app-source
-flows, grouped attach, and active RTSP publication runtime are still future
-work.
+REST and persistence slice on this host. Media-worker reuse, SDK callbacks,
+IPC attach, and active RTSP publication runtime are still future work.
+
+## App Route Source Smoke Test
+
+Create one idle app and inspect the durable record:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"vision-runner"}' | jq
+
+curl -s http://127.0.0.1:18180/api/apps | jq
+```
+
+Declare exact and grouped-capable routes:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"yolov5","expect":{"media":"video"}}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/color","expect":{"media":"video"}}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}' | jq
+
+curl -s http://127.0.0.1:18180/api/apps/1/routes | jq
+```
+
+Create one exact app-source bind:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"}' | jq
+```
+
+Create one grouped app-source bind from the live Orbbec preset:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30","target":"orbbec"}' | jq
+```
+
+Exercise source lifecycle:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/stop \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/start \
+  -H 'Content-Type: application/json' -d '{}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/rebind \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/1080p_30"}' | jq
+```
+
+Session-backed attach and delete-conflict verification:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":2,"target":"yolov5"}' | jq
+
+curl -i -X DELETE http://127.0.0.1:18180/api/sessions/2
+```
+
+Host-validation checks on both direct-session and app-source paths:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://not-local/web-camera/720p_30"}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://not-local/web-camera/720p_30","target":"yolov5"}' | jq
+```
+
+Restart normalization for apps and sources:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18180 \
+  --db-path /tmp/insight-io.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18180/api/apps | jq
+curl -s http://127.0.0.1:18180/api/apps/1/sources | jq
+```
+
+Expected behavior:
+
+- apps remain present after restart
+- durable source rows remain present after restart
+- `AppService::initialize()` normalizes persisted source runtime state to
+  `stopped`
+
+## Grouped Route Delete Cleanup Smoke Test
+
+Status: `resolved`
+
+The grouped member-route delete path is now verified on the development host.
+
+Run this after binding one grouped Orbbec preset:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"rgbd-review"}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/color","expect":{"media":"video"}}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30","target":"orbbec"}' | jq
+
+curl -i -X DELETE http://127.0.0.1:18180/api/apps/1/routes/orbbec%2Fdepth
+curl -s http://127.0.0.1:18180/api/apps/1/sources | jq
+curl -i http://127.0.0.1:18180/api/sessions/1
+
+sqlite3 /tmp/insight-io.sqlite3 \
+  "SELECT source_id, target_name, state, resolved_routes_json FROM app_sources;"
+
+sqlite3 /tmp/insight-io.sqlite3 \
+  "SELECT session_id, state, resolved_members_json FROM sessions;"
+```
+
+Expected result:
+
+- `DELETE /api/apps/1/routes/orbbec%2Fdepth` returns `204 No Content`
+- `GET /api/apps/1/sources` returns an empty `sources` array for that app
+- the grouped app-owned session returns `404 Not Found`
+- SQLite no longer retains the grouped bind row or the app-owned grouped
+  session row for that binding

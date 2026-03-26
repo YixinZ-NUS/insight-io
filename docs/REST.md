@@ -4,11 +4,11 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 10
+- version: 12
 - major changes:
-  - 2026-03-26 documented the checked-in direct-session slice as current API,
-    removed unimplemented app endpoints from the active index, and marked the
-    app/app-source sections below as planned contract only
+  - 2026-03-26 closed grouped-member-route delete cleanup for grouped binds,
+    documented the cleanup semantics, and kept the current app lifecycle
+    endpoint set as the active API index
   - 2026-03-26 removed redundant stored app-source kind fields from the active
     schema guidance and documented bind-kind inference from existing foreign
     keys instead
@@ -27,6 +27,8 @@
     than a peer to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI contract
 - past tasks:
+  - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
+  - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
   - `2026-03-26 – Apply Selector Review And Device-Scoped Stream Keying`
   - `2026-03-26 – Take Back Redundant App-Source Kind Columns`
@@ -59,28 +61,31 @@ Important rule:
 | `POST` | `/api/sessions/{id}/start` | rehydrate one persisted logical session |
 | `POST` | `/api/sessions/{id}/stop` | stop one logical session |
 | `DELETE` | `/api/sessions/{id}` | destroy one unreferenced logical session |
+| `POST` | `/api/apps` | create one durable app record |
+| `GET` | `/api/apps` | list durable apps |
+| `GET` | `/api/apps/{id}` | inspect one durable app |
+| `DELETE` | `/api/apps/{id}` | delete one durable app plus its owned routes and source bindings |
+| `POST` | `/api/apps/{id}/routes` | declare one app-local route |
+| `GET` | `/api/apps/{id}/routes` | list routes on one app |
+| `DELETE` | `/api/apps/{id}/routes/{route}` | delete one app-local route |
+| `GET` | `/api/apps/{id}/sources` | list durable app-source bindings |
+| `POST` | `/api/apps/{id}/sources` | create one exact, grouped, or session-backed app-source bind |
+| `POST` | `/api/apps/{id}/sources/{source_id}/start` | recreate runtime state for one durable source |
+| `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop runtime state while keeping the durable source row |
+| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | move one durable source record to a replacement URI or session |
 | `GET` | `/api/status` | inspect shared capture and publication state |
 
-The checked-in backend does not yet implement the app, route, or app-source
-endpoints from the broader contract.
+## Grouped Route Delete Cleanup
 
-## Planned App APIs
+Status: `resolved`
 
-These endpoints remain planned and are documented below as future contract, not
-as currently served routes:
-
-- `POST /api/apps`
-- `GET /api/apps`
-- `GET /api/apps/{id}`
-- `DELETE /api/apps/{id}`
-- `POST /api/apps/{id}/routes`
-- `GET /api/apps/{id}/routes`
-- `DELETE /api/apps/{id}/routes/{route}`
-- `GET /api/apps/{id}/sources`
-- `POST /api/apps/{id}/sources`
-- `POST /api/apps/{id}/sources/{source_id}/start`
-- `POST /api/apps/{id}/sources/{source_id}/stop`
-- `POST /api/apps/{id}/sources/{source_id}/rebind`
+- deleting one grouped member route now removes any grouped `app_sources` row
+  whose `resolved_members_json` references that route
+- if that grouped bind owned one app-created grouped session, the backend also
+  deletes that session so stale resolved-member metadata is not retained
+- the verified live route-delete path is:
+  `DELETE /api/apps/{id}/routes/orbbec%2Fdepth` after binding
+  `insightos://localhost/sv1301s-u3/orbbec/preset/480p_30` to target `orbbec`
 
 ## Device Catalog Publication Notes
 
@@ -119,9 +124,39 @@ Rules:
 - the response returns the updated device object and re-derives both
   `uri` and `publications_json.rtsp.url` on the new public device name
 
+## App Create Contract
+
+Create one durable app record:
+
+```json
+{
+  "name": "vision-runner"
+}
+```
+
+Optional fields:
+
+- `description`
+- `config_json`
+
+Current endpoints:
+
+- `POST /api/apps`
+- `GET /api/apps`
+- `GET /api/apps/{id}`
+- `DELETE /api/apps/{id}`
+
+Rules:
+
+- `name` is required
+- the backend slug-normalizes `name`
+- the normalized app name must be unique
+- deleting an app removes owned routes and app-source rows, and stops any
+  app-owned runtime sessions still active for that app
+
 ## App Route Request Contract
 
-This section describes the planned REST payload for
+This section describes the current REST payload for
 `POST /api/apps/{id}/routes`. It is not an alternative to the SDK
 `app.route(...)` API. In the normal SDK flow,
 `app.route(...).expect(...)` serializes into this request shape.
@@ -205,6 +240,12 @@ That keeps the app contract role-first:
 - `orbbec/color` and `orbbec/depth` stay ordinary routes, while grouped preset
   binds may still target the shared root `orbbec`
 
+Current endpoints:
+
+- `POST /api/apps/{id}/routes`
+- `GET /api/apps/{id}/routes`
+- `DELETE /api/apps/{id}/routes/{route}`
+
 ## App Source Bind Contract
 
 Bind one listed URI to one app-local target:
@@ -259,6 +300,7 @@ Rules:
 - exactly one of `input` or `session_id` is required
 - `input` must be a catalog-published `insightos://` URI already exposed by
   the catalog
+- the `insightos://` host must match the locally configured catalog host
 - the URI itself must already identify the fixed published source shape
 - raw `rtsp://` input is not part of the v1 source-selection contract; RTSP is
   a publication of a selected `insightos://` source, not a posted source URI
@@ -308,6 +350,27 @@ Rules:
 - future remote or LAN RTSP consumption can be added later without changing the
   app-source resource shape
 
+Current endpoints:
+
+- `GET /api/apps/{id}/sources`
+- `POST /api/apps/{id}/sources`
+- `POST /api/apps/{id}/sources/{source_id}/start`
+- `POST /api/apps/{id}/sources/{source_id}/stop`
+- `POST /api/apps/{id}/sources/{source_id}/rebind`
+
+Current response shape highlights:
+
+- `target`
+- `target_resource_name` on exact binds
+- `uri`
+- `state`
+- `rtsp_enabled`
+- `resolved_exact_stream_id`
+- `resolved_members_json` on grouped binds
+- `source_session_id` when session-backed
+- `active_session_id`
+- `source_session` and/or `active_session` when available
+
 ## Direct Session Contract
 
 Direct sessions use the same URI contract:
@@ -332,6 +395,7 @@ This flow is the basis for:
 Normal-use rule:
 
 - the chosen URI fixes the backend source behavior for that direct session
+- the `insightos://` host must match the locally configured catalog host
 - `direct` means standalone or session-first:
   the session may later be bound to one app target through `session_id`
 - `rtsp_enabled` is optional and defaults to `false`

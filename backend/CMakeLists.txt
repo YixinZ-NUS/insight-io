@@ -1,7 +1,8 @@
 # role: bootstrap the standalone insight-io backend build.
-# revision: 2026-03-26 direct-session-slice
-# major changes: adds the direct-session service, related tests, and keeps the
-# focused standalone backend build aligned with docs/past-tasks.md.
+# revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+# major changes: vendors the Orbbec SDK under this repository, keeps the
+# durable app/route/source build graph, and aligns SQLite access with the
+# threaded REST server.
 
 include(FetchContent)
 include(FindPkgConfig)
@@ -27,7 +28,7 @@ set(INSIGHTIO_HAS_PIPEWIRE OFF)
 
 if (ENABLE_ORBBEC)
     set(INSIGHTIO_ORBBEC_SDK_ROOT
-        "${CMAKE_SOURCE_DIR}/../insightos/third_party/orbbec_sdk/SDK"
+        "${CMAKE_SOURCE_DIR}/third_party/orbbec_sdk/SDK"
         CACHE PATH "Orbbec SDK root")
     set(INSIGHTIO_ORBBEC_SDK_INCLUDE "${INSIGHTIO_ORBBEC_SDK_ROOT}/include")
     set(INSIGHTIO_ORBBEC_SDK_LIB "${INSIGHTIO_ORBBEC_SDK_ROOT}/lib")
@@ -66,6 +67,7 @@ set(INSIGHTIO_BACKEND_SOURCES
     src/types.cpp
     src/catalog.cpp
     src/session_service.cpp
+    src/app_service.cpp
     src/api/rest_server.cpp
     src/discovery/discovery.cpp
     src/discovery/v4l2_discovery.cpp
@@ -188,7 +190,21 @@ if (INSIGHTIO_HAS_ORBBEC)
     set_target_properties(rest_server_test PROPERTIES BUILD_RPATH "${INSIGHTIO_ORBBEC_SDK_LIB}")
 endif()
 
+add_executable(app_service_test
+    tests/app_service_test.cpp
+)
+
+target_include_directories(app_service_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(app_service_test PRIVATE cxx_std_20)
+target_compile_options(app_service_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(app_service_test PRIVATE insightio_backend_support SQLite::SQLite3)
+
+if (INSIGHTIO_HAS_ORBBEC)
+    set_target_properties(app_service_test PROPERTIES BUILD_RPATH "${INSIGHTIO_ORBBEC_SDK_LIB}")
+endif()
+
 add_test(NAME schema_store_test COMMAND schema_store_test)
 add_test(NAME catalog_service_test COMMAND catalog_service_test)
 add_test(NAME session_service_test COMMAND session_service_test)
 add_test(NAME rest_server_test COMMAND rest_server_test)
+add_test(NAME app_service_test COMMAND app_service_test)

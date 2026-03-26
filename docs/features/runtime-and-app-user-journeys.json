@@ -1,5 +1,5 @@
 {
-  "version": 9,
+  "version": 10,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -422,6 +422,19 @@
         "Verify status and callbacks reflect the new source"
       ],
       "passes": false
+    },
+    {
+      "id": "delete-grouped-member-route-cleans-up-grouped-bind",
+      "category": "functional",
+      "description": "Deleting one grouped member route removes grouped durable binds that resolved through that route and deletes the linked app-owned grouped session",
+      "steps": [
+        "Create an app and declare grouped member routes such as orbbec/color and orbbec/depth",
+        "Create one grouped app-source bind from a grouped preset URI such as insightos://host/desk-rgbd/orbbec/preset/480p_30",
+        "Call DELETE /api/apps/{id}/routes/orbbec%2Fdepth",
+        "Verify GET /api/apps/{id}/sources no longer returns the grouped bind",
+        "Verify the grouped app-owned session is no longer present"
+      ],
+      "passes": true
     },
     {
       "id": "browser-catalog-to-route-builder-flow",
