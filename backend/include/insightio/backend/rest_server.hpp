@@ -1,11 +1,13 @@
 #pragma once
 
-// role: standalone HTTP surface for the bootstrap backend.
-// revision: 2026-03-25 bootstrap-runtime-build
-// major changes: exposes a versioned health endpoint over cpp-httplib.
+// role: standalone HTTP surface for the current backend slices.
+// revision: 2026-03-26 direct-session-slice
+// major changes: exposes catalog, direct-session, and runtime-status endpoints
+// over cpp-httplib.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/schema_store.hpp"
+#include "insightio/backend/session_service.hpp"
 
 #include <atomic>
 #include <cstdint>
@@ -23,6 +25,7 @@ class RestServer {
 public:
     RestServer(SchemaStore& store,
                CatalogService& catalog,
+               SessionService& sessions,
                std::string frontend_dir = "");
     ~RestServer();
 
@@ -32,6 +35,7 @@ public:
 private:
     SchemaStore& store_;
     CatalogService& catalog_;
+    SessionService& sessions_;
     std::string frontend_dir_;
     std::unique_ptr<httplib::Server> server_;
     std::thread thread_;

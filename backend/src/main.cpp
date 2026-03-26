@@ -1,13 +1,14 @@
-// role: standalone backend entrypoint for the bootstrap insight-io slice.
-// revision: 2026-03-25 bootstrap-runtime-build
-// major changes: starts the SQLite-backed health server and keeps process
-// lifecycle minimal while later features are reintroduced incrementally.
+// role: standalone backend entrypoint for the current insight-io slices.
+// revision: 2026-03-26 direct-session-slice
+// major changes: starts the SQLite-backed catalog and direct-session services
+// while keeping media-runtime realization intentionally minimal.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/discovery.hpp"
 #include "insightio/backend/rest_server.hpp"
 #include "insightio/backend/runtime_paths.hpp"
 #include "insightio/backend/schema_store.hpp"
+#include "insightio/backend/session_service.hpp"
 #include "insightio/backend/version.hpp"
 
 #include <atomic>
@@ -67,7 +68,13 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        RestServer server(store, catalog, frontend_dir);
+        SessionService sessions(store, "localhost", rtsp_host);
+        if (!sessions.initialize()) {
+            std::cerr << "Failed to initialize direct session service\n";
+            return 1;
+        }
+
+        RestServer server(store, catalog, sessions, frontend_dir);
         if (!server.start(host, port)) {
             std::cerr << "Failed to start REST server on " << host << ":" << port << "\n";
             return 1;

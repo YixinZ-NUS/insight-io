@@ -1,11 +1,12 @@
-// role: focused catalog REST tests for the standalone backend.
-// revision: 2026-03-26 selector-schema-review
-// major changes: verifies the reviewed catalog selector names, RTSP metadata,
-// and alias updates on the persisted catalog surface.
+// role: focused REST tests for the standalone backend slices.
+// revision: 2026-03-26 direct-session-slice
+// major changes: verifies catalog, direct-session, and runtime-status
+// behavior on the SQLite-backed HTTP surface.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/rest_server.hpp"
 #include "insightio/backend/schema_store.hpp"
+#include "insightio/backend/session_service.hpp"
 
 #include <httplib.h>
 #include <nlohmann/json.hpp>
@@ -142,8 +143,10 @@ TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
         "localhost",
         "127.0.0.1");
     EXPECT_TRUE(catalog.initialize());
+    SessionService sessions(store, "localhost", "127.0.0.1");
+    EXPECT_TRUE(sessions.initialize());
 
-    RestServer server(store, catalog, "/tmp/frontend");
+    RestServer server(store, catalog, sessions, "/tmp/frontend");
     const auto port = start_test_server(server);
     EXPECT_TRUE(port != 0);
 
@@ -199,8 +202,10 @@ TEST(alias_endpoint_updates_public_name_and_derived_uris) {
             return result;
         });
     EXPECT_TRUE(catalog.initialize());
+    SessionService sessions(store);
+    EXPECT_TRUE(sessions.initialize());
 
-    RestServer server(store, catalog, "");
+    RestServer server(store, catalog, sessions, "");
     const auto port = start_test_server(server);
     EXPECT_TRUE(port != 0);
 
@@ -220,6 +225,97 @@ TEST(alias_endpoint_updates_public_name_and_derived_uris) {
                   .at("url")
                   .get<std::string>(),
               "rtsp://127.0.0.1/front-camera/1080p_30");
+
+    server.stop();
+}
+
+TEST(session_endpoints_cover_lifecycle_and_status) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1");
+    EXPECT_TRUE(sessions.initialize());
+
+    RestServer server(store, catalog, sessions, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    const auto create = client.Post("/api/sessions",
+                                    R"({"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true})",
+                                    "application/json");
+    EXPECT_TRUE(create);
+    EXPECT_EQ(create->status, 201);
+
+    const auto created_json = nlohmann::json::parse(create->body);
+    EXPECT_EQ(created_json.at("state").get<std::string>(), "active");
+    EXPECT_TRUE(created_json.at("resolved_exact_stream_id").get<std::int64_t>() > 0);
+    EXPECT_EQ(created_json.at("resolved_source").at("selector").get<std::string>(), "720p_30");
+    EXPECT_EQ(created_json.at("rtsp_url").get<std::string>(),
+              "rtsp://127.0.0.1/web-camera/720p_30");
+
+    const auto session_id = created_json.at("session_id").get<std::int64_t>();
+
+    const auto list = client.Get("/api/sessions");
+    EXPECT_TRUE(list);
+    EXPECT_EQ(list->status, 200);
+    const auto list_json = nlohmann::json::parse(list->body);
+    EXPECT_EQ(list_json.at("sessions").size(), 1u);
+
+    const auto inspect = client.Get(("/api/sessions/" + std::to_string(session_id)).c_str());
+    EXPECT_TRUE(inspect);
+    EXPECT_EQ(inspect->status, 200);
+    const auto inspect_json = nlohmann::json::parse(inspect->body);
+    EXPECT_EQ(inspect_json.at("resolved_source").at("uri").get<std::string>(),
+              "insightos://localhost/web-camera/720p_30");
+
+    const auto status = client.Get("/api/status");
+    EXPECT_TRUE(status);
+    EXPECT_EQ(status->status, 200);
+    const auto status_json = nlohmann::json::parse(status->body);
+    EXPECT_EQ(status_json.at("active_sessions").get<int>(), 1);
+    EXPECT_EQ(status_json.at("total_sessions").get<int>(), 1);
+
+    const auto stop = client.Post(("/api/sessions/" + std::to_string(session_id) + "/stop").c_str(),
+                                  "",
+                                  "application/json");
+    EXPECT_TRUE(stop);
+    EXPECT_EQ(stop->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(stop->body).at("state").get<std::string>(), "stopped");
+
+    const auto start = client.Post(("/api/sessions/" + std::to_string(session_id) + "/start").c_str(),
+                                   "",
+                                   "application/json");
+    EXPECT_TRUE(start);
+    EXPECT_EQ(start->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(start->body).at("state").get<std::string>(), "active");
+
+    const auto stop_again =
+        client.Post(("/api/sessions/" + std::to_string(session_id) + "/stop").c_str(),
+                    "",
+                    "application/json");
+    EXPECT_TRUE(stop_again);
+    EXPECT_EQ(stop_again->status, 200);
+
+    const auto destroy = client.Delete(("/api/sessions/" + std::to_string(session_id)).c_str());
+    EXPECT_TRUE(destroy);
+    EXPECT_EQ(destroy->status, 204);
+
+    const auto missing = client.Get(("/api/sessions/" + std::to_string(session_id)).c_str());
+    EXPECT_TRUE(missing);
+    EXPECT_EQ(missing->status, 404);
 
     server.stop();
 }
