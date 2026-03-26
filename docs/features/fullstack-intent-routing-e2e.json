@@ -154,7 +154,7 @@
         "Verify each listed URI corresponds to one exact member or one grouped preset bundle",
         "Verify no route expectation is required to disambiguate the source identity"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "browse-rgbd-depth-400-and-480",
@@ -166,7 +166,7 @@
         "Verify the grouped preset URI `orbbec/preset/480p_30` is also listed when enabled for that device",
         "Verify their metadata shows distinct delivered caps or capture policy"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "browse-grouped-preset-uri",
@@ -177,7 +177,7 @@
         "Verify fixed grouped preset URIs are listed when supported",
         "Verify the bind contract still posts only one app-local `target`"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "inject-yolov5-source",

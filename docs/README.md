@@ -4,8 +4,10 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 9
+- version: 10
 - major changes:
+  - 2026-03-26 reintroduced the persisted discovery catalog, alias control, and
+    runtime-verified exact/grouped source listing for the connected hardware
   - 2026-03-25 reintroduced the first buildable backend slice, added a user
     guide, and added a tech report plus bootstrap sequence diagram for the
     implementation phase
@@ -37,6 +39,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Define A Runtime-Only Post-Capture Publication Phase`
@@ -127,6 +130,7 @@
 | `docs/diagram/intent-routing-er.md` | Mermaid ER diagram for the simplified durable schema | active |
 | `docs/diagram/intent-routing-runtime.md` | runtime/control-plane diagram | active |
 | `docs/diagram/bootstrap-health-sequence.md` | sequence diagram for backend bootstrap and health | active |
+| `docs/diagram/catalog-discovery-sequence.md` | sequence diagram for discovery refresh and alias-backed catalog reads | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
 ## Status Rules

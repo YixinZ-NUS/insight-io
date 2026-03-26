@@ -4,14 +4,18 @@
 
 - role: repository entry point for the standalone `insight-io` rebuild
 - status: active
-- version: 3
+- version: 4
 - major changes:
+  - 2026-03-26 reintroduced persisted device discovery, exact source-shape
+    catalog listing, device alias updates, and queryable RTSP publication
+    metadata backed by the connected webcam, Orbbec device, and PipeWire nodes
   - 2026-03-25 reintroduced the first buildable backend slice with an explicit
     SQL schema, a versioned health endpoint, focused tests, and runtime
     verification
   - 2026-03-25 added a user guide and a tech report entry point for the new
     implementation phase
 - past tasks:
+  - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
 
 `insight-io` is the standalone home of the DB-first route-based rebuild that
@@ -23,7 +27,10 @@ The current checked-in implementation is intentionally narrow:
 - one checked-in v1 schema covering `devices`, `streams`, `apps`,
   `app_routes`, `app_sources`, `sessions`, and `session_logs`
 - one versioned `GET /api/health` endpoint
-- focused schema and REST smoke tests
+- persisted `GET /api/devices` and `GET /api/devices/{device}` catalog
+  surfaces with derived `insightos://` URIs and `publications_json.rtsp.url`
+- `POST /api/devices/{device}/alias` for stable public device naming
+- focused schema, catalog, and REST tests
 
 Discovery, direct sessions, durable app routing, reuse, grouped preset
 resolution, SDK, and frontend flows remain to be reintroduced in later

@@ -3,6 +3,8 @@
 // major changes: starts the SQLite-backed health server and keeps process
 // lifecycle minimal while later features are reintroduced incrementally.
 
+#include "insightio/backend/catalog.hpp"
+#include "insightio/backend/discovery.hpp"
 #include "insightio/backend/rest_server.hpp"
 #include "insightio/backend/runtime_paths.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -33,6 +35,7 @@ int main(int argc, char* argv[]) {
     uint16_t port = 18180;
     std::string frontend_dir;
     std::string db_path = default_database_path();
+    std::string rtsp_host = "127.0.0.1";
 
     for (int index = 1; index < argc; ++index) {
         const std::string arg = argv[index];
@@ -44,6 +47,8 @@ int main(int argc, char* argv[]) {
             frontend_dir = argv[++index];
         } else if (arg == "--db-path" && index + 1 < argc) {
             db_path = argv[++index];
+        } else if (arg == "--rtsp-host" && index + 1 < argc) {
+            rtsp_host = argv[++index];
         }
     }
 
@@ -56,7 +61,13 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        RestServer server(store, frontend_dir);
+        CatalogService catalog(store, discover_all, "localhost", rtsp_host);
+        if (!catalog.initialize()) {
+            std::cerr << "Failed to initialize discovery catalog\n";
+            return 1;
+        }
+
+        RestServer server(store, catalog, frontend_dir);
         if (!server.start(host, port)) {
             std::cerr << "Failed to start REST server on " << host << ":" << port << "\n";
             return 1;

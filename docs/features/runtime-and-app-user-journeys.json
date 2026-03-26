@@ -23,7 +23,7 @@
         "Verify status is ok",
         "Verify the backend version is returned"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "catalog-lists-exact-stream-uris",
@@ -35,7 +35,7 @@
         "Verify each URI corresponds to one exact member or one fixed grouped preset bundle",
         "Verify route expectations are not required to disambiguate the URI"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "catalog-lists-rgbd-depth-400-and-480",
@@ -47,7 +47,7 @@
         "Verify the grouped preset URI `orbbec/preset/480p_30` is listed when the device supports that fixed bundled flow",
         "Verify their metadata reports different delivered caps or capture policy"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "catalog-lists-grouped-preset-uris",
@@ -58,7 +58,7 @@
         "Verify grouped preset URIs are listed when the grouped member set is fixed and proven",
         "Verify later binds still post only one app-local `target`"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "grouped-runtime-compatible-or-rejected",
@@ -122,7 +122,7 @@
         "Verify GET /api/devices shows the aliased public name",
         "Verify later session or app-source requests can use the aliased name in the URI"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "catalog-exposes-queryable-rtsp-publication-address",
@@ -134,7 +134,7 @@
         "Verify `publications_json.rtsp.url` keeps the same `/<device>/<selector>` path as the derived `insightos://` URI while using the configured RTSP host",
         "Verify clients can query that address from the catalog even though actual reachability still depends on active publication state"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "direct-session-create-via-rest",

@@ -1,17 +1,12 @@
-// role: focused catalog REST tests for the standalone backend.
+// role: focused catalog service tests for the standalone backend.
 // revision: 2026-03-26 catalog-discovery-slice
-// major changes: verifies device listing, Orbbec grouped selectors, RTSP
-// metadata, and alias updates on the persisted catalog surface.
+// major changes: verifies alias persistence and Orbbec-specific selector
+// shaping against synthetic discovery input.
 
 #include "insightio/backend/catalog.hpp"
-#include "insightio/backend/rest_server.hpp"
 #include "insightio/backend/schema_store.hpp"
 
-#include <httplib.h>
-#include <nlohmann/json.hpp>
-
 #include <cstdlib>
-#include <algorithm>
 #include <filesystem>
 #include <iostream>
 #include <set>
@@ -62,12 +57,12 @@ using namespace insightio::backend;
 std::string make_temp_db_path() {
     static int counter = 0;
     const auto path = std::filesystem::temp_directory_path() /
-                      ("insight-io-rest-test-" + std::to_string(::getpid()) +
+                      ("insight-io-catalog-test-" + std::to_string(::getpid()) +
                        "-" + std::to_string(counter++) + ".sqlite3");
     return path.string();
 }
 
-DeviceInfo make_v4l2_camera() {
+DeviceInfo make_webcam() {
     DeviceInfo device;
     device.uri = "v4l2:/dev/video0";
     device.kind = DeviceKind::kV4l2;
@@ -76,20 +71,17 @@ DeviceInfo make_v4l2_camera() {
     device.identity.device_id = "video0";
     device.identity.kind_str = "v4l2";
     device.identity.hardware_name = device.name;
-    device.identity.usb_vendor_id = "5843";
-    device.identity.usb_product_id = "d527";
     device.identity.usb_serial = "SN00009";
 
     StreamInfo stream;
     stream.stream_id = "image";
     stream.name = "frame";
     stream.supported_caps.push_back(ResolvedCaps{0, "mjpeg", 1280, 720, 30});
-    stream.supported_caps.push_back(ResolvedCaps{1, "mjpeg", 1920, 1080, 30});
     device.streams.push_back(std::move(stream));
     return device;
 }
 
-DeviceInfo make_orbbec_device() {
+DeviceInfo make_orbbec() {
     DeviceInfo device;
     device.uri = "orbbec://AY27552002M";
     device.kind = DeviceKind::kOrbbec;
@@ -99,36 +91,24 @@ DeviceInfo make_orbbec_device() {
     device.identity.kind_str = "orbbec";
     device.identity.hardware_name = device.name;
     device.identity.usb_vendor_id = "2bc5";
-    device.identity.usb_product_id = "0511";
     device.identity.usb_serial = "AY27552002M";
 
     StreamInfo color;
     color.stream_id = "color";
     color.name = "color";
     color.supported_caps.push_back(ResolvedCaps{0, "mjpeg", 640, 480, 30});
-    color.supported_caps.push_back(ResolvedCaps{1, "mjpeg", 1280, 720, 30});
 
     StreamInfo depth;
     depth.stream_id = "depth";
     depth.name = "depth";
     depth.supported_caps.push_back(ResolvedCaps{0, "y16", 640, 400, 30});
-    depth.supported_caps.push_back(ResolvedCaps{1, "y16", 1280, 800, 30});
 
     device.streams.push_back(std::move(color));
     device.streams.push_back(std::move(depth));
     return device;
 }
 
-uint16_t start_test_server(RestServer& server) {
-    for (uint16_t port = 29680; port < 29690; ++port) {
-        if (server.start("127.0.0.1", port)) {
-            return port;
-        }
-    }
-    return 0;
-}
-
-TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
+TEST(alias_persists_across_refresh) {
     SchemaStore store(make_temp_db_path());
     EXPECT_TRUE(store.initialize());
 
@@ -136,91 +116,52 @@ TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
         store,
         []() {
             DiscoveryResult result;
-            result.devices = {make_v4l2_camera(), make_orbbec_device()};
-            return result;
-        },
-        "localhost",
-        "127.0.0.1");
-    EXPECT_TRUE(catalog.initialize());
-
-    RestServer server(store, catalog, "/tmp/frontend");
-    const auto port = start_test_server(server);
-    EXPECT_TRUE(port != 0);
-
-    httplib::Client client("127.0.0.1", port);
-    const auto response = client.Get("/api/devices");
-    EXPECT_TRUE(response);
-    EXPECT_EQ(response->status, 200);
-
-    const auto json = nlohmann::json::parse(response->body);
-    EXPECT_EQ(json.at("devices").size(), 2u);
-
-    const auto webcam = std::find_if(json.at("devices").begin(),
-                                     json.at("devices").end(),
-                                     [](const nlohmann::json& device) {
-                                         return device.at("public_name") == "web-camera";
-                                     });
-    EXPECT_TRUE(webcam != json.at("devices").end());
-    EXPECT_EQ((*webcam).at("sources")[0].at("publications_json")
-                  .at("rtsp")
-                  .at("url")
-                  .get<std::string>(),
-              "rtsp://127.0.0.1/web-camera/video-1080p_30");
-
-    const auto rgbd = std::find_if(json.at("devices").begin(),
-                                   json.at("devices").end(),
-                                   [](const nlohmann::json& device) {
-                                       return device.at("public_name") == "desk-rgbd";
-                                   });
-    EXPECT_TRUE(rgbd != json.at("devices").end());
-
-    std::set<std::string> selectors;
-    for (const auto& source : (*rgbd).at("sources")) {
-        selectors.insert(source.at("selector").get<std::string>());
-    }
-    EXPECT_TRUE(selectors.contains("orbbec/color/480p_30"));
-    EXPECT_TRUE(selectors.contains("orbbec/depth/400p_30"));
-    EXPECT_TRUE(selectors.contains("orbbec/depth/480p_30"));
-    EXPECT_TRUE(selectors.contains("orbbec/preset/480p_30"));
-
-    server.stop();
-}
-
-TEST(alias_endpoint_updates_public_name_and_derived_uris) {
-    SchemaStore store(make_temp_db_path());
-    EXPECT_TRUE(store.initialize());
-
-    CatalogService catalog(
-        store,
-        []() {
-            DiscoveryResult result;
-            result.devices = {make_v4l2_camera()};
+            result.devices = {make_webcam()};
             return result;
         });
     EXPECT_TRUE(catalog.initialize());
 
-    RestServer server(store, catalog, "");
-    const auto port = start_test_server(server);
-    EXPECT_TRUE(port != 0);
+    CatalogDevice updated;
+    int error_status = 0;
+    std::string error_code;
+    std::string error_message;
+    EXPECT_TRUE(catalog.set_alias("web-camera",
+                                  "front-camera",
+                                  updated,
+                                  error_status,
+                                  error_code,
+                                  error_message));
+    EXPECT_EQ(updated.public_name, "front-camera");
 
-    httplib::Client client("127.0.0.1", port);
-    const auto response = client.Post("/api/devices/web-camera/alias",
-                                      R"({"public_name":"front-camera"})",
-                                      "application/json");
-    EXPECT_TRUE(response);
-    EXPECT_EQ(response->status, 200);
+    EXPECT_TRUE(catalog.refresh());
+    const auto device = catalog.get_device("front-camera");
+    EXPECT_TRUE(device.has_value());
+    EXPECT_EQ(device->default_name, "web-camera");
+}
 
-    const auto json = nlohmann::json::parse(response->body);
-    EXPECT_EQ(json.at("public_name").get<std::string>(), "front-camera");
-    EXPECT_EQ(json.at("sources")[0].at("uri").get<std::string>(),
-              "insightos://localhost/front-camera/video-1080p_30");
-    EXPECT_EQ(json.at("sources")[0].at("publications_json")
-                  .at("rtsp")
-                  .at("url")
-                  .get<std::string>(),
-              "rtsp://127.0.0.1/front-camera/video-1080p_30");
+TEST(orbbec_adds_aligned_depth_and_grouped_preset) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
 
-    server.stop();
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_orbbec()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto device = catalog.get_device("desk-rgbd");
+    EXPECT_TRUE(device.has_value());
+
+    std::set<std::string> selectors;
+    for (const auto& source : device->sources) {
+        selectors.insert(source.selector);
+    }
+    EXPECT_TRUE(selectors.contains("orbbec/depth/400p_30"));
+    EXPECT_TRUE(selectors.contains("orbbec/depth/480p_30"));
+    EXPECT_TRUE(selectors.contains("orbbec/preset/480p_30"));
 }
 
 }  // namespace
@@ -229,6 +170,7 @@ int main() {
     for (const auto& test : tests()) {
         test.fn();
     }
-    std::cout << "rest_server_test: " << tests().size() << " test(s) passed\n";
+    std::cout << "catalog_service_test: " << tests().size()
+              << " test(s) passed\n";
     return 0;
 }

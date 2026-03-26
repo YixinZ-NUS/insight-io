@@ -4,11 +4,14 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 1
+- version: 2
 - major changes:
+  - 2026-03-26 added catalog browsing and alias commands for the persisted
+    discovery slice
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice`
 
 ## Scope
@@ -19,6 +22,8 @@ This guide covers the currently implemented slice only:
 - run the focused tests
 - start `insightiod`
 - query `GET /api/health`
+- inspect `GET /api/devices`
+- update `POST /api/devices/{device}/alias`
 
 Catalog discovery, session creation, app routing, frontend management, and SDK
 callbacks are not yet available in this checked-in slice.
@@ -34,6 +39,7 @@ Expected binaries:
 
 - `build/bin/insightiod`
 - `build/bin/schema_store_test`
+- `build/bin/catalog_service_test`
 - `build/bin/rest_server_test`
 
 ## Test
@@ -49,7 +55,8 @@ ctest --test-dir build --output-on-failure
   --host 127.0.0.1 \
   --port 18180 \
   --db-path /tmp/insight-io.sqlite3 \
-  --frontend /tmp/frontend
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
 ```
 
 Notes:
@@ -69,9 +76,34 @@ Expected response shape:
 
 ```json
 {
+  "catalog_device_count": 4,
   "db_path": "/tmp/insight-io.sqlite3",
   "frontend_path": "/tmp/frontend",
   "status": "ok",
   "version": "0.1.0"
 }
 ```
+
+## Device Catalog
+
+```bash
+curl -s http://127.0.0.1:18180/api/devices | jq
+```
+
+On the current development machine, the catalog should show:
+
+- one V4L2 webcam with selectors such as `video-720p_30`
+- one Orbbec device with selectors including `orbbec/depth/400p_30`,
+  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30`
+- PipeWire audio sources when PipeWire discovery is enabled
+
+## Device Alias
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"public_name":"front-camera"}' | jq
+```
+
+After aliasing, both the derived `insightos://` URI and
+`publications_json.rtsp.url` should use `front-camera` in the device path.

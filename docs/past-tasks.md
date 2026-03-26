@@ -1,5 +1,88 @@
 # Past Tasks
 
+## 2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow
+
+### What Changed
+
+- reintroduced the persisted discovery stack for the standalone backend:
+  - shared discovery/catalog types
+    [types.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/types.hpp)
+    and [types.cpp](/home/yixin/Coding/insight-io/backend/src/types.cpp)
+  - discovery entry points
+    [discovery.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/discovery.hpp),
+    [discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/discovery.cpp),
+    [v4l2_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/v4l2_discovery.cpp),
+    [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp),
+    and [pipewire_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/pipewire_discovery.cpp)
+  - persisted catalog service
+    [catalog.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/catalog.hpp)
+    and [catalog.cpp](/home/yixin/Coding/insight-io/backend/src/catalog.cpp)
+- extended the HTTP surface so the checked-in backend now serves:
+  - `GET /api/devices`
+  - `GET /api/devices/{device}`
+  - `POST /api/devices/{device}/alias`
+- grounded the Orbbec catalog on the active docs and prior probe evidence:
+  - V4L2 discovery skips Orbbec USB vendor nodes when Orbbec SDK discovery is
+    active
+  - the connected Orbbec serial `AY27552002M` now publishes
+    `orbbec/depth/400p_30`, `orbbec/depth/480p_30`, and
+    `orbbec/preset/480p_30`
+  - grouped and aligned depth entries expose queryable RTSP metadata using the
+    same selector path as the derived `insightos://` URI
+- added focused verification coverage in
+  [catalog_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/catalog_service_test.cpp)
+  and updated
+  [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+  to cover catalog listing, grouped Orbbec selectors, RTSP metadata, and alias
+  updates
+- updated the repo/operator docs:
+  - [README.md](/home/yixin/Coding/insight-io/README.md)
+  - [docs/README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [REST.md](/home/yixin/Coding/insight-io/docs/REST.md)
+  - [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [catalog-discovery-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/catalog-discovery-sequence.md)
+- updated only verified tracker entries in:
+  - [runtime-and-app-user-journeys.json](/home/yixin/Coding/insight-io/docs/features/runtime-and-app-user-journeys.json)
+  - [fullstack-intent-routing-e2e.json](/home/yixin/Coding/insight-io/docs/features/fullstack-intent-routing-e2e.json)
+
+### Why
+
+- direct sessions, app binds, reuse, and restart all depend on a stable source
+  catalog first, so `devices` and `streams` had to become real persisted
+  resources before the session and app layers come back
+- the connected machine includes the exact hardware mix described in the docs:
+  one webcam, one Orbbec device, and PipeWire sources, which made this the
+  right slice to runtime-verify against real hardware rather than only donor
+  assumptions
+- the active grouped-source docs already document probe-backed depth behavior
+  for Orbbec serial `AY27552002M`, so discovery should preserve that public
+  contract even when raw SDK enumeration is incomplete in the current runtime
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18182 \
+  --db-path /tmp/insight-io-catalog-verify.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1
+
+curl -s http://127.0.0.1:18182/api/health
+curl -s http://127.0.0.1:18182/api/devices | jq
+curl -s http://127.0.0.1:18182/api/devices/sv1301s-u3 | jq
+curl -s -X POST http://127.0.0.1:18182/api/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"public_name":"front-camera"}' | jq
+curl -s http://127.0.0.1:18182/api/devices/front-camera | jq
+```
+
 ## 2026-03-25 – Reintroduce Backend Bootstrap Build And Health Slice
 
 ### What Changed

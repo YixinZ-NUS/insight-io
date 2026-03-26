@@ -4,8 +4,10 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 6
+- version: 7
 - major changes:
+  - 2026-03-26 documented the catalog and alias request/response shape now used
+    by the checked-in implementation slice
   - 2026-03-25 removed stale source variant/group response fields, made RTSP
     publication metadata queryable, and fixed session-delete conflict behavior
   - 2026-03-25 clarified that direct sessions are standalone session-first
@@ -16,6 +18,7 @@
     than a peer to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI contract
 - past tasks:
+  - `2026-03-26 – Reintroduce Persisted Discovery Catalog And Alias Flow`
   - `2026-03-25 – Minimize Source Metadata And Lock Session Delete Semantics`
   - `2026-03-25 – Clarify Direct Sessions And Multi-Device Route Declarations`
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
@@ -71,6 +74,24 @@ Rules:
   `insightos://` URI while replacing `localhost` with the configured RTSP host
 - the presence of that URL does not by itself guarantee an active RTSP
   publisher; reachability still depends on current runtime publication state
+
+## Device Alias Request
+
+The checked-in alias request body is:
+
+```json
+{
+  "public_name": "front-camera"
+}
+```
+
+Rules:
+
+- `public_name` must contain at least one alphanumeric character after slug
+  normalization
+- the normalized alias must be unique across devices
+- the response returns the updated device object and re-derives both
+  `uri` and `publications_json.rtsp.url` on the new public device name
 
 ## App Route Request Contract
 
