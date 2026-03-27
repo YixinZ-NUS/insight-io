@@ -1,7 +1,7 @@
 # role: build task-9 example apps for live route-oriented SDK validation.
-# revision: 2026-03-27 task9-sdk-route-surface
-# major changes: adds latency, grouped Orbbec overlay, and mixed-device route
-# callback examples on top of the new `insightos::App` SDK.
+# revision: 2026-03-27 task9-sdk-route-audio-example
+# major changes: adds latency, PipeWire audio, grouped Orbbec overlay, and
+# mixed-device route callback examples on top of the new `insightos::App` SDK.
 
 find_package(OpenCV QUIET COMPONENTS core imgproc imgcodecs)
 
@@ -17,6 +17,10 @@ endfunction()
 
 insightio_add_example(v4l2_latency_monitor
     v4l2_latency_monitor.cpp
+)
+
+insightio_add_example(pipewire_audio_monitor
+    pipewire_audio_monitor.cpp
 )
 
 insightio_add_example(mixed_device_consumer

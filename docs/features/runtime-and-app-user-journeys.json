@@ -1,5 +1,5 @@
 {
-  "version": 15,
+  "version": 16,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -480,13 +480,14 @@
     {
       "id": "example-app-idle-startup-and-late-bind",
       "category": "functional",
-      "description": "A checked-in example app can start without a startup URI, expose a derived default app name, and begin processing only after a later REST source bind",
+      "description": "A checked-in example app, including the PipeWire audio example, can start without a startup URI, expose a derived default app name, and begin processing only after a later REST source bind",
       "steps": [
         "Run one example app without `--app-name` and without a startup URI",
         "Call GET /api/apps and verify the app name derives from the executable name",
         "Verify no frames are processed before a source bind exists",
         "Create one source bind through POST /api/apps/{id}/sources",
-        "Verify the example begins processing after the bind and exits cleanly when its frame limit is reached"
+        "Verify the example begins processing after the bind and exits cleanly when its frame limit is reached",
+        "When the example consumes PipeWire audio, verify a later bind to `target = audio` can use either `audio/mono` or `audio/stereo` and that the delivered channel count matches the selector"
       ],
       "passes": true
     }

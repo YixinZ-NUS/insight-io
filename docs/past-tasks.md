@@ -4,8 +4,12 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 22
+- version: 23
 - major changes:
+  - 2026-03-27 added the checked-in `pipewire_audio_monitor` example, focused
+    SDK coverage for synthetic PipeWire audio delivery, live mono-versus-
+    stereo selector verification on the current host, and more accurate
+    callback-threshold wording for example auto-stop flags
   - 2026-03-27 added current-host V4L2 concurrency stress verification for
     `v4l2_latency_monitor`, recording the published selector set plus the
     observed supported and unsupported concurrent selector combinations
@@ -79,6 +83,66 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors
+
+### What Changed
+
+- added
+  [pipewire_audio_monitor.cpp](/home/yixin/Coding/insight-io/examples/pipewire_audio_monitor.cpp)
+  as a checked-in SDK example app for one exact PipeWire audio route
+- added the new example to
+  [examples/CMakeLists.txt](/home/yixin/Coding/insight-io/examples/CMakeLists.txt)
+- extended
+  [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+  with a synthetic PipeWire device plus a focused callback-delivery test for
+  `insightos::Audio{}`
+- live-queried the current PipeWire catalog and documented that both current
+  audio devices publish both `audio/mono` and `audio/stereo` as separate exact
+  selectors
+- updated the guide, report, task list, feature trackers, and demo transcript
+  so the new audio example and the selector split are documented coherently
+- tightened the example-app stop wording so `--max-frames` and similar flags
+  are described as `request_stop()` thresholds; on the live audio run, one
+  already queued callback still printed after the threshold was reached
+
+### Why
+
+- the follow-up request for this turn was to add another checked-in app that
+  consumes PipeWire audio and to answer whether the current selector surface
+  needs to tell mono and stereo apart
+- the current catalog and the live example output both show that the selector
+  distinction is real:
+  mono and stereo resolve to different delivered channel counts and different
+  per-callback sample totals even when the route target name stays `audio`
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+./build/bin/app_sdk_test
+ctest --test-dir build --output-on-failure
+curl -s http://127.0.0.1:18294/api/devices | jq -r '.devices[] | select(.driver=="pipewire") | .name as $name | .sources[] | [$name, .selector, (.caps_json.format // ""), ((.caps_json.sample_rate // 0)|tostring), ((.caps_json.channels // 0)|tostring), .uri] | @tsv'
+./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18294 --max-frames=6 --report-every=3 insightos://localhost/web-camera-mono/audio/stereo
+./build/bin/pipewire_audio_monitor --app-name=pipewire-audio-rest --backend-host=127.0.0.1 --backend-port=18294 --max-frames=5 --report-every=1
+curl -s http://127.0.0.1:18294/api/apps
+curl -s -X POST http://127.0.0.1:18294/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono"}'
+```
+
+Observed results:
+
+- `./build/bin/app_sdk_test` now reports `app_sdk_test: 11 test(s) passed`
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- the current host publishes both current PipeWire devices with both
+  `audio/mono` and `audio/stereo`, each at `s16le` `48000`
+- direct startup on `web-camera-mono/audio/stereo` reported `channels=2` and
+  `samples=2048`
+- idle startup plus later REST bind on `web-camera-mono/audio/mono` reported
+  `channels=1` and `samples=1024`
+- the mono late-bind run used `--max-frames=5`, but one queued sixth callback
+  still printed before exit, so the docs now describe these flags as stop
+  requests rather than exact hard ceilings
 
 ## 2026-03-27 – Stress V4L2 Concurrent Selector Combinations
 

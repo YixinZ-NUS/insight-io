@@ -118,6 +118,26 @@ DeviceInfo make_test_orbbec_device() {
     return device;
 }
 
+DeviceInfo make_test_pipewire_device() {
+    DeviceInfo device;
+    device.uri = "test:desk-audio";
+    device.kind = DeviceKind::kPipeWire;
+    device.name = "Desk Audio";
+    device.identity.device_uri = device.uri;
+    device.identity.device_id = "desk-audio";
+    device.identity.kind_str = "pipewire";
+    device.identity.hardware_name = device.name;
+
+    StreamInfo stream;
+    stream.stream_id = "audio";
+    stream.name = "audio";
+    stream.supported_caps.push_back(ResolvedCaps{0, "s16le", 48000, 1, 0});
+    stream.supported_caps.push_back(ResolvedCaps{1, "s16le", 48000, 2, 0});
+
+    device.streams.push_back(std::move(stream));
+    return device;
+}
+
 uint16_t start_test_server(RestServer& server) {
     for (uint16_t port = 29840; port < 29870; ++port) {
         if (server.start("127.0.0.1", port)) {
@@ -279,6 +299,77 @@ TEST(startup_grouped_bind_fans_out_color_and_depth_routes) {
     EXPECT_EQ(app.connect(), 0);
     EXPECT_TRUE(color_frames.load() > 0);
     EXPECT_TRUE(depth_frames.load() > 0);
+
+    server.stop();
+}
+
+TEST(startup_audio_bind_delivers_audio_caps_and_frames) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_test_pipewire_device()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1:8554");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    std::atomic_int frames{0};
+    std::atomic_int caps_seen{0};
+
+    insightos::App app({
+        .name = "sdk-audio-test",
+        .description = "",
+        .backend_host = "127.0.0.1",
+        .backend_port = port,
+        .refresh_interval_ms = 50,
+    });
+    app.route("audio")
+        .expect(insightos::Audio{})
+        .on_caps([&](const insightos::Caps& caps) {
+            EXPECT_EQ(caps.route_name, "audio");
+            EXPECT_EQ(caps.media_kind, "audio");
+            EXPECT_EQ(caps.selector, "audio/stereo");
+            EXPECT_EQ(caps.format, "s16le");
+            EXPECT_EQ(caps.sample_rate, 48000u);
+            EXPECT_EQ(caps.channels, 2u);
+            ++caps_seen;
+        })
+        .on_frame([&](const insightos::Frame& frame) {
+            EXPECT_EQ(frame.route_name, "audio");
+            EXPECT_EQ(frame.media_kind, "audio");
+            EXPECT_EQ(frame.selector, "audio/stereo");
+            EXPECT_EQ(frame.format, "s16le");
+            EXPECT_EQ(frame.sample_rate, 48000u);
+            EXPECT_EQ(frame.channels, 2u);
+            EXPECT_TRUE(frame.size >= 512);
+            if (++frames >= 2) {
+                app.request_stop();
+            }
+        });
+    std::vector<std::string> argv_storage = {
+        "sdk-audio-test",
+        "insightos://localhost/desk-audio/audio/stereo",
+    };
+    auto argv_view = make_argv(argv_storage);
+    EXPECT_TRUE(app.bind_from_cli(static_cast<int>(argv_view.size()), argv_view.data(), 1));
+
+    EXPECT_EQ(app.connect(), 0);
+    EXPECT_TRUE(frames.load() >= 2);
+    EXPECT_TRUE(caps_seen.load() >= 1);
 
     server.stop();
 }

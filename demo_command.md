@@ -4,13 +4,18 @@
 
 - role: exact bash transcript for the task-9 runtime verification flow
 - status: active
-- revision: 2026-03-27 task9-runtime-verification
+- revision: 2026-03-27 task9-runtime-verification-and-pipewire-audio
 - major changes:
+  - 2026-03-27 added the PipeWire audio example verification commands,
+    including direct stereo startup, idle mono late bind, and the current
+    selector query that shows why `audio/mono` and `audio/stereo` stay
+    distinct exact selectors
   - 2026-03-27 added an explicit CLI-versus-REST equivalence summary for the
     checked-in example apps
   - 2026-03-27 captured the bare verification command list and observed outputs
     for the current task-9 SDK, browser, and example-app slice
 - past tasks:
+  - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
 
@@ -22,26 +27,21 @@ cmake --build build -j4
 
 ```text
 """
-[ 39%] Built target insightio_backend_support
-[ 47%] Built target schema_store_test
-[ 47%] Built target catalog_service_test
-[ 52%] Built target insightiod
-[ 56%] Built target discovery_test
-[ 73%] Built target ipc_runtime_test
-[ 73%] Built target session_service_test
-[ 73%] Built target rest_server_test
-[ 73%] Built target app_service_test
-[ 78%] Built target insightio_ipc_probe
-[ 82%] Built target insightos_sdk
-[ 93%] Building CXX object examples/CMakeFiles/v4l2_latency_monitor.dir/v4l2_latency_monitor.cpp.o
-[ 93%] Building CXX object examples/CMakeFiles/orbbec_depth_overlay.dir/orbbec_depth_overlay.cpp.o
-[ 93%] Building CXX object examples/CMakeFiles/mixed_device_consumer.dir/mixed_device_consumer.cpp.o
-[ 93%] Built target app_sdk_test
-[ 95%] Linking CXX executable ../bin/mixed_device_consumer
-[ 95%] Built target mixed_device_consumer
-[ 97%] Linking CXX executable ../bin/v4l2_latency_monitor
-[100%] Linking CXX executable ../bin/orbbec_depth_overlay
-[100%] Built target v4l2_latency_monitor
+[ 37%] Built target insightio_backend_support
+[ 45%] Built target discovery_test
+[ 45%] Built target schema_store_test
+[ 50%] Built target insightiod
+[ 54%] Built target catalog_service_test
+[ 62%] Built target session_service_test
+[ 62%] Built target app_service_test
+[ 66%] Built target ipc_runtime_test
+[ 70%] Built target rest_server_test
+[ 75%] Built target insightos_sdk
+[ 79%] Built target insightio_ipc_probe
+[ 87%] Built target pipewire_audio_monitor
+[ 87%] Built target v4l2_latency_monitor
+[ 93%] Built target mixed_device_consumer
+[ 95%] Built target app_sdk_test
 [100%] Built target orbbec_depth_overlay
 """
 ```
@@ -54,23 +54,27 @@ ctest --test-dir build --output-on-failure
 """
 Internal ctest changing into directory: /home/yixin/Coding/insight-io/build
 Test project /home/yixin/Coding/insight-io/build
-1/8 Test #1: schema_store_test ................   Passed    0.06 sec
-2/8 Test #2: catalog_service_test .............   Passed    2.65 sec
+1/8 Test #1: schema_store_test ................   Passed    0.05 sec
+2/8 Test #2: catalog_service_test .............   Passed    2.22 sec
 3/8 Test #3: discovery_test ...................   Passed    0.01 sec
-4/8 Test #4: session_service_test .............   Passed    4.30 sec
-5/8 Test #5: rest_server_test .................   Passed    4.93 sec
-6/8 Test #6: app_service_test .................   Passed    5.07 sec
-7/8 Test #7: ipc_runtime_test .................   Passed    1.87 sec
-8/8 Test #8: app_sdk_test .....................   Passed    8.65 sec
+4/8 Test #4: session_service_test .............   Passed    4.32 sec
+5/8 Test #5: rest_server_test .................   Passed    4.91 sec
+6/8 Test #6: app_service_test .................   Passed    5.17 sec
+7/8 Test #7: ipc_runtime_test .................   Passed    1.89 sec
+8/8 Test #8: app_sdk_test .....................   Passed    9.17 sec
 
 100% tests passed, 0 tests failed out of 8
 
-Total Test time (real) =  27.55 sec
+Total Test time (real) =  27.75 sec
 """
 ```
 
 ## CLI And REST Equivalence
 
+- `./build/bin/pipewire_audio_monitor ... insightos://localhost/.../audio/stereo`
+  is equivalent to starting `pipewire_audio_monitor` without a startup bind and
+  later posting one source bind with `target = audio` and the same exact audio
+  URI; `audio/mono` follows the same rule
 - `./build/bin/v4l2_latency_monitor ... insightos://localhost/web-camera/720p_30`
   is equivalent to starting `v4l2_latency_monitor` without a startup bind and
   later posting one source bind with `target = camera` and the same URI
@@ -490,5 +494,214 @@ camera=1 color=0 depth=0
 orbbec depth first frame format=y16 size=640x480
 orbbec color first frame format=mjpeg size=640x480
 camera=22 color=1 depth=7
+"""
+```
+
+## PipeWire Audio
+
+```bash
+curl -s http://127.0.0.1:18294/api/health
+```
+
+```text
+"""
+{
+  "catalog_device_count": 4,
+  "db_path": "/tmp/insight-io-audio-18294.sqlite3",
+  "frontend_path": "/home/yixin/Coding/insight-io/frontend",
+  "ipc_socket_path": "/tmp/insight-io-ipc-129958-6872020206810212583-0.sock",
+  "session_count": 0,
+  "status": "ok",
+  "version": "0.1.0"
+}
+"""
+```
+
+```bash
+curl -s http://127.0.0.1:18294/api/devices
+```
+
+```bash
+./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18294 --max-frames=6 --report-every=3 insightos://localhost/web-camera-mono/audio/stereo
+```
+
+```text
+"""
+audio caps: selector=audio/stereo format=s16le sample_rate=48000 channels=2
+audio caps: selector=audio/stereo format=s16le sample_rate=48000 channels=2
+frame=1 selector=audio/stereo format=s16le sample_rate=48000 channels=2 samples=2048 rms=0 peak=0 max_peak=0 recv_wall_ms=1774596378136 total_samples=2048
+frame=3 selector=audio/stereo format=s16le sample_rate=48000 channels=2 samples=2048 rms=0.00109385 peak=0.00180054 max_peak=0.373413 recv_wall_ms=1774596378136 total_samples=6144
+frame=6 selector=audio/stereo format=s16le sample_rate=48000 channels=2 samples=2048 rms=0.000470563 peak=0.00119019 max_peak=0.373413 recv_wall_ms=1774596378136 total_samples=12288
+"""
+```
+
+```bash
+./build/bin/pipewire_audio_monitor --app-name=pipewire-audio-rest --backend-host=127.0.0.1 --backend-port=18294 --max-frames=5 --report-every=1
+```
+
+```bash
+curl -s http://127.0.0.1:18294/api/apps
+```
+
+```text
+"""
+{
+  "apps": [
+    {
+      "app_id": 1,
+      "created_at_ms": 1774596389562,
+      "name": "pipewire-audio-rest",
+      "updated_at_ms": 1774596389562
+    }
+  ]
+}
+"""
+```
+
+```bash
+curl -s -X POST http://127.0.0.1:18294/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono"}'
+```
+
+```text
+"""
+{
+  "active_session": {
+    "capture_policy_json": {
+      "device_uri": "pw:60",
+      "driver": "pipewire",
+      "selected_caps": {
+        "channels": 1,
+        "format": "s16le",
+        "named": "s16le_48000x1",
+        "sample_rate": 48000
+      },
+      "stream_id": "audio",
+      "stream_name": "audio"
+    },
+    "created_at_ms": 1774596396229,
+    "delivered_caps_json": {
+      "channels": 1,
+      "format": "s16le",
+      "named": "s16le_48000x1",
+      "sample_rate": 48000
+    },
+    "request_json": {
+      "app_id": 1,
+      "input": "insightos://localhost/web-camera-mono/audio/mono",
+      "rtsp_enabled": false,
+      "target": "audio"
+    },
+    "resolved_exact_stream_id": 32,
+    "resolved_source": {
+      "capture_policy_json": {
+        "device_uri": "pw:60",
+        "driver": "pipewire",
+        "selected_caps": {
+          "channels": 1,
+          "format": "s16le",
+          "named": "s16le_48000x1",
+          "sample_rate": 48000
+        },
+        "stream_id": "audio",
+        "stream_name": "audio"
+      },
+      "delivered_caps_json": {
+        "channels": 1,
+        "format": "s16le",
+        "named": "s16le_48000x1",
+        "sample_rate": 48000
+      },
+      "device_key": "dev_9a7e8bfbbed8ea7e8319e7c5b593e24c",
+      "media_kind": "audio",
+      "public_name": "web-camera-mono",
+      "publications_json": {
+        "rtsp": {
+          "profile": "default",
+          "url": "rtsp://127.0.0.1:18594/web-camera-mono/audio/mono"
+        }
+      },
+      "selector": "audio/mono",
+      "shape_kind": "exact",
+      "stream_id": 32,
+      "uri": "insightos://localhost/web-camera-mono/audio/mono"
+    },
+    "rtsp_enabled": false,
+    "serving_runtime": {
+      "consumer_count": 1,
+      "consumer_session_ids": [
+        2
+      ],
+      "ipc_channels": [
+        {
+          "attached_consumer_count": 0,
+          "channel_id": "stream:32:audio",
+          "delivered_caps_json": {
+            "channels": 1,
+            "format": "s16le",
+            "named": "s16le_48000x1",
+            "sample_rate": 48000
+          },
+          "frames_published": 0,
+          "media_kind": "audio",
+          "route_name": "audio",
+          "selector": "audio/mono",
+          "stream_name": "audio"
+        }
+      ],
+      "ipc_socket_path": "/tmp/insight-io-ipc-129958-6872020206810212583-0.sock",
+      "owner_session_id": 2,
+      "rtsp_enabled": false,
+      "runtime_key": "stream:32",
+      "shared": false,
+      "state": "ready"
+    },
+    "session_id": 2,
+    "session_kind": "app",
+    "started_at_ms": 1774596396229,
+    "state": "active",
+    "updated_at_ms": 1774596396229
+  },
+  "active_session_id": 2,
+  "capture_policy_json": {
+    "device_uri": "pw:60",
+    "driver": "pipewire",
+    "selected_caps": {
+      "channels": 1,
+      "format": "s16le",
+      "named": "s16le_48000x1",
+      "sample_rate": 48000
+    },
+    "stream_id": "audio",
+    "stream_name": "audio"
+  },
+  "created_at_ms": 1774596396229,
+  "delivered_caps_json": {
+    "channels": 1,
+    "format": "s16le",
+    "named": "s16le_48000x1",
+    "sample_rate": 48000
+  },
+  "resolved_exact_stream_id": 32,
+  "rtsp_enabled": false,
+  "source_id": 1,
+  "state": "active",
+  "target": "audio",
+  "target_resource_name": "apps/1/routes/audio",
+  "updated_at_ms": 1774596396229,
+  "uri": "insightos://localhost/web-camera-mono/audio/mono"
+}
+"""
+```
+
+```text
+"""
+audio caps: selector=audio/mono format=s16le sample_rate=48000 channels=1
+audio caps: selector=audio/mono format=s16le sample_rate=48000 channels=1
+frame=1 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0 peak=0 max_peak=0 recv_wall_ms=1774596396661 total_samples=1024
+frame=2 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.038407 peak=0.339905 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=2048
+frame=3 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.00107979 peak=0.00219727 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=3072
+frame=4 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.000719793 peak=0.00149536 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=4096
+frame=5 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.000587613 peak=0.00131226 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=5120
+frame=6 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.000603064 peak=0.00158691 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=6144
 """
 ```

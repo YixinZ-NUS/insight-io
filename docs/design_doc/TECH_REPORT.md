@@ -4,8 +4,13 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 19
+- version: 20
 - major changes:
+  - 2026-03-27 added the checked-in PipeWire audio example app, live-verified
+    direct stereo startup plus idle mono late bind on the current host,
+    documented why `audio/mono` and `audio/stereo` remain separate exact
+    selectors, and tightened the example auto-stop wording to match observed
+    asynchronous shutdown behavior
   - 2026-03-27 simplified the checked-in example startup path so each example
     now supports both explicit startup binds and idle startup plus later REST
     source injection, confirmed omitted app names derive from the executable
@@ -66,6 +71,7 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
@@ -109,11 +115,11 @@ The current implementation slice now covers the full documented v1 surface:
   [frontend/](/home/yixin/Coding/insight-io/frontend) for catalog browse,
   app create, route declaration, source bind/rebind/start/stop, and restart
   recovery
-- example apps for webcam latency, Orbbec grouped overlay, and mixed-device
-  routing under [examples/](/home/yixin/Coding/insight-io/examples)
-  that can now either start with a CLI bind or start idle for later REST
-  injection, while deriving the default app name from the executable when
-  `--app-name` is omitted
+- example apps for webcam latency, PipeWire audio monitoring, Orbbec grouped
+  overlay, and mixed-device routing under
+  [examples/](/home/yixin/Coding/insight-io/examples) that can now either
+  start with a CLI bind or start idle for later REST injection, while deriving
+  the default app name from the executable when `--app-name` is omitted
 - runtime-status inspection that surfaces serving-runtime ownership, consumer
   session ids, resolved source metadata, additive RTSP intent, IPC channel
   facts, and runtime RTSP publication details
@@ -123,8 +129,10 @@ The current implementation slice now covers the full documented v1 surface:
   browser/static serving
 - live verification on this host for:
   - bare exact-URI CLI startup
+  - bare exact-URI CLI startup for PipeWire stereo audio
   - idle example startup with omitted app name plus later REST bind for the
     webcam latency app
+  - idle PipeWire audio example startup plus later REST bind for mono audio
   - idle grouped-preset startup plus later REST bind for Orbbec overlay at
     `480p` and `720p`
   - idle mixed-device startup plus later REST bind for one exact webcam source
@@ -187,6 +195,9 @@ Observed from the current audit:
   - one V4L2 webcam
   - one SDK-backed Orbbec RGBD device
   - two PipeWire audio devices
+- both current PipeWire audio devices publish both `audio/mono` and
+  `audio/stereo` at `s16le` `48000`; these remain separate exact selectors
+  because they deliver different channel counts
 - the Orbbec duplicate-suppression fallback fix is now verified in two ways:
   - focused `discovery_test` proves V4L2 fallback stays visible when Orbbec
     SDK discovery is empty or throws, and proves suppression activates once a
@@ -222,6 +233,14 @@ Observed from the current audit:
   - `insightos://localhost/web-camera/720p_30`
   - `insightos://localhost/web-camera-mono/audio/mono`
   - `insightos://localhost/sv1301s-u3/orbbec/color/480p_30`
+- the checked-in
+  [pipewire_audio_monitor](/home/yixin/Coding/insight-io/examples/pipewire_audio_monitor.cpp)
+  example is now live-verified in both startup modes:
+  - direct CLI startup on `insightos://localhost/web-camera-mono/audio/stereo`
+    delivered `channels = 2`
+  - idle startup plus later REST bind on
+    `insightos://localhost/web-camera-mono/audio/mono` delivered
+    `channels = 1`
 - idle IPC teardown is now live-verified:
   - after the last local IPC consumer disconnects, the runtime returns to
     `state = ready`

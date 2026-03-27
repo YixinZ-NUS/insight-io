@@ -4,8 +4,13 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 19
+- version: 20
 - major changes:
+  - 2026-03-27 added the checked-in `pipewire_audio_monitor` example, runtime
+    verified direct stereo startup plus idle mono late bind on the current
+    PipeWire catalog, documented why `audio/mono` and `audio/stereo` stay
+    distinct exact selectors, and clarified that example auto-stop flags are
+    asynchronous `request_stop()` thresholds rather than hard callback ceilings
   - 2026-03-27 added current-host V4L2 concurrency stress notes for
     `v4l2_latency_monitor`, documenting the published 1080p and raw selector
     set plus the observed supported and unsupported concurrent selector
@@ -127,6 +132,7 @@ Expected binaries:
 - `build/bin/ipc_runtime_test`
 - `build/bin/insightio_ipc_probe`
 - `build/bin/app_sdk_test`
+- `build/bin/pipewire_audio_monitor`
 - `build/bin/v4l2_latency_monitor`
 - `build/bin/orbbec_depth_overlay`
 - `build/bin/mixed_device_consumer`
@@ -204,17 +210,50 @@ Shared rules for the checked-in examples:
 - if the CLI form uses multiple startup bind arguments, the later REST flow is
   the same set of binds expressed as one source-create POST per target; the
   current REST API does not accept a multi-source batch body
+- `pipewire_audio_monitor` uses one logical target name, `audio`, but the
+  source selector still matters:
+  `audio/mono` and `audio/stereo` are separate exact catalog choices because
+  they deliver different channel counts
 - `--app-name` is optional; when omitted, the app name derives from the
   executable name:
-  `v4l2-latency-monitor`, `orbbec-depth-overlay`, or
+  `pipewire-audio-monitor`, `v4l2-latency-monitor`,
+  `orbbec-depth-overlay`, or
   `mixed-device-consumer`
 - if multiple copies of the same example might run at once, set `--app-name`
   explicitly so later REST injection can target the right app row without
   ambiguity
+- example auto-stop flags call `request_stop()` once their callback threshold
+  is reached, but shutdown is asynchronous, so one already queued callback may
+  still appear before the process exits
 
 ### Example Arg Reference
 
-All three examples support `--help`.
+All four examples support `--help`.
+
+`pipewire_audio_monitor` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-frames=<count>`
+- `--report-every=<count>`
+- optional startup bind:
+  bare `insightos://...`, `audio=insightos://...`, or `audio=session:<id>`
+
+`pipewire_audio_monitor` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-frames`: `150`
+- `report-every`: `25`
+
+`pipewire_audio_monitor` stop semantics:
+
+- `--max-frames=N` means the app calls `request_stop()` after the audio
+  route's `on_frame(...)` callback count reaches `N`
+- the exact bound URI still decides whether the callback delivers one channel
+  or two:
+  `audio/mono` versus `audio/stereo`
 
 `v4l2_latency_monitor` accepts:
 
@@ -286,6 +325,56 @@ All three examples support `--help`.
 - it also requires that at least one frame has arrived on all three routes, so
   the app does not stop before the mixed-device fanout is proven
 - `--max-frames=0` or any negative value disables that auto-stop path
+
+### PipeWire Audio
+
+Current selector note on this host:
+
+- both current PipeWire devices publish `audio/mono` and `audio/stereo`
+- both selectors currently resolve to `s16le` at `48000` Hz
+- `audio/mono` delivers one channel and `audio/stereo` delivers two, so the
+  selector must stay distinct whenever channel count matters
+- the app route target stays `audio` in both cases; only the bound URI changes
+
+Startup bind at launch:
+
+```bash
+./build/bin/pipewire_audio_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=30 \
+  --report-every=10 \
+  insightos://localhost/web-camera-mono/audio/stereo
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/pipewire_audio_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-pipewire-audio \
+  --max-frames=30 \
+  --report-every=10
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="guide-pipewire-audio") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono"}' | jq .
+```
+
+Equivalence:
+
+- running
+  `pipewire_audio_monitor insightos://localhost/web-camera-mono/audio/stereo`
+  is equivalent to starting the app with no startup bind and later posting
+  `{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/stereo"}`
+- the same rule holds for `audio/mono`; only the exact selector changes, not
+  the app target name
+- on the current host, the live stereo run reported `channels=2` and
+  `samples=2048` while the live mono late-bind run reported `channels=1` and
+  `samples=1024`, which is why the selector distinction must remain public
 
 ### Webcam Latency
 

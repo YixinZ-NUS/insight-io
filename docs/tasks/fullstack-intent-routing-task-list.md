@@ -4,8 +4,11 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 16
+- version: 17
 - major changes:
+  - 2026-03-27 added the checked-in PipeWire audio example app, live-verified
+    mono and stereo exact-selector behavior on the current host, and refreshed
+    the example-app docs to keep the task closeout coherent
   - 2026-03-27 simplified the checked-in example startup path so the example
     apps can now start either with a startup URI or idle for later REST
     injection, confirmed omitted app names derive from the executable name,
@@ -44,6 +47,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
@@ -61,8 +65,9 @@ The current worktree covers the full documented v1 surface: the explicit
 schema, persisted discovery and catalog reads, device alias updates, direct
 session REST/status flow, durable app/route/source CRUD and lifecycle
 endpoints, shared-runtime reuse, local IPC attach, exact RTSP publication, the
-route-oriented SDK, the repo-native browser UI, example apps, focused
-automated tests, and live hardware verification on the development host.
+route-oriented SDK, the repo-native browser UI, example apps including
+PipeWire audio consumption, focused automated tests, and live hardware
+verification on the development host.
 
 The example apps now explicitly cover both startup modes:
 

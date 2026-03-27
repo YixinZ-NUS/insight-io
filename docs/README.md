@@ -4,8 +4,12 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 28
+- version: 29
 - major changes:
+  - 2026-03-27 added the checked-in PipeWire audio example app, live-verified
+    direct stereo startup plus idle mono late bind on the current host, and
+    documented why `audio/mono` and `audio/stereo` remain separate exact
+    selectors
   - 2026-03-27 simplified the checked-in example startup path so each example
     now supports both direct startup binds and idle startup plus later REST
     injection, confirmed omitted app names derive from the executable name,
@@ -100,6 +104,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Document Runtime Wait And Startup Sleep Behavior`
@@ -157,9 +162,11 @@
   session lifecycle, app/route/source lifecycle, runtime-status endpoints,
   local IPC attach, exact single-channel RTSP publication, the route-oriented
   SDK, the repo-native browser UI, and the example-app verification surface
-- the checked-in example apps now support both startup binds and idle startup
-  with later `POST /api/apps/{id}/sources` injection, and omitted
-  `--app-name` values derive from the executable name
+- the checked-in example apps now cover webcam latency, PipeWire audio
+  monitoring, Orbbec grouped overlay, and mixed-device routing; each supports
+  both startup binds and idle startup with later
+  `POST /api/apps/{id}/sources` injection, and omitted `--app-name` values
+  derive from the executable name
 - `GET /api/status` now exposes `serving_runtimes` with owner session id,
   consumer session ids, resolved source metadata, additive RTSP intent, IPC
   channel facts, and runtime RTSP publication facts for shared serving paths
