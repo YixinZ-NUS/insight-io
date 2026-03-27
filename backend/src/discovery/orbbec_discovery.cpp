@@ -1,9 +1,11 @@
 // role: Orbbec SDK discovery for the standalone backend.
-// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
-// major changes: discovers Orbbec color and depth capabilities, falls back to
-// pipeline profile enumeration when the sensor list is incomplete, and emits
-// USB vendor metadata so aggregate discovery can suppress duplicate V4L2 nodes
-// only after usable SDK-backed Orbbec devices were found.
+// revision: 2026-03-27 donor-orbbec-depth-format-parity
+// major changes: keeps donor-style depth-family format mapping for
+// Y10/Y11/Y12/Y14 profiles, restores raw IR sensor enumeration alongside
+// color/depth discovery, falls back to pipeline profile enumeration when the
+// sensor list is incomplete, and emits USB vendor metadata so aggregate
+// discovery can suppress duplicate V4L2 nodes only after usable SDK-backed
+// Orbbec devices were found. See docs/past-tasks.md.
 
 #ifdef INSIGHTIO_HAS_ORBBEC
 
@@ -58,6 +60,10 @@ std::string ob_format_to_string(OBFormat format) {
         case OB_FORMAT_Y8:
         case OB_FORMAT_GRAY:
             return "gray8";
+        case OB_FORMAT_Y10:
+        case OB_FORMAT_Y11:
+        case OB_FORMAT_Y12:
+        case OB_FORMAT_Y14:
         case OB_FORMAT_Y16:
             return "y16";
         case OB_FORMAT_Z16:
@@ -307,6 +313,18 @@ std::vector<DeviceInfo> discover_orbbec() {
                     add_stream(device, "depth", sensor->getStreamProfileList());
                 }
             } catch (...) {
+            }
+            for (const auto sensor_type :
+                 {OB_SENSOR_IR, OB_SENSOR_IR_LEFT, OB_SENSOR_IR_RIGHT}) {
+                if (has_stream(device, "ir")) {
+                    break;
+                }
+                try {
+                    if (auto sensor = get_sensor(sensors, sensor_type)) {
+                        add_stream(device, "ir", sensor->getStreamProfileList());
+                    }
+                } catch (...) {
+                }
             }
 
             if (!has_stream(device, "color")) {

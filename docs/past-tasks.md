@@ -4,8 +4,14 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 16
+- version: 17
 - major changes:
+  - 2026-03-27 restored live Orbbec depth and grouped catalog publication by
+    rechecking the donor daemon on the same host, restoring donor-style
+    depth-family format mapping in Orbbec discovery plus the 480p catalog
+    probe, confirming the current host again publishes exact depth selectors
+    plus `orbbec/preset/480p_30`, and recording the intentional IR omission in
+    the public v1 catalog
   - 2026-03-27 completed the task-7 IPC hardening and first task-8 RTSP slice
     by fixing idle IPC teardown, adding configurable RTSP daemon ports,
     vendoring mediamtx, live-verifying webcam/audio/Orbbec color IPC attach,
@@ -52,6 +58,99 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication
+
+### What Changed
+
+- updated
+  [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp)
+  so donor-style depth-family sensor formats `Y10`, `Y11`, `Y12`, and `Y14`
+  map to public `y16` caps instead of being dropped during raw Orbbec
+  discovery
+- restored donor-style raw IR sensor enumeration in
+  [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp)
+  so the current backend now sees the same `color`, `depth`, and `ir` streams
+  as the donor daemon on this host
+- updated the Orbbec 480p catalog probe in
+  [catalog.cpp](/home/yixin/Coding/insight-io/backend/src/catalog.cpp) to use
+  the same depth-family format mapping, which lets the checked-in catalog
+  re-publish exact depth selectors and grouped `orbbec/preset/480p_30` when
+  the live device supports them
+- added focused contract coverage in
+  [catalog_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/catalog_service_test.cpp)
+  proving that even when raw discovery includes `ir`, the current public v1
+  catalog still publishes only the documented color/depth exact-member and
+  grouped-preset selectors
+- refreshed the repo guidance and live host notes in:
+  - [AGENTS.md](/home/yixin/Coding/insight-io/AGENTS.md)
+  - [README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [task-7-runtime-hardening-plan.md](/home/yixin/Coding/insight-io/docs/tasks/task-7-runtime-hardening-plan.md)
+
+### Why
+
+- the donor daemon on the same host still exposed raw Orbbec `color`, `depth`,
+  and `ir`, while the checked-in `insight-io` daemon had regressed to a
+  color-only public catalog
+- the missing grouped and exact depth selectors were not a design decision:
+  they were caused by the current repo dropping donor-style depth-family sensor
+  formats during raw discovery and during the 480p D2C probe
+- the donor's raw `ir` stream remains intentionally out of the public v1
+  catalog because the current docs and trackers only define color/depth exact
+  members plus grouped preset publication for Orbbec
+
+### Verification
+
+```bash
+cmake --build build -j4 --target \
+  insightiod \
+  discovery_test \
+  catalog_service_test \
+  rest_server_test
+
+ctest --test-dir build --output-on-failure -R \
+  'discovery_test|catalog_service_test|rest_server_test'
+
+../insightos/build/bin/insightosd \
+  --host 127.0.0.1 \
+  --port 18271 \
+  --db-path /tmp/insightos-orbbec-check.sqlite3 \
+  --frontend /tmp/insightos-frontend
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18270 \
+  --db-path /tmp/insight-io-orbbec-check.sqlite3 \
+  --frontend /tmp/insight-io-frontend \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18570
+
+curl -s http://127.0.0.1:18270/api/devices | jq \
+  '.devices[] | select(.name=="sv1301s-u3") | {name, sources: [.sources[].selector]}'
+
+sqlite3 /tmp/insight-io-orbbec-check.sqlite3 \
+  "select d.public_name, s.selector, s.media_kind, case when s.members_json is null then 0 else 1 end as grouped \
+   from streams s join devices d on d.device_id=s.device_id \
+   where d.driver='orbbec' order by s.selector;"
+```
+
+Observed results:
+
+- the donor daemon printed raw `color`, `depth`, and `ir` streams for the same
+  `SV1301S_U3` device on this host
+- the current backend's live `GET /api/devices` response now includes:
+  - exact color selectors such as `orbbec/color/480p_30`
+  - exact depth selectors including `orbbec/depth/400p_30`,
+    `orbbec/depth/480p_30`, `orbbec/depth/320x200_30`, and
+    `orbbec/depth/800p_30`
+  - grouped `orbbec/preset/480p_30`
+- the persisted `streams` rows for the Orbbec device now match that live
+  public catalog shape
+- the new focused `catalog_service_test` passes and confirms that raw `ir`
+  discovery still does not become a public `orbbec/ir/...` catalog selector in
+  the current v1 contract
 
 ## 2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication
 

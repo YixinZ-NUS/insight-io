@@ -1,9 +1,10 @@
 // role: persisted discovery catalog for the standalone backend.
-// revision: 2026-03-26 post-task5-review-followups
-// major changes: removes serial-specific Orbbec catalog shaping, keeps the
-// current proven 480p publication rule for the SV1301S_U3 family, and leaves a
-// pure SDK D2C capability gate as a follow-up TODO while keeping per-device
-// selector uniqueness.
+// revision: 2026-03-27 live-orbbec-depth-catalog-followup
+// major changes: restores donor-style depth-family format mapping in the
+// Orbbec 480p catalog probe, keeps the proven 480p publication rule for the
+// SV1301S_U3 family, intentionally leaves raw IR discovery out of the public
+// v1 catalog contract, and preserves per-device selector uniqueness.
+// See docs/past-tasks.md.
 
 #include "insightio/backend/catalog.hpp"
 
@@ -66,6 +67,10 @@ std::string ob_format_to_string(OBFormat format) {
         case OB_FORMAT_Y8:
         case OB_FORMAT_GRAY:
             return "gray8";
+        case OB_FORMAT_Y10:
+        case OB_FORMAT_Y11:
+        case OB_FORMAT_Y12:
+        case OB_FORMAT_Y14:
         case OB_FORMAT_Y16:
             return "y16";
         case OB_FORMAT_Z16:

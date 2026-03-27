@@ -5,17 +5,23 @@
 - role: focused execution plan for closing the remaining task-7 IPC runtime
   hardening work on the development host
 - status: resolved
-- version: 2
+- version: 3
 - major changes:
+  - 2026-03-27 followed up on the live Orbbec wrinkle by rechecking the donor
+    daemon and the current backend on the same host, restoring donor-style
+    depth-family format mapping in Orbbec discovery plus the 480p catalog
+    probe, and confirming the current host again publishes exact depth
+    selectors plus grouped `orbbec/preset/480p_30`
   - 2026-03-27 closed the task-7 runtime hardening slice by verifying exact
     webcam, PipeWire, and SDK-backed Orbbec color IPC attach on the
     development host, fixing idle IPC teardown so workers release devices when
     the last local consumer disconnects, and recording the current host's
-    stable color-only Orbbec catalog boundary
+    verified Orbbec runtime boundary
   - 2026-03-26 added a task-scoped plan for honest Orbbec fallback behavior,
     empirical capture-to-IPC verification, teardown validation, and
     linter-driven cleanup before task 8 expands the runtime surface
 - past tasks:
+  - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
 
@@ -30,8 +36,13 @@ Observed closeout on the development host:
 - the serving runtime now returns to `ready` and resets IPC counters after the
   last local consumer disconnects, so idle sessions release capture devices
 - repeated daemon restarts no longer reproduced the earlier disappearing
-  Orbbec case during this verification pass; eight cold starts all showed one
-  SDK-backed `sv1301s-u3` device with color selectors only
+  Orbbec case during this verification pass
+- the current backend now republishes one SDK-backed `sv1301s-u3` device with
+  exact depth selectors including `orbbec/depth/400p_30` and
+  `orbbec/depth/480p_30` plus grouped `orbbec/preset/480p_30`
+- donor-style raw discovery also sees `ir` on this host, but the checked-in
+  public catalog intentionally stays within the documented v1 color/depth
+  exact-member and grouped-preset contract
 - the V4L2 fallback node `/dev/video2` still was not directly usable through
   `v4l2-ctl` on this host during this pass, so the fallback path remains
   unproven here rather than generally claimed
@@ -65,11 +76,12 @@ Observed closeout on the development host:
       linter-flagged dead-code removals before keeping those changes.
 - [x] Record the exact verification commands and outcomes in
       `docs/past-tasks.md`, then update the feature trackers and user-facing
-      docs without over-claiming grouped RGBD support on this host.
+      docs to match the re-verified grouped RGBD publication on this host.
 
 ## Open Questions
 
-- Does the current host ever expose a usable SDK-backed Orbbec depth path, or
-  is color-only the durable local contract until new live evidence appears?
+- Raw donor-style discovery sees `ir` on this host, but should the public
+  catalog keep omitting `orbbec/ir/...` until the v1 contract and trackers
+  explicitly adopt IR as a first-class source family?
 - Should grouped RGBD discovery stay host-dependent until a device is verified
   live, even if static SDK capability queries suggest it might exist?

@@ -4,13 +4,18 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 12
+- version: 13
 - major changes:
+  - 2026-03-27 rechecked the live Orbbec catalog against the donor daemon,
+    restored donor-style depth-family format mapping in Orbbec discovery plus
+    the 480p catalog probe, and updated the host notes now that
+    `sv1301s-u3` republishes exact depth selectors and
+    `orbbec/preset/480p_30`
   - 2026-03-27 added local IPC attach and exact single-channel RTSP runtime
     walkthroughs, documented the new `--rtsp-port` daemon flag plus vendored
     mediamtx flow, verified idle-worker teardown and route rebind release on
     the development host, and updated the live Orbbec notes to the current
-    stable color-only catalog boundary
+    verified runtime boundary
   - 2026-03-26 added serving-runtime reuse across matching direct sessions and
     app-owned sources, documented the new `serving_runtime` and
     `serving_runtimes` status fields, and added a live shared-runtime smoke
@@ -42,6 +47,7 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
@@ -159,16 +165,22 @@ curl -s http://127.0.0.1:18180/api/devices | jq
 On the current development machine, the catalog currently shows:
 
 - one V4L2 webcam with selectors such as `720p_30`
-- one SDK-backed Orbbec device currently exposing color selectors such as
-  `orbbec/color/480p_30`
+- one SDK-backed Orbbec RGBD device exposing exact color selectors such as
+  `orbbec/color/480p_30`, exact depth selectors such as
+  `orbbec/depth/400p_30` and `orbbec/depth/480p_30`, and grouped
+  `orbbec/preset/480p_30`
 - two PipeWire audio sources when PipeWire discovery is enabled
 
 Current 2026-03-27 host note:
 
 - eight cold daemon starts reproduced the same four-device catalog shape and
   did not reproduce the earlier disappearing-Orbbec case during this pass
-- grouped Orbbec depth and preset selectors were not reproduced on this host
-  during this pass, so this guide does not claim them locally
+- a follow-up live rerun after restoring donor-style Orbbec depth-family
+  format mapping confirmed the same host now republishes exact depth selectors
+  and grouped `orbbec/preset/480p_30`
+- raw donor-style Orbbec discovery also sees `ir` on this host, but the
+  current public catalog intentionally stays within the documented v1
+  color/depth exact-member and grouped-preset contract
 
 ## Device Alias
 
@@ -267,14 +279,16 @@ Current audit result on the development host:
 
 - `GET /api/devices` returned four online devices on this host:
   - one V4L2 webcam
-  - one SDK-backed Orbbec color device
+  - one SDK-backed Orbbec RGBD device
   - two PipeWire audio devices
 - the webcam retained compact selectors such as `720p_30`
-- the Orbbec device exposed color selectors such as
-  `orbbec/color/480p_30`
-- eight cold daemon starts in the 2026-03-27 pass reproduced the same
-  color-only Orbbec catalog and did not reproduce the earlier disappearing
-  device case during that pass
+- the Orbbec device exposed exact color selectors, exact depth selectors
+  including `orbbec/depth/400p_30` and `orbbec/depth/480p_30`, and grouped
+  `orbbec/preset/480p_30`
+- raw donor-style Orbbec discovery also sees `ir`, but the checked-in public
+  catalog intentionally does not yet publish `orbbec/ir/...` selectors
+- repeated daemon restarts in the 2026-03-27 pass did not reproduce the
+  earlier disappearing device case during that pass
 - the direct-session smoke flow using `insightos://localhost/web-camera/720p_30`
   succeeded for create, inspect, status, stop, restart, and delete
 
@@ -564,8 +578,7 @@ curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
   -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"}' | jq
 ```
 
-If the current host lists a grouped Orbbec preset, create one grouped
-app-source bind with:
+On the current host, create one grouped app-source bind with:
 
 ```bash
 curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \

@@ -4,8 +4,13 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 15
+- version: 16
 - major changes:
+  - 2026-03-27 rechecked live Orbbec publication against the donor daemon,
+    restored donor-style depth-family format mapping in Orbbec discovery plus
+    the 480p catalog probe, confirmed the current host now republishes exact
+    depth selectors plus `orbbec/preset/480p_30`, and recorded that raw IR
+    discovery remains intentionally outside the current public catalog
   - 2026-03-27 closed task 7 by porting IPC attach into the shared serving
     runtime, fixing idle-worker teardown so exact sessions release devices when
     the last local consumer disconnects, closed the first task-8 slice with
@@ -48,6 +53,7 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
@@ -134,7 +140,7 @@ Observed from the current audit:
 - live `insightiod` smoke on this host returned four devices through
   `GET /api/devices`:
   - one V4L2 webcam
-  - one SDK-backed Orbbec color device
+  - one SDK-backed Orbbec RGBD device
   - two PipeWire audio devices
 - the Orbbec duplicate-suppression fallback fix is now verified in two ways:
   - focused `discovery_test` proves V4L2 fallback stays visible when Orbbec
@@ -143,9 +149,16 @@ Observed from the current audit:
   - live `GET /api/devices` on this host still returns exactly one SDK-backed
     Orbbec device plus one V4L2 webcam, with no duplicate V4L2 shadow entry
     for the Orbbec camera
-- eight cold daemon starts during the 2026-03-27 pass all reproduced the same
-  four-device catalog with one stable `sv1301s-u3` color-only Orbbec entry and
-  did not reproduce the earlier disappearing-Orbbec case during that pass
+- a follow-up live rerun on 2026-03-27 confirmed the same `sv1301s-u3`
+  device now republishes:
+  - exact color selectors such as `orbbec/color/480p_30`
+  - exact depth selectors including `orbbec/depth/400p_30`,
+    `orbbec/depth/480p_30`, and native `320x200` and `800p` depth families
+  - grouped `orbbec/preset/480p_30`
+- raw Orbbec discovery now matches the donor daemon for `color`, `depth`, and
+  `ir` on this host, but the checked-in public catalog still intentionally
+  omits `ir` because the active v1 docs only define color/depth exact members
+  plus grouped preset publication
 - exact IPC attach is now live-verified through the repo-native unix control
   socket for:
   - `insightos://localhost/web-camera/720p_30`
@@ -614,11 +627,11 @@ adding are:
 - the bootstrap server deliberately keeps the runtime surface small so later
   feature slices can add discovery and session logic without first undoing a
   mismatched baseline
-- the connected Orbbec device currently exposes incomplete raw SDK discovery in
-  this environment, so the catalog synthesizes `orbbec/depth/400p_30`,
-  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30` for the proven
-  `sv1301s-u3` family (`2bc5:0614`) from the documented 2026-03-23 probe
-  evidence rather than regressing the public contract
+- the connected Orbbec device now exposes raw `color`, `depth`, and `ir`
+  streams in the current backend and in the donor daemon on this host, and the
+  checked-in catalog again republishes the documented exact depth selectors and
+  grouped `orbbec/preset/480p_30` for the proven `sv1301s-u3` family
+  (`2bc5:0614`)
 - serial-specific gating is gone, but pure SDK D2C capability gating is not yet
   the authoritative publication rule:
   the current catalog still accepts the proven family/hardcoded 480p path, and

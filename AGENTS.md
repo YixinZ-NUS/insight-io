@@ -1,5 +1,15 @@
 # insight-io Agent Notes
 
+## Role
+
+- role: repo-local agent instructions for the standalone `insight-io` tree
+- status: active
+- version: 2
+- major changes:
+  - 2026-03-27 added guidance for transient Orbbec discovery loss on this host
+    so agents prompt for a retry or physical connection check before assuming a
+    software regression
+
 Before proposing or implementing changes, read these documents in order:
 
 1. `docs/README.md`
@@ -33,6 +43,10 @@ Before proposing or implementing changes, read these documents in order:
 - Keep discovery responsible for exposing exact member choices and any grouped
   preset choices, including separate depth entries when backend processing
   changes delivered caps.
+- On this host, Orbbec discovery can occasionally fail because of transient
+  physical or USB connection issues. If an expected Orbbec device disappears,
+  prompt the user to retry discovery or restart after checking the physical
+  connection before treating it as a software regression.
 - Keep discovery and runtime responsibilities separate:
   - discovery and the catalog publish selectable source shapes and metadata
   - logical, capture, delivery, and worker sessions own runtime realization,

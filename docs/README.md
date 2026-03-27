@@ -4,13 +4,18 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 23
+- version: 24
 - major changes:
+  - 2026-03-27 rechecked live Orbbec discovery against the donor daemon,
+    restored donor-style depth-family format mapping in Orbbec discovery plus
+    the 480p catalog probe, confirmed the current host now republishes exact
+    depth selectors plus `orbbec/preset/480p_30`, and kept raw IR discovery
+    out of the public v1 catalog contract
   - 2026-03-27 closed task 7 with live-verified IPC attach plus idle-worker
     teardown, closed the first task-8 slice with exact single-channel RTSP
     publication on a configurable daemon RTSP port, vendored mediamtx into the
-    repo, and refreshed the docs around the current host's stable Orbbec
-    color-only catalog boundary
+    repo, and refreshed the docs around the current host's verified Orbbec
+    runtime boundary
   - 2026-03-26 added in-memory serving-runtime reuse for identical
     `stream_id` requests across direct sessions and app-owned sources,
     surfaced serving-runtime topology in session responses plus
@@ -78,6 +83,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
@@ -155,10 +161,13 @@
 - when the last local IPC consumer disconnects and no RTSP publication is
   active, the serving runtime now returns to `ready` and releases the capture
   worker instead of holding the device open idly
-- on the 2026-03-27 development-host verification pass, discovery remained
-  stable across eight cold starts and consistently exposed one SDK-backed
-  `sv1301s-u3` Orbbec device with color selectors only; grouped/depth selectors
-  were not reproduced on this host during that pass
+- on the 2026-03-27 follow-up verification pass, the current host exposed one
+  SDK-backed `sv1301s-u3` Orbbec device with exact color selectors, exact
+  depth selectors including `orbbec/depth/400p_30` and
+  `orbbec/depth/480p_30`, and grouped `orbbec/preset/480p_30`
+- donor-style raw Orbbec discovery also sees `ir` on this host, but the
+  current public catalog intentionally stays within the documented v1
+  color/depth exact-member and grouped-preset contract
 - `DELETE /api/sessions/{id}` must return `409 Conflict` while any app source
   still references that session
 - direct sessions are standalone session-first runtime intent; declaring a

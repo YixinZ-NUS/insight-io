@@ -1,8 +1,9 @@
 // role: focused catalog service tests for the standalone backend.
-// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
+// revision: 2026-03-27 live-orbbec-depth-catalog-followup
 // major changes: verifies alias persistence, reviewed V4L2 selector naming,
-// and Orbbec selector shaping without a serial-specific allowlist against
-// synthetic discovery input.
+// Orbbec selector shaping without a serial-specific allowlist, and the
+// intentional omission of raw IR streams from the public v1 catalog contract.
+// See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/catalog.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -130,6 +131,18 @@ DeviceInfo make_color_only_orbbec() {
     return device;
 }
 
+DeviceInfo make_orbbec_with_ir() {
+    auto device = make_orbbec();
+
+    StreamInfo ir;
+    ir.stream_id = "ir";
+    ir.name = "ir";
+    ir.supported_caps.push_back(ResolvedCaps{0, "y16", 640, 400, 30});
+
+    device.streams.push_back(std::move(ir));
+    return device;
+}
+
 TEST(alias_persists_across_refresh) {
     SchemaStore store(make_temp_db_path());
     EXPECT_TRUE(store.initialize());
@@ -231,6 +244,31 @@ TEST(color_only_orbbec_does_not_publish_synthetic_depth_or_grouped_preset) {
     EXPECT_TRUE(!selectors.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(!selectors.contains("orbbec/depth/480p_30"));
     EXPECT_TRUE(!selectors.contains("orbbec/preset/480p_30"));
+}
+
+TEST(orbbec_ir_streams_are_not_published_in_current_v1_catalog) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_orbbec_with_ir()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto device = catalog.get_device("desk-rgbd");
+    EXPECT_TRUE(device.has_value());
+
+    std::set<std::string> selectors;
+    for (const auto& source : device->sources) {
+        selectors.insert(source.selector);
+    }
+    EXPECT_TRUE(selectors.contains("orbbec/color/480p_30"));
+    EXPECT_TRUE(selectors.contains("orbbec/depth/400p_30"));
+    EXPECT_TRUE(!selectors.contains("orbbec/ir/400p_30"));
 }
 
 }  // namespace
