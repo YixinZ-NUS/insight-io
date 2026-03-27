@@ -4,8 +4,17 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 14
+- version: 16
 - major changes:
+  - 2026-03-27 simplified the checked-in example startup path so each example
+    can now start either with a startup URI or idle for later REST injection,
+    documented that omitted app names derive from the executable name, and
+    added the four previously backlogged Mermaid diagrams to the active docs
+  - 2026-03-27 documented the completed task-9 SDK plus browser slices, added
+    the frontend startup and headless-browser verification notes, added the
+    example-app walkthroughs for webcam latency, Orbbec overlay, and mixed
+    multi-device routing, and recorded the live 480p/720p grouped-preset
+    verification on this host
   - 2026-03-27 reverified live Orbbec persistence after a manual replug,
     documented the intentional IR omission more explicitly, and recorded why
     the public Orbbec depth contract stays normalized to `y16`
@@ -50,6 +59,8 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
+  - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
@@ -81,9 +92,10 @@ This guide covers the current worktree slice only:
 - inspect `/api/status`
 - attach to active exact sessions over the unix IPC control socket
 - publish exact single-channel RTSP on top of the shared serving runtime
-
-SDK callbacks and frontend management are still not available in this
-worktree slice.
+- build and run the route-oriented SDK test target
+- run the example apps through CLI and late REST binding
+- use the repo-native browser UI for catalog browse, app create, route declare,
+  source bind, source restart, and restart recovery
 
 ## Build
 
@@ -103,6 +115,10 @@ Expected binaries:
 - `build/bin/app_service_test`
 - `build/bin/ipc_runtime_test`
 - `build/bin/insightio_ipc_probe`
+- `build/bin/app_sdk_test`
+- `build/bin/v4l2_latency_monitor`
+- `build/bin/orbbec_depth_overlay`
+- `build/bin/mixed_device_consumer`
 
 ## Test
 
@@ -119,6 +135,7 @@ Current checked-in result on the development host:
 - `rest_server_test`: pass
 - `app_service_test`: pass
 - `ipc_runtime_test`: pass
+- `app_sdk_test`: pass
 
 ## Run
 
@@ -127,7 +144,6 @@ Current checked-in result on the development host:
   --host 127.0.0.1 \
   --port 18180 \
   --db-path /tmp/insight-io.sqlite3 \
-  --frontend /tmp/frontend \
   --rtsp-host 127.0.0.1 \
   --rtsp-port 18554
 ```
@@ -136,8 +152,139 @@ Notes:
 
 - `--db-path` points to the SQLite file initialized from
   [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
-- `--frontend` is accepted now so later frontend slices can use the same CLI,
-  but no static frontend is served yet
+- when started from the repo root, `insightiod` now auto-serves
+  [frontend/](/home/yixin/Coding/insight-io/frontend)
+- `--frontend /absolute/path/to/frontend` still overrides the frontend asset
+  directory explicitly when needed
+
+## Browser UI
+
+Open `http://127.0.0.1:18180/`.
+
+Current browser flow:
+
+- inspect exact and grouped catalog URIs
+- create one persistent app
+- declare routes with `expect.media`
+- bind one `input` URI or `session_id` to one target
+- stop, restart, and rebind sources
+- reload after backend restart and explicitly restart persisted sources
+
+## Example Apps
+
+Shared rules for the checked-in examples:
+
+- each example still accepts the existing startup URI or `session:<id>` bind
+- if no startup bind is posted on the CLI, the app starts idle and waits for a
+  later `POST /api/apps/{id}/sources`
+- `--app-name` is optional; when omitted, the app name derives from the
+  executable name:
+  `v4l2-latency-monitor`, `orbbec-depth-overlay`, or
+  `mixed-device-consumer`
+- if multiple copies of the same example might run at once, set `--app-name`
+  explicitly so later REST injection can target the right app row without
+  ambiguity
+
+### Webcam Latency
+
+Startup bind at launch:
+
+```bash
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=30 \
+  insightos://localhost/web-camera/720p_30
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=30
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="v4l2-latency-monitor") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+```
+
+### Orbbec Overlay
+
+Startup bind at launch:
+
+```bash
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-480.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-orbbec-720 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-720.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/720p_30
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-orbbec-480 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-480.png
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="guide-orbbec-480") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+```
+
+The second command is the checked-in proof path for the current `720p` grouped
+contract on this host: `1280x720` color plus `1280x800` depth with no aligned
+`720p` depth selector.
+
+### Mixed Device Routing
+
+Startup binds at launch:
+
+```bash
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=90 \
+  camera=insightos://localhost/web-camera/720p_30 \
+  orbbec=insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-mixed-devices \
+  --max-frames=90
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="guide-mixed-devices") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+```
 - `--rtsp-host` and `--rtsp-port` together control the catalog RTSP URLs and
   the runtime publisher destination
 
@@ -223,13 +370,13 @@ curl -s http://127.0.0.1:18180/api/status | jq
 Exercise the remaining lifecycle endpoints:
 
 ```bash
-curl -s -X POST http://127.0.0.1:18180/api/sessions/1/stop \
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/sessions/1/start \
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1:start \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/sessions/1/stop \
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
 curl -i -X DELETE http://127.0.0.1:18180/api/sessions/1
@@ -237,7 +384,7 @@ curl -i -X DELETE http://127.0.0.1:18180/api/sessions/1
 
 To verify restart normalization, stop the session, restart `insightiod` with
 the same `--db-path`, and then inspect `GET /api/sessions/1` before calling
-`POST /api/sessions/1/start` again.
+`POST /api/sessions/1:start` again.
 
 ## Review Walkthrough
 
@@ -325,10 +472,10 @@ printf '%s\n' "${source_json}" | jq
 
 source_id=$(printf '%s' "${source_json}" | jq -r '.source_id')
 
-curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}/stop \
+curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}/start \
+curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}:start \
   -H 'Content-Type: application/json' -d '{}' | jq
 
 mismatch_app_id=$(curl -s -X POST http://127.0.0.1:18183/api/apps \
@@ -366,9 +513,9 @@ Current audit result on the development host:
 
 - exact app-source responses now include `target`, `uri`, `state`,
   `rtsp_enabled`, `resolved_exact_stream_id`, and nested session metadata
-- `POST /api/apps/{id}/sources/{source_id}/stop` keeps the durable source row
+- `POST /api/apps/{id}/sources/{source_id}:stop` keeps the durable source row
   and clears only the active runtime link
-- `POST /api/apps/{id}/sources/{source_id}/start` recreates runtime state and
+- `POST /api/apps/{id}/sources/{source_id}:start` recreates runtime state and
   links a fresh app-owned session to the same durable source row
 - `POST /api/apps/{id}/sources` now returns `422 Unprocessable Content` with
   `route_expectation_mismatch` when source media and route expectation disagree
@@ -410,16 +557,16 @@ The current backend now exposes these session endpoints:
 - `POST /api/sessions`
 - `GET /api/sessions`
 - `GET /api/sessions/{id}`
-- `POST /api/sessions/{id}/start`
-- `POST /api/sessions/{id}/stop`
+- `POST /api/sessions/{id}:start`
+- `POST /api/sessions/{id}:stop`
 - `DELETE /api/sessions/{id}`
 - `GET /api/status`
 
 The focused tests plus the live smoke flow above verify the direct-session
 REST and persistence slice on this host. Serving-runtime reuse, IPC attach,
 idle-worker teardown, and exact single-channel RTSP publication are now also
-implemented and inspectable here. SDK callbacks and frontend flows remain
-future work.
+implemented and inspectable here, and the same host now also verifies the
+checked-in SDK callbacks and browser route-builder flow.
 
 ## Shared Runtime Reuse Smoke Test
 
@@ -604,13 +751,13 @@ curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
 Exercise source lifecycle:
 
 ```bash
-curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/stop \
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/start \
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1:start \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/rebind \
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1:rebind \
   -H 'Content-Type: application/json' \
   -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/color/480p_30"}' | jq
 ```

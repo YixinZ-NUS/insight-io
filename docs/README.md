@@ -4,8 +4,16 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 26
+- version: 28
 - major changes:
+  - 2026-03-27 simplified the checked-in example startup path so each example
+    now supports both direct startup binds and idle startup plus later REST
+    injection, confirmed omitted app names derive from the executable name,
+    and closed the remaining Mermaid backlog with four new sequence diagrams
+  - 2026-03-27 closed the task-9 SDK slice plus the browser route-builder
+    slice, added the repo-native frontend, live-verified the example apps on
+    webcam and Orbbec hardware, verified grouped `session_id` attach and
+    runtime rebind, and moved the repo to a full tracker-green state
   - 2026-03-27 added a dedicated runtime-wait writeup that records the current
     worker-start and RTSP-start sleep behavior, the live evidence that it is
     currently working, and the empirical optimization plan for replacing those
@@ -92,6 +100,8 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
+  - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Document Runtime Wait And Startup Sleep Behavior`
   - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
@@ -145,7 +155,11 @@
 - grouped preset URIs may mean one fixed related stream bundle
 - the current worktree now serves health, device catalog, alias, direct
   session lifecycle, app/route/source lifecycle, runtime-status endpoints,
-  local IPC attach, and exact single-channel RTSP publication
+  local IPC attach, exact single-channel RTSP publication, the route-oriented
+  SDK, the repo-native browser UI, and the example-app verification surface
+- the checked-in example apps now support both startup binds and idle startup
+  with later `POST /api/apps/{id}/sources` injection, and omitted
+  `--app-name` values derive from the executable name
 - `GET /api/status` now exposes `serving_runtimes` with owner session id,
   consumer session ids, resolved source metadata, additive RTSP intent, IPC
   channel facts, and runtime RTSP publication facts for shared serving paths
@@ -176,6 +190,10 @@
   SDK-backed `sv1301s-u3` Orbbec device with exact color selectors, exact
   depth selectors including `orbbec/depth/400p_30` and
   `orbbec/depth/480p_30`, and grouped `orbbec/preset/480p_30`
+- on the 2026-03-27 task-9/browser verification pass, the same host also
+  exposed grouped `orbbec/preset/720p_30`, and the checked-in overlay example
+  live-verified that preset as `1280x720` color plus `1280x800` depth with no
+  D2C-aligned `720p` depth mode
 - raw Orbbec SDK/config profiles may enumerate `Y10`, `Y11`, `Y12`, or `Y14`,
   but the public Orbbec depth contract stays normalized to `y16` because the
   checked-in worker, live IPC attach, donor app examples, and bundled SDK
@@ -244,7 +262,13 @@
 | `docs/diagram/catalog-discovery-sequence.md` | sequence diagram for discovery refresh and alias-backed catalog reads | active |
 | `docs/diagram/direct-session-sequence.md` | sequence diagram for direct-session create, restart, and delete flow | active |
 | `docs/diagram/app-route-source-sequence.md` | sequence diagram for app create, route declaration, bind, stop/start, and rebind flow | active |
+| `docs/diagram/sdk-idle-rest-bind-sequence.md` | sequence diagram for idle SDK startup, later REST bind, and callback delivery | active |
+| `docs/diagram/browser-route-builder-sequence.md` | sequence diagram for the repo-native browser route-builder flow | active |
 | `docs/diagram/grouped-route-delete-sequence.md` | sequence diagram for grouped bind cleanup when one member route is deleted | active |
+| `docs/diagram/exact-session-attach-sequence.md` | sequence diagram for exact `session_id` attach through one app target | active |
+| `docs/diagram/grouped-session-attach-sequence.md` | sequence diagram for grouped `session_id` attach through one grouped target root | active |
+| `docs/diagram/browser-restart-recovery-sequence.md` | sequence diagram for browser reload and source restart after backend restart | active |
+| `docs/diagram/discovery-runtime-boundary-sequence.md` | sequence diagram for the discovery-versus-runtime responsibility split | active |
 | `docs/diagram/exact-rtsp-publication-sequence.md` | sequence diagram for exact-source shared-runtime RTSP publication | active |
 | `docs/diagram/ipc-idle-teardown-sequence.md` | sequence diagram for local IPC attach, idle disconnect, and worker release | active |
 | `docs/past-tasks.md` | change log and verification index | active |

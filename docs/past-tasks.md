@@ -4,8 +4,18 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 19
+- version: 21
 - major changes:
+  - 2026-03-27 simplified the checked-in example startup path so the example
+    apps can now start either with startup binds or idle for later REST
+    injection, added focused regression coverage for omitted app names plus
+    late bind, closed the remaining Mermaid backlog, and refreshed the docs to
+    match the verified runtime behavior
+  - 2026-03-27 completed the task-9 SDK slice, added the repo-native browser
+    UI, added focused SDK/browser regression coverage, live-verified the
+    webcam and Orbbec example apps plus exact/grouped `session_id` attach and
+    runtime rebind on this host, and flipped the remaining feature trackers to
+    green
   - 2026-03-27 added a dedicated runtime-wait writeup that records the current
     RTSP and worker startup-grace sleeps, the live evidence that they work on
     the development host today, and the empirical optimization plan for
@@ -66,6 +76,289 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog
+
+### What Changed
+
+- updated the checked-in example binaries under
+  [examples/](/home/yixin/Coding/insight-io/examples) so they now support both:
+  - startup binds posted on the CLI
+  - idle startup with later `POST /api/apps/{id}/sources` injection
+- switched the examples onto the SDK path that derives the default app name
+  from the executable name when `--app-name` is omitted, while still keeping
+  explicit `--app-name` support when a unique durable name is useful
+- added one focused regression case to
+  [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+  covering omitted app name plus idle startup and later REST bind
+- closed the previously listed Mermaid backlog by adding:
+  - [exact-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-session-attach-sequence.md)
+  - [grouped-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-session-attach-sequence.md)
+  - [browser-restart-recovery-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-restart-recovery-sequence.md)
+  - [discovery-runtime-boundary-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/discovery-runtime-boundary-sequence.md)
+- refreshed the active guide/report/task docs plus both feature trackers so
+  they now describe the verified example startup options and the expanded
+  diagram inventory
+
+### Why
+
+- the examples already had the right late-bind runtime contract, but the
+  checked-in binaries still hid the SDK-derived default-name path behind
+  hard-coded app names and the written guide only showed startup-with-URI
+  invocations
+- the follow-up requirement for this turn was to keep the examples minimal,
+  avoid a new helper abstraction, make no-URI startup a first-class documented
+  path, and close the remaining internal explanation backlog
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18291 \
+  --db-path /tmp/insight-io-examples-18291.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18591
+
+curl -s http://127.0.0.1:18291/api/devices | jq \
+  '.devices[] | {public_name, default_name, driver, selectors: [.sources[].selector]}'
+
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-frames=20
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="v4l2-latency-monitor") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-frames=10 \
+  insightos://localhost/web-camera/720p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-pairs=2 \
+  --output=/tmp/insight-io-overlay-480-runtime.png
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="orbbec-depth-overlay") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=orbbec-depth-overlay-720 \
+  --max-pairs=2 \
+  --output=/tmp/insight-io-overlay-720-runtime.png
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="orbbec-depth-overlay-720") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30"}' | jq .
+
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-frames=60
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="mixed-device-consumer") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+
+ls -l /tmp/insight-io-overlay-480-runtime.png /tmp/insight-io-overlay-720-runtime.png
+file /tmp/insight-io-overlay-480-runtime.png /tmp/insight-io-overlay-720-runtime.png
+```
+
+Observed results:
+
+- `ctest` remained green after the new omitted-app-name plus late-bind
+  regression case landed
+- the live catalog on this host still published one V4L2 `web-camera`, one
+  SDK-backed Orbbec `sv1301s-u3`, and grouped presets
+  `orbbec/preset/480p_30` plus `orbbec/preset/720p_30`
+- `v4l2_latency_monitor` now proved both startup modes:
+  - idle startup with omitted `--app-name`, later REST bind, and routed frames
+  - direct startup from the explicit webcam URI
+- `orbbec_depth_overlay` proved idle startup plus later grouped-preset bind at
+  both `480p` and `720p`
+- the generated overlay files were valid PNGs:
+  - `/tmp/insight-io-overlay-480-runtime.png`: `640x480`
+  - `/tmp/insight-io-overlay-720-runtime.png`: `1280x720`
+- `mixed_device_consumer` proved idle startup plus later REST injection of one
+  exact webcam source and one grouped Orbbec preset in the same app
+
+## 2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification
+
+### What Changed
+
+- added the route-oriented SDK under
+  [sdk/](/home/yixin/Coding/insight-io/sdk) with:
+  - named-route declarations
+  - later REST bind support for running idle apps
+  - exact and grouped `session_id` attach
+  - runtime `rebind(...)`
+  - focused callback-delivery tests in
+    [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+- added example apps under
+  [examples/](/home/yixin/Coding/insight-io/examples):
+  - [v4l2_latency_monitor.cpp](/home/yixin/Coding/insight-io/examples/v4l2_latency_monitor.cpp)
+  - [orbbec_depth_overlay.cpp](/home/yixin/Coding/insight-io/examples/orbbec_depth_overlay.cpp)
+  - [mixed_device_consumer.cpp](/home/yixin/Coding/insight-io/examples/mixed_device_consumer.cpp)
+- extended the catalog and tests so the checked-in public Orbbec contract now
+  includes grouped `orbbec/preset/720p_30` alongside the earlier `480p`
+  grouped preset
+- added the repo-native browser UI under
+  [frontend/](/home/yixin/Coding/insight-io/frontend) and updated
+  [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  plus [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp) so:
+  - `GET /` serves the static frontend
+  - `/static/*` serves the bundled assets
+  - `POST /api/devices:refresh` reruns discovery
+  - the canonical documented custom-method form now follows Google-AIP-style
+    `:start`, `:stop`, and `:rebind`
+- added two new Mermaid diagrams:
+  - [sdk-idle-rest-bind-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/sdk-idle-rest-bind-sequence.md)
+  - [browser-route-builder-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-route-builder-sequence.md)
+- swept the active docs, user guide, tech report, task list, and both feature
+  trackers so the repo now describes the implemented SDK plus browser state
+
+### Why
+
+- the previous worktree already had a substantial task-9 implementation in
+  flight, but the repo still lacked the browser client, the last verification
+  coverage for idle-bind/rebind/fanout behavior, and the doc/tracker sweep
+  needed to claim the design was fully implemented
+- the user goal for this turn was to finish the design-doc contract, keep the
+  apps minimal, preserve all tests, and move both feature trackers to
+  verification-backed green
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18291 \
+  --db-path /tmp/insight-io-task9-1774588668.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18591
+
+curl -s http://127.0.0.1:18291/api/health | jq .
+curl -s http://127.0.0.1:18291/api/devices | jq \
+  '.devices[] | {public_name, driver, source_count: (.sources|length), selectors: [.sources[].selector]}'
+
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-v4l2-latency \
+  --max-frames=30 \
+  insightos://localhost/web-camera/720p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-orbbec-overlay-480 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-480.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-orbbec-overlay-720 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-720.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/720p_30
+
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-mixed-device \
+  --max-frames=90 \
+  camera=insightos://localhost/web-camera/720p_30 \
+  orbbec=insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+
+session_id=$(curl -s -X POST http://127.0.0.1:18291/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq -r '.session_id')
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-session-camera \
+  --max-frames=20 \
+  camera=session:${session_id}
+
+grouped_session_id=$(curl -s -X POST http://127.0.0.1:18291/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30","rtsp_enabled":false}' | jq -r '.session_id')
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-session-orbbec \
+  --max-pairs=2 \
+  --output=/tmp/insight-io-session-overlay-720.png \
+  orbbec=session:${grouped_session_id}
+```
+
+Additional exact verification paths used in the live pass:
+
+- started one idle `v4l2_latency_monitor` app with no startup binds, confirmed
+  the log stayed empty for one second, then created
+  `POST /api/apps/{app_id}/sources` with target `camera` and verified frames
+  began only after that bind was created
+- started one idle `mixed_device_consumer` app, confirmed the log stayed empty
+  for one second, then created
+  `POST /api/apps/{app_id}/sources` with exact
+  `insightos://localhost/sv1301s-u3/orbbec/depth/480p_30` and target
+  `orbbec/depth`, and verified routed depth callbacks began
+- started one running `v4l2_latency_monitor` app, created an initial webcam
+  source bind, then called
+  `POST /api/apps/{app_id}/sources/{source_id}:rebind` to move the same target
+  to `insightos://localhost/sv1301s-u3/orbbec/color/480p_30`, and verified a
+  second caps change from `1280x720` to `640x480`
+- installed `jsdom@26.1.0` under `/tmp/insight-io-jsdom`, loaded
+  `http://127.0.0.1:18291/` through a headless DOM driver, created app
+  `browser-ui-1774588770675`, declared routes `camera`, `orbbec/color`, and
+  `orbbec/depth`, bound exact `web-camera/720p_30` plus grouped
+  `orbbec/preset/480p_30`, stopped and restarted the exact source from the UI,
+  restarted `insightiod` against the same SQLite file, reloaded the page, and
+  restarted the persisted source from the browser surface
+
+Observed results:
+
+- all eight checked-in test targets passed, including the expanded
+  `app_sdk_test`
+- live discovery on this host published one V4L2 webcam, one SDK-backed
+  Orbbec `sv1301s-u3`, and both grouped presets
+  `orbbec/preset/480p_30` and `orbbec/preset/720p_30`
+- the webcam latency example delivered steady-clock latency stats from the live
+  V4L2 camera
+- the Orbbec overlay example produced valid PNG overlays for both grouped
+  presets, and the `720p` preset verified the documented `1280x720` color plus
+  `1280x800` depth contract
+- the mixed-device example consumed webcam video plus grouped Orbbec color and
+  depth at the same time
+- exact and grouped `session_id` attach both delivered live callbacks on this
+  host
+- late bind, idle-until-bind, runtime rebind, and browser restart recovery all
+  executed successfully against the real daemon
+- after this verification sweep, every `passes` field in both feature trackers
+  was flipped to `true`
 
 ## 2026-03-27 – Document Runtime Wait And Startup Sleep Behavior
 

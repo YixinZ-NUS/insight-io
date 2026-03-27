@@ -4,8 +4,17 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 17
+- version: 19
 - major changes:
+  - 2026-03-27 simplified the checked-in example startup path so each example
+    now supports both explicit startup binds and idle startup plus later REST
+    source injection, confirmed omitted app names derive from the executable
+    name, and closed the remaining Mermaid backlog with four new diagrams
+  - 2026-03-27 closed task 9 with the route-oriented SDK, grouped target
+    callback fan-out, exact and grouped `session_id` attach, runtime rebind,
+    and live-verified example apps; closed task 10 with the repo-native
+    browser route-builder UI; and closed tasks 11 and 12 with focused SDK and
+    browser tests plus live feature verification on the development host
   - 2026-03-27 reverified live Orbbec persistence after a manual replug,
     recorded that the same SQLite file reloads the same 21 `sv1301s-u3`
     selectors after restart, documented the intentional public IR omission, and
@@ -57,6 +66,8 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
+  - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
@@ -75,8 +86,7 @@
 
 ## Current Slice
 
-The current implementation slice now covers the full durable control-plane
-surface through task 8's first exact-source publication cut:
+The current implementation slice now covers the full documented v1 surface:
 
 - explicit seven-table SQLite schema checked into the repository
 - one standalone backend binary, `insightiod`
@@ -92,23 +102,53 @@ surface through task 8's first exact-source publication cut:
   `memfd` + ring-buffer + `eventfd` transport
 - exact single-channel RTSP publication layered on top of the same shared
   serving runtime
+- the route-oriented SDK under [sdk/](/home/yixin/Coding/insight-io/sdk)
+  with named routes, grouped target fan-out, exact and grouped `session_id`
+  attach, and runtime rebind
+- the repo-native browser UI under
+  [frontend/](/home/yixin/Coding/insight-io/frontend) for catalog browse,
+  app create, route declaration, source bind/rebind/start/stop, and restart
+  recovery
+- example apps for webcam latency, Orbbec grouped overlay, and mixed-device
+  routing under [examples/](/home/yixin/Coding/insight-io/examples)
+  that can now either start with a CLI bind or start idle for later REST
+  injection, while deriving the default app name from the executable when
+  `--app-name` is omitted
 - runtime-status inspection that surfaces serving-runtime ownership, consumer
   session ids, resolved source metadata, additive RTSP intent, IPC channel
   facts, and runtime RTSP publication details
 - focused tests that prove schema bootstrap, catalog shaping, REST lifecycle
-  paths, app-source behavior, direct-session behavior, and IPC runtime teardown
+  paths, app-source behavior, direct-session behavior, IPC runtime teardown,
+  SDK callback delivery, runtime rebind, idle-until-bind behavior, and
+  browser/static serving
+- live verification on this host for:
+  - bare exact-URI CLI startup
+  - idle example startup with omitted app name plus later REST bind for the
+    webcam latency app
+  - idle grouped-preset startup plus later REST bind for Orbbec overlay at
+    `480p` and `720p`
+  - idle mixed-device startup plus later REST bind for one exact webcam source
+    and one grouped Orbbec preset
+  - grouped preset CLI startup at `480p` and `720p`
+  - exact and grouped `session_id` attach
+  - late REST bind for exact video and exact depth
+  - runtime rebind from V4L2 webcam to Orbbec color
+  - mixed-device fan-in
+  - browser create/route/bind/start/stop/restart flow
 
-In concrete HTTP terms, the current backend serves only:
+In concrete HTTP terms, the current backend now serves:
 
+- `GET /`
 - `GET /api/health`
 - `GET /api/devices`
+- `POST /api/devices:refresh`
 - `GET /api/devices/{device}`
 - `POST /api/devices/{device}/alias`
 - `POST /api/sessions`
 - `GET /api/sessions`
 - `GET /api/sessions/{id}`
-- `POST /api/sessions/{id}/start`
-- `POST /api/sessions/{id}/stop`
+- `POST /api/sessions/{id}:start`
+- `POST /api/sessions/{id}:stop`
 - `DELETE /api/sessions/{id}`
 - `POST /api/apps`
 - `GET /api/apps`
@@ -116,15 +156,15 @@ In concrete HTTP terms, the current backend serves only:
 - `DELETE /api/apps/{id}`
 - `POST /api/apps/{id}/routes`
 - `GET /api/apps/{id}/routes`
+- `GET /api/apps/{id}/routes/{route}`
 - `DELETE /api/apps/{id}/routes/{route}`
 - `GET /api/apps/{id}/sources`
+- `GET /api/apps/{id}/sources/{source_id}`
 - `POST /api/apps/{id}/sources`
-- `POST /api/apps/{id}/sources/{source_id}/start`
-- `POST /api/apps/{id}/sources/{source_id}/stop`
-- `POST /api/apps/{id}/sources/{source_id}/rebind`
+- `POST /api/apps/{id}/sources/{source_id}:start`
+- `POST /api/apps/{id}/sources/{source_id}:stop`
+- `POST /api/apps/{id}/sources/{source_id}:rebind`
 - `GET /api/status`
-
-SDK callbacks and frontend portions of the PRD remain future work.
 
 ## Review Snapshot
 
@@ -194,9 +234,9 @@ Observed from the current audit:
   - `GET /api/sessions`
   - `GET /api/sessions/{id}`
   - `GET /api/status`
-  - `POST /api/sessions/{id}/stop`
+  - `POST /api/sessions/{id}:stop`
   - backend restart with the same SQLite file
-  - `POST /api/sessions/{id}/start`
+  - `POST /api/sessions/{id}:start`
   - `DELETE /api/sessions/{id}` after the session was unreferenced
 - the live app/route/source smoke flow also succeeded on this host:
   - `POST /api/apps`
@@ -204,9 +244,9 @@ Observed from the current audit:
   - `POST /api/apps/{id}/routes`
   - `GET /api/apps/{id}/routes`
   - `POST /api/apps/{id}/sources` with exact URI input
-  - `POST /api/apps/{id}/sources/{source_id}/stop`
-  - `POST /api/apps/{id}/sources/{source_id}/start`
-  - `POST /api/apps/{id}/sources/{source_id}/rebind`
+  - `POST /api/apps/{id}/sources/{source_id}:stop`
+  - `POST /api/apps/{id}/sources/{source_id}:start`
+  - `POST /api/apps/{id}/sources/{source_id}:rebind`
   - backend restart with the same SQLite file
   - `GET /api/apps`
   - `GET /api/apps/{id}/sources` showing persisted rows normalized to `stopped`
@@ -250,9 +290,9 @@ Observed from the current audit:
   - exact-source responses also include `target`, `uri`, `state`,
     `rtsp_enabled`, and nested active-session metadata
 - exact app-source stop/start preservation is now live-verified:
-  - `POST /api/apps/{id}/sources/{source_id}/stop` keeps the durable row and
+  - `POST /api/apps/{id}/sources/{source_id}:stop` keeps the durable row and
     clears only `active_session_id`
-  - `POST /api/apps/{id}/sources/{source_id}/start` recreates runtime state
+  - `POST /api/apps/{id}/sources/{source_id}:start` recreates runtime state
     and links a fresh app-owned session to the same durable source row
 - exact route expectation rejection is now live-verified:
   - `POST /api/apps/{id}/sources` returns `422 Unprocessable Content`
@@ -282,21 +322,20 @@ Important scope boundary:
   host for the current worktree slice
 - serving-runtime reuse, IPC attach, idle-worker teardown, and exact
   single-channel RTSP publication are now implemented in this repository
-- SDK callbacks and frontend flows are not implemented in this repository yet
+- SDK callbacks and frontend flows are now implemented and verification-backed
+  in this repository
 
 This matches the current feature trackers:
 
-- `docs/features/fullstack-intent-routing-e2e.json` now records the verified
-  grouped-route delete cleanup, route-expectation rejection, and the exact
-  shared-runtime RTSP publication journey as passing, while
-  callback-dependent bind flows such as `inject-yolov5-source` remain `false`
-  until SDK callbacks actually exist
+- `docs/features/fullstack-intent-routing-e2e.json` now records the full
+  documented feature set as passing after the SDK, browser, grouped attach,
+  rebind, and runtime-verification sweep
 - `docs/features/runtime-and-app-user-journeys.json` now marks direct-session
   create, persisted restart, referenced-session delete conflict, exact
   source-response identity, app-source stop/start preservation, idle-app route
-  declaration, grouped-route delete cleanup, and the additive RTSP shared
-  runtime journey as passing where those flows were actually verified
-- frame-delivery fanout, SDK callbacks, and frontend flows remain `false`
+  declaration, grouped-route delete cleanup, the additive RTSP shared-runtime
+  journey, SDK callback delivery, runtime rebind, and browser restart recovery
+  as passing where those flows were actually verified
 
 ## Donor Reuse Status
 
@@ -433,7 +472,9 @@ Rationale:
 
 Relevant references:
 
+- Google AIP-121 Resource-oriented Design: https://google.aip.dev/121
 - Google AIP-122 Resource Names: https://google.aip.dev/122
+- Google AIP-136 Custom Methods: https://google.aip.dev/136
 - Google AIP-148 Standard Fields, especially `uid`: https://google.aip.dev/148
 
 Applied to this project, the clean model is:
@@ -584,20 +625,23 @@ In short:
 - remove redundant prefixes when they only restate media kind
 - keep namespaces when they express the grouped-device family contract
 
-## Next Step
+## Current Conclusion
 
-Tasks 7 and 8 are now closed for the first exact-source publication slice.
-Start task 9 from the checked-in runtime baseline:
+Tasks 1 through 12 are now closed in the current worktree.
 
-1. keep the existing REST-backed app/route/source control plane unchanged
-2. attach SDK callbacks through the current IPC runtime instead of inventing a
-   parallel delivery layer
-3. preserve the current shared-runtime reuse and additive RTSP rules while
-   making route delivery observable to SDK consumers
-4. keep grouped preset callback delivery and grouped `session_id` attach behind
-   the same public `target` surface
-5. add focused tests plus live hardware smoke for callback fanout before the
-   frontend slice starts
+The main implementation takeaway is that the active design held up without
+needing another surface split:
+
+1. the existing REST-backed app/route/source control plane was sufficient for
+   both the SDK and the browser client
+2. SDK delivery could stay on the current IPC runtime rather than inventing a
+   parallel callback transport
+3. grouped preset callback delivery and grouped `session_id` attach both fit
+   behind the same public `target` surface
+4. the browser flow could stay a thin control-plane client over the same
+   resource model instead of introducing UI-only endpoints
+5. live hardware verification on webcam plus Orbbec was enough to close the
+   remaining tracker gaps once the task-9/browser slice landed
 
 ## Mermaid Diagram Inventory
 
@@ -613,8 +657,26 @@ Start task 9 from the checked-in runtime baseline:
   documents create, restart, status, and delete flow for one direct session
 - [app-route-source-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/app-route-source-sequence.md)
   documents app create, route declaration, source bind, stop/start, and rebind
+- [sdk-idle-rest-bind-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/sdk-idle-rest-bind-sequence.md)
+  documents idle SDK startup, later REST bind, IPC attach, and route callback
+  delivery
+- [browser-route-builder-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-route-builder-sequence.md)
+  documents the repo-native browser flow for catalog browse, app create,
+  route declaration, source bind, source restart, and restart recovery
 - [grouped-route-delete-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-route-delete-sequence.md)
   documents grouped bind cleanup when one member route is deleted
+- [exact-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-session-attach-sequence.md)
+  documents exact `session_id` attach from one existing direct session into
+  one app-local route
+- [grouped-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-session-attach-sequence.md)
+  documents grouped `session_id` attach from one grouped direct session into
+  one grouped target root
+- [browser-restart-recovery-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-restart-recovery-sequence.md)
+  documents the browser-specific persisted-source reload and explicit restart
+  flow after backend restart
+- [discovery-runtime-boundary-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/discovery-runtime-boundary-sequence.md)
+  documents the discovery-versus-runtime responsibility boundary and the
+  guarantee that discovery publishes catalog rows without starting runtime
 - [shared-serving-runtime-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/shared-serving-runtime-sequence.md)
   documents shared exact-URI runtime reuse plus additive RTSP intent in the
   current task-6 slice
@@ -625,18 +687,14 @@ Start task 9 from the checked-in runtime baseline:
 
 ## Recommended Mermaid Backlog
 
-To keep the remaining implementation explainable, the next diagrams worth
-adding are:
+Status: `resolved`
 
-- existing-session attach sequence:
-  attach `session_id` to one app-local target without recreating capture
-- grouped target bind sequence:
-  app-source bind using one grouped preset URI and one grouped `target`
-- discovery versus runtime responsibility sequence:
-  prove where catalog shaping ends and runtime realization begins
-- Orbbec fallback and duplicate-suppression sequence:
-  show when SDK discovery wins, when generic V4L2 fallback is allowed, and when
-  duplicate hiding applies
+The previously recommended backlog is now checked in as:
+
+- [exact-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-session-attach-sequence.md)
+- [grouped-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-session-attach-sequence.md)
+- [browser-restart-recovery-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-restart-recovery-sequence.md)
+- [discovery-runtime-boundary-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/discovery-runtime-boundary-sequence.md)
 
 ## Implementation Notes
 

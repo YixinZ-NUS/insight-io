@@ -4,8 +4,12 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 12
+- version: 13
 - major changes:
+  - 2026-03-27 documented the completed task-9 SDK and browser slice, added
+    the frontend entrypoint plus catalog refresh endpoint, and made the
+    Google-AIP-style custom methods such as `:start`, `:stop`, and `:rebind`
+    the canonical documented form while preserving slash aliases in code
   - 2026-03-26 closed grouped-member-route delete cleanup for grouped binds,
     documented the cleanup semantics, and kept the current app lifecycle
     endpoint set as the active API index
@@ -27,6 +31,7 @@
     than a peer to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI contract
 - past tasks:
+  - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
   - `2026-03-26 – Reintroduce Direct Session REST And Status Slice`
@@ -47,19 +52,30 @@ Important rule:
 
 - one derived URI selects one fixed catalog-published source shape
 
+Resource-oriented API note:
+
+- the canonical custom-method form follows the Google API Improvement Proposal
+  style for resource-oriented APIs, so the documented start/stop/rebind and
+  refresh actions use `:verb` suffixes
+- compatibility aliases with slash paths such as `/start`, `/stop`, and
+  `/rebind` are still accepted by the checked-in backend so existing tooling
+  does not break
+
 ## Current API Index
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | `GET` | `/api/health` | liveness and version |
+| `GET` | `/` | serve the repo-native browser UI when frontend assets are configured |
 | `GET` | `/api/devices` | list public devices, presets, and derived URIs |
+| `POST` | `/api/devices:refresh` | rerun discovery and return the refreshed catalog |
 | `GET` | `/api/devices/{device}` | full detail for one public device |
 | `POST` | `/api/devices/{device}/alias` | change the public device alias |
 | `POST` | `/api/sessions` | create one direct logical session from one selected URI |
 | `GET` | `/api/sessions` | list logical sessions |
 | `GET` | `/api/sessions/{id}` | inspect one logical session |
-| `POST` | `/api/sessions/{id}/start` | rehydrate one persisted logical session |
-| `POST` | `/api/sessions/{id}/stop` | stop one logical session |
+| `POST` | `/api/sessions/{id}:start` | rehydrate one persisted logical session |
+| `POST` | `/api/sessions/{id}:stop` | stop one logical session |
 | `DELETE` | `/api/sessions/{id}` | destroy one unreferenced logical session |
 | `POST` | `/api/apps` | create one durable app record |
 | `GET` | `/api/apps` | list durable apps |
@@ -67,13 +83,24 @@ Important rule:
 | `DELETE` | `/api/apps/{id}` | delete one durable app plus its owned routes and source bindings |
 | `POST` | `/api/apps/{id}/routes` | declare one app-local route |
 | `GET` | `/api/apps/{id}/routes` | list routes on one app |
+| `GET` | `/api/apps/{id}/routes/{route}` | inspect one route detail |
 | `DELETE` | `/api/apps/{id}/routes/{route}` | delete one app-local route |
 | `GET` | `/api/apps/{id}/sources` | list durable app-source bindings |
+| `GET` | `/api/apps/{id}/sources/{source_id}` | inspect one source detail |
 | `POST` | `/api/apps/{id}/sources` | create one exact, grouped, or session-backed app-source bind |
-| `POST` | `/api/apps/{id}/sources/{source_id}/start` | recreate runtime state for one durable source |
-| `POST` | `/api/apps/{id}/sources/{source_id}/stop` | stop runtime state while keeping the durable source row |
-| `POST` | `/api/apps/{id}/sources/{source_id}/rebind` | move one durable source record to a replacement URI or session |
+| `POST` | `/api/apps/{id}/sources/{source_id}:start` | recreate runtime state for one durable source |
+| `POST` | `/api/apps/{id}/sources/{source_id}:stop` | stop runtime state while keeping the durable source row |
+| `POST` | `/api/apps/{id}/sources/{source_id}:rebind` | move one durable source record to a replacement URI or session |
 | `GET` | `/api/status` | inspect shared capture and publication state |
+
+## Browser UI
+
+- `GET /` serves the checked-in static frontend when `insightiod` knows a
+  frontend directory
+- `insightiod` now auto-detects the repo-root `frontend/` directory when run
+  from the repository root
+- `/static/*` serves the bundled HTML, CSS, and JavaScript assets for the
+  browser route-builder flow
 
 ## Grouped Route Delete Cleanup
 
@@ -244,6 +271,7 @@ Current endpoints:
 
 - `POST /api/apps/{id}/routes`
 - `GET /api/apps/{id}/routes`
+- `GET /api/apps/{id}/routes/{route}`
 - `DELETE /api/apps/{id}/routes/{route}`
 
 ## App Source Bind Contract
@@ -353,10 +381,11 @@ Rules:
 Current endpoints:
 
 - `GET /api/apps/{id}/sources`
+- `GET /api/apps/{id}/sources/{source_id}`
 - `POST /api/apps/{id}/sources`
-- `POST /api/apps/{id}/sources/{source_id}/start`
-- `POST /api/apps/{id}/sources/{source_id}/stop`
-- `POST /api/apps/{id}/sources/{source_id}/rebind`
+- `POST /api/apps/{id}/sources/{source_id}:start`
+- `POST /api/apps/{id}/sources/{source_id}:stop`
+- `POST /api/apps/{id}/sources/{source_id}:rebind`
 
 Current response shape highlights:
 
@@ -509,13 +538,13 @@ Current boundary:
 
 - app, route, and source records are durable
 - startup normalizes persisted source runtime state back to `stopped`
-- `POST /api/apps/{id}/sources/{source_id}/start` creates a fresh runtime
+- `POST /api/apps/{id}/sources/{source_id}:start` creates a fresh runtime
   session for that persisted source intent
 - the same durable pattern applies to session-backed binds, but restart must
   revalidate the referenced session rather than assuming the old runtime still
   exists
 - the same durable pattern applies to logical sessions through
-  `POST /api/sessions/{id}/start`
+  `POST /api/sessions/{id}:start`
 
 ## SDK Relationship
 
