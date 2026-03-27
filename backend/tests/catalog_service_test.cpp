@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <unistd.h>
@@ -143,6 +145,72 @@ DeviceInfo make_orbbec_with_ir() {
     return device;
 }
 
+struct PersistedSourceRow {
+    std::string media_kind;
+    bool grouped{false};
+    bool present{false};
+};
+
+std::map<std::string, PersistedSourceRow> persisted_sources_for_device(
+    sqlite3* db,
+    std::string_view public_name) {
+    std::map<std::string, PersistedSourceRow> sources;
+    sqlite3_stmt* statement = nullptr;
+    const char* sql =
+        "SELECT s.selector, s.media_kind, s.members_json IS NOT NULL, s.is_present "
+        "FROM streams s "
+        "JOIN devices d ON d.device_id = s.device_id "
+        "WHERE d.public_name = ? "
+        "ORDER BY s.selector";
+    if (sqlite3_prepare_v2(db, sql, -1, &statement, nullptr) != SQLITE_OK) {
+        std::cerr << "FAIL preparing persisted source query\n";
+        std::exit(1);
+    }
+    sqlite3_bind_text(statement,
+                      1,
+                      std::string(public_name).c_str(),
+                      -1,
+                      SQLITE_TRANSIENT);
+    while (sqlite3_step(statement) == SQLITE_ROW) {
+        const auto* selector =
+            reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+        const auto* media_kind =
+            reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
+        const bool grouped = sqlite3_column_int(statement, 2) != 0;
+        const bool present = sqlite3_column_int(statement, 3) != 0;
+        if (selector && media_kind) {
+            sources[selector] = {media_kind, grouped, present};
+        }
+    }
+    sqlite3_finalize(statement);
+    return sources;
+}
+
+std::optional<std::string> persisted_device_status(sqlite3* db,
+                                                   std::string_view public_name) {
+    sqlite3_stmt* statement = nullptr;
+    const char* sql = "SELECT status FROM devices WHERE public_name = ?";
+    if (sqlite3_prepare_v2(db, sql, -1, &statement, nullptr) != SQLITE_OK) {
+        std::cerr << "FAIL preparing persisted device status query\n";
+        std::exit(1);
+    }
+    sqlite3_bind_text(statement,
+                      1,
+                      std::string(public_name).c_str(),
+                      -1,
+                      SQLITE_TRANSIENT);
+    std::optional<std::string> status;
+    if (sqlite3_step(statement) == SQLITE_ROW) {
+        const auto* value =
+            reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
+        if (value != nullptr) {
+            status = value;
+        }
+    }
+    sqlite3_finalize(statement);
+    return status;
+}
+
 TEST(alias_persists_across_refresh) {
     SchemaStore store(make_temp_db_path());
     EXPECT_TRUE(store.initialize());
@@ -269,6 +337,89 @@ TEST(orbbec_ir_streams_are_not_published_in_current_v1_catalog) {
     EXPECT_TRUE(selectors.contains("orbbec/color/480p_30"));
     EXPECT_TRUE(selectors.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(!selectors.contains("orbbec/ir/400p_30"));
+}
+
+TEST(orbbec_depth_and_grouped_entries_persist_to_streams_table) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_orbbec()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto persisted = persisted_sources_for_device(store.db(), "desk-rgbd");
+    EXPECT_TRUE(persisted.contains("orbbec/color/480p_30"));
+    EXPECT_TRUE(persisted.contains("orbbec/depth/400p_30"));
+    EXPECT_TRUE(persisted.contains("orbbec/depth/480p_30"));
+    EXPECT_TRUE(persisted.contains("orbbec/preset/480p_30"));
+    EXPECT_EQ(persisted.at("orbbec/depth/400p_30").media_kind, "depth");
+    EXPECT_EQ(persisted.at("orbbec/depth/480p_30").media_kind, "depth");
+    EXPECT_TRUE(persisted.at("orbbec/depth/400p_30").present);
+    EXPECT_TRUE(persisted.at("orbbec/depth/480p_30").present);
+    EXPECT_TRUE(!persisted.at("orbbec/depth/400p_30").grouped);
+    EXPECT_TRUE(persisted.at("orbbec/preset/480p_30").grouped);
+}
+
+TEST(orbbec_rows_persist_across_missing_and_recovered_discovery) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService first_catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_orbbec()};
+            return result;
+        });
+    EXPECT_TRUE(first_catalog.initialize());
+    EXPECT_EQ(persisted_device_status(store.db(), "desk-rgbd").value_or("missing"),
+              "online");
+
+    const auto first_persisted = persisted_sources_for_device(store.db(), "desk-rgbd");
+    EXPECT_TRUE(first_persisted.at("orbbec/depth/400p_30").present);
+    EXPECT_TRUE(first_persisted.at("orbbec/preset/480p_30").present);
+
+    CatalogService missing_catalog(
+        store,
+        []() {
+            return DiscoveryResult{};
+        });
+    EXPECT_TRUE(missing_catalog.initialize());
+    EXPECT_TRUE(!missing_catalog.get_device("desk-rgbd").has_value());
+    EXPECT_EQ(persisted_device_status(store.db(), "desk-rgbd").value_or("missing"),
+              "offline");
+
+    const auto missing_persisted =
+        persisted_sources_for_device(store.db(), "desk-rgbd");
+    EXPECT_TRUE(missing_persisted.contains("orbbec/depth/400p_30"));
+    EXPECT_TRUE(missing_persisted.contains("orbbec/preset/480p_30"));
+    EXPECT_TRUE(!missing_persisted.at("orbbec/depth/400p_30").present);
+    EXPECT_TRUE(!missing_persisted.at("orbbec/preset/480p_30").present);
+
+    CatalogService recovered_catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_orbbec()};
+            return result;
+        });
+    EXPECT_TRUE(recovered_catalog.initialize());
+
+    const auto recovered = recovered_catalog.get_device("desk-rgbd");
+    EXPECT_TRUE(recovered.has_value());
+    EXPECT_EQ(persisted_device_status(store.db(), "desk-rgbd").value_or("missing"),
+              "online");
+
+    const auto recovered_persisted =
+        persisted_sources_for_device(store.db(), "desk-rgbd");
+    EXPECT_TRUE(recovered_persisted.at("orbbec/depth/400p_30").present);
+    EXPECT_TRUE(recovered_persisted.at("orbbec/depth/480p_30").present);
+    EXPECT_TRUE(recovered_persisted.at("orbbec/preset/480p_30").present);
 }
 
 }  // namespace
