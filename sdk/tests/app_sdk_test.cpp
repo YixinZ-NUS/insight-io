@@ -1,9 +1,10 @@
 // role: focused task-9 SDK callback integration tests.
-// revision: 2026-03-27 task9-runtime-coverage
+// revision: 2026-03-27 task9-runtime-review-fixes
 // major changes: verifies startup binds, grouped callback fanout, late REST
-// injection, idle-until-bind behavior, runtime rebind, same-URI fanout, and
-// exact/grouped session-backed attach using synthetic devices and the
-// checked-in backend runtime. See docs/past-tasks.md.
+// injection, idle-until-bind behavior, runtime rebind, same-URI fanout,
+// omitted-name derivation through `bind_from_cli()`, and exact/grouped
+// session-backed attach using synthetic devices and the checked-in backend
+// runtime. See docs/past-tasks.md.
 
 #include "insightos/app.hpp"
 
@@ -431,6 +432,78 @@ TEST(running_idle_app_can_receive_late_rest_source_bind) {
         });
     EXPECT_TRUE(create);
     EXPECT_EQ(create->status, 201);
+
+    EXPECT_TRUE(wait_until([&] { return frames.load() >= 2; },
+                           std::chrono::seconds(3)));
+    app_thread.join();
+    EXPECT_EQ(exit_code.load(), 0);
+
+    server.stop();
+}
+
+TEST(bind_from_cli_derives_default_name_from_program_name) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_test_v4l2_camera()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1:8554");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    std::atomic_int frames{0};
+    std::atomic_int exit_code{1};
+
+    insightos::App app({
+        .name = "",
+        .description = "",
+        .backend_host = "127.0.0.1",
+        .backend_port = port,
+        .refresh_interval_ms = 50,
+    });
+    app.route("camera")
+        .expect(insightos::Video{})
+        .on_frame([&](const insightos::Frame&) {
+            if (++frames >= 2) {
+                app.request_stop();
+            }
+        });
+
+    std::vector<std::string> argv_storage = {
+        "/tmp/v4l2_latency_monitor",
+        "insightos://localhost/front-camera/720p_30",
+    };
+    auto argv_view = make_argv(argv_storage);
+    EXPECT_TRUE(app.bind_from_cli(static_cast<int>(argv_view.size()), argv_view.data(), 1));
+
+    std::jthread app_thread([&] { exit_code.store(app.connect()); });
+    EXPECT_TRUE(wait_until([&] { return app.app_id().has_value(); },
+                           std::chrono::seconds(2)));
+
+    httplib::Client client("127.0.0.1", port);
+    const auto apps_list = client.Get("/api/apps");
+    EXPECT_TRUE(apps_list);
+    EXPECT_EQ(apps_list->status, 200);
+    const auto apps_json = nlohmann::json::parse(apps_list->body);
+    EXPECT_TRUE(apps_json.contains("apps"));
+    EXPECT_TRUE(apps_json.at("apps").is_array());
+    EXPECT_EQ(apps_json.at("apps").size(), 1u);
+    EXPECT_EQ(apps_json.at("apps").front().at("name").get<std::string>(),
+              "v4l2-latency-monitor");
 
     EXPECT_TRUE(wait_until([&] { return frames.load() >= 2; },
                            std::chrono::seconds(3)));

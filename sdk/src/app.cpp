@@ -1,8 +1,9 @@
 // role: high-level route-oriented SDK implementation for task-9 callbacks.
-// revision: 2026-03-27 task9-sdk-route-surface
+// revision: 2026-03-27 task9-sdk-review-fixes
 // major changes: adds route declaration, startup CLI binds, running-app REST
-// control, exact and grouped IPC attach, and per-route callback fanout on top
-// of the standalone insight-io backend. See docs/past-tasks.md.
+// control, exact and grouped IPC attach, per-route callback fanout, and fixes
+// omitted-name derivation for the `bind_from_cli()` plus `connect()` path. See
+// docs/past-tasks.md.
 
 #include "insightos/app.hpp"
 
@@ -1247,6 +1248,9 @@ bool App::rebind(std::string target,
 bool App::bind_from_cli(int argc, char** argv, int start_index) {
     if (!impl_) {
         return false;
+    }
+    if (argc > 0 && argv != nullptr && argv[0] != nullptr) {
+        impl_->program_name = argv[0];
     }
 
     const auto implicit_targets = impl_->implicit_cli_targets();

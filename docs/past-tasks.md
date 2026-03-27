@@ -4,8 +4,12 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 23
+- version: 24
 - major changes:
+  - 2026-03-27 fixed the two actionable PR #8 review items by validating
+    browser source-form payloads before submit and making `bind_from_cli()`
+    propagate `argv[0]` for omitted app-name derivation, then reverified the
+    SDK and full checked-in test suite
   - 2026-03-27 added the checked-in `pipewire_audio_monitor` example, focused
     SDK coverage for synthetic PipeWire audio delivery, live mono-versus-
     stereo selector verification on the current host, and more accurate
@@ -83,6 +87,62 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Fix Actionable PR #8 Review Items
+
+### What Changed
+
+- updated [app.js](/home/yixin/Coding/insight-io/frontend/app.js) so the
+  browser source form now rejects:
+  - empty `input` plus empty `session_id`
+  - simultaneous `input` plus `session_id`
+  - non-positive or malformed `session_id` values
+- updated [app.cpp](/home/yixin/Coding/insight-io/sdk/src/app.cpp) so
+  `bind_from_cli(argc, argv, ...)` now copies `argv[0]` into the SDK's
+  `program_name`, which makes omitted app-name derivation work even when a
+  caller uses `bind_from_cli()` followed by `connect()` instead of
+  `run(argc, argv)`
+- extended [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+  with a focused regression test for the `bind_from_cli()` plus `connect()`
+  omitted-name path
+
+### Why
+
+- PR #8 had two actionable review comments:
+  - the browser source form could serialize invalid source-create payloads that
+    the backend would reject later
+  - the public SDK path `bind_from_cli()` plus `connect()` still derived the
+    default app name as `app` instead of using `argv[0]`
+- both comments were still real against the previous branch head:
+  I reproed the frontend/backend mismatch with live `400` responses from the
+  daemon, and I reproed the SDK naming bug with a temporary program that
+  created an app named `app` through the public API path
+
+### Verification
+
+```bash
+node --check frontend/app.js
+cmake --build build -j4 --target app_sdk_test
+./build/bin/app_sdk_test
+ctest --test-dir build --output-on-failure
+app_id=$(curl -s -X POST http://127.0.0.1:18294/api/apps -H 'Content-Type: application/json' -d '{"name":"review-fix-check","description":""}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18294/api/apps/${app_id}/routes -H 'Content-Type: application/json' -d '{"route_name":"audio","expect":{"media":"audio"}}'
+curl -s -o /tmp/review_both.json -w '%{http_code}\n' -X POST http://127.0.0.1:18294/api/apps/${app_id}/sources -H 'Content-Type: application/json' -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono","session_id":1}'
+curl -s -o /tmp/review_null.json -w '%{http_code}\n' -X POST http://127.0.0.1:18294/api/apps/${app_id}/sources -H 'Content-Type: application/json' -d '{"target":"audio","session_id":null}'
+curl -s -X DELETE http://127.0.0.1:18294/api/apps/${app_id}
+```
+
+Observed results:
+
+- `node --check frontend/app.js` passed
+- `./build/bin/app_sdk_test` now reports `app_sdk_test: 12 test(s) passed`
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- the live backend still rejects the invalid payloads the browser now blocks
+  earlier:
+  - `input` plus `session_id` returns `400` with
+    `Exactly one of 'input' or 'session_id' is required`
+  - `session_id: null` returns `400` with
+    `Field 'session_id' must be integer when present`
 
 ## 2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors
 

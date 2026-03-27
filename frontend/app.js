@@ -1,8 +1,9 @@
 /*
 role: browser controller for the task-9 route-builder UI.
-revision: 2026-03-27 task9-browser-surface
+revision: 2026-03-27 task9-browser-review-fixes
 major changes: drives catalog refresh, app/route/source CRUD, source
-start/stop/rebind, and runtime inspection against the checked-in REST API.
+start/stop/rebind, runtime inspection against the checked-in REST API, and
+client-side source-form validation for mutually exclusive URI/session binds.
 See docs/past-tasks.md.
 */
 
@@ -580,22 +581,38 @@ elements.sourceForm.addEventListener('submit', async (event) => {
   }
   setError(elements.sourceFormError, '');
 
+  const inputValue = elements.sourceInput.value.trim();
+  const sessionRaw = elements.sourceSession.value.trim();
+
+  if (!inputValue && !sessionRaw) {
+    setError(elements.sourceFormError, 'Either input URI or session id is required.');
+    return;
+  }
+
+  if (inputValue && sessionRaw) {
+    setError(elements.sourceFormError, 'Provide either input URI or session id, not both.');
+    return;
+  }
+
+  let sessionId = null;
+  if (sessionRaw) {
+    if (!/^[1-9]\d*$/.test(sessionRaw)) {
+      setError(elements.sourceFormError, 'Session id must be a positive integer.');
+      return;
+    }
+    sessionId = Number.parseInt(sessionRaw, 10);
+  }
+
   const payload = {
     target: elements.sourceTarget.value,
   };
-  if (elements.sourceInput.value.trim()) {
-    payload.input = elements.sourceInput.value.trim();
-  }
-  if (elements.sourceSession.value.trim()) {
-    payload.session_id = Number.parseInt(elements.sourceSession.value.trim(), 10);
+  if (inputValue) {
+    payload.input = inputValue;
+  } else if (sessionId !== null) {
+    payload.session_id = sessionId;
   }
   if (elements.sourceRtsp.checked) {
     payload.rtsp_enabled = true;
-  }
-
-  if (!payload.input && !payload.session_id) {
-    setError(elements.sourceFormError, 'Either input URI or session id is required.');
-    return;
   }
 
   try {
