@@ -4,8 +4,11 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 17
+- version: 18
 - major changes:
+  - 2026-03-27 documented the example-app argument surface more explicitly,
+    including default backend host and port behavior, environment-variable
+    overrides, and the stop semantics for `--max-frames` and `--max-pairs`
   - 2026-03-27 made the example-app CLI and REST usage equivalence explicit:
     one startup bind argument maps to one later `POST /api/apps/{id}/sources`
     request with the same target and source, and multi-target startup forms map
@@ -181,6 +184,12 @@ Shared rules for the checked-in examples:
 - each example still accepts the existing startup URI or `session:<id>` bind
 - if no startup bind is posted on the CLI, the app starts idle and waits for a
   later `POST /api/apps/{id}/sources`
+- `--backend-host` and `--backend-port` are optional in all checked-in
+  examples
+- if omitted, the SDK defaults to `127.0.0.1:18180`
+- if omitted and the environment exports `INSIGHTIO_BACKEND_HOST` or
+  `INSIGHTIO_BACKEND_PORT`, the SDK uses those values instead of the built-in
+  defaults
 - one startup bind argument is equivalent to one later
   `POST /api/apps/{id}/sources` request that carries the same target and the
   same `input` or `session_id`
@@ -198,6 +207,81 @@ Shared rules for the checked-in examples:
 - if multiple copies of the same example might run at once, set `--app-name`
   explicitly so later REST injection can target the right app row without
   ambiguity
+
+### Example Arg Reference
+
+All three examples support `--help`.
+
+`v4l2_latency_monitor` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-frames=<count>`
+- optional startup bind:
+  bare `insightos://...`, `camera=insightos://...`, or `camera=session:<id>`
+
+`v4l2_latency_monitor` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-frames`: `120`
+
+`v4l2_latency_monitor` stop semantics:
+
+- `--max-frames=N` means the app calls `request_stop()` after the camera
+  route's `on_frame(...)` callback has run `N` times
+- `--max-frames=0` or any negative value disables that auto-stop path
+
+`orbbec_depth_overlay` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-pairs=<count>`
+- `--pair-threshold-ms=<ms>`
+- `--output=<path>`
+- optional startup bind:
+  bare `insightos://...`, `orbbec=insightos://...`, or `orbbec=session:<id>`
+
+`orbbec_depth_overlay` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-pairs`: `60`
+- `pair-threshold-ms`: `80`
+- output path: `/tmp/insight-io-orbbec-overlay.png`
+
+`orbbec_depth_overlay` stop semantics:
+
+- `--max-pairs=N` means the app calls `request_stop()` after it has produced
+  and written `N` successful color-plus-depth overlay images
+- this counter advances on rendered overlay pairs, not on every incoming frame
+- `--max-pairs=0` or any negative value disables that auto-stop path
+
+`mixed_device_consumer` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-frames=<count>`
+- optional startup binds:
+  `camera=insightos://...`, `camera=session:<id>`,
+  `orbbec=insightos://...`, or `orbbec=session:<id>`
+
+`mixed_device_consumer` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-frames`: `180`
+
+`mixed_device_consumer` stop semantics:
+
+- `--max-frames=N` means the app calls `request_stop()` once the combined total
+  of processed camera, Orbbec color, and Orbbec depth frames reaches `N`
+- it also requires that at least one frame has arrived on all three routes, so
+  the app does not stop before the mixed-device fanout is proven
+- `--max-frames=0` or any negative value disables that auto-stop path
 
 ### Webcam Latency
 
