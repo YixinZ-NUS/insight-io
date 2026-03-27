@@ -4,8 +4,13 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 15
+- version: 16
 - major changes:
+  - 2026-03-27 completed the task-7 IPC hardening and first task-8 RTSP slice
+    by fixing idle IPC teardown, adding configurable RTSP daemon ports,
+    vendoring mediamtx, live-verifying webcam/audio/Orbbec color IPC attach,
+    live-verifying exact shared-runtime RTSP publication with strict FFmpeg
+    checks, and adding exact RTSP plus idle-teardown sequence diagrams
   - 2026-03-26 added in-memory serving-runtime reuse for identical exact
     `stream_id` requests, exposed serving-runtime topology in session and
     status responses, runtime-verified shared reuse on the current host, and
@@ -47,6 +52,202 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication
+
+### What Changed
+
+- fixed idle IPC teardown in
+  [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+  so exact serving runtimes now stop the capture worker, reset IPC counters,
+  and return to `state = ready` when the last local IPC consumer disconnects
+  and no RTSP publication remains active
+- added IPC ring reset support in
+  [ipc.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/ipc.hpp)
+  and [ipc.cpp](/home/yixin/Coding/insight-io/backend/src/ipc/ipc.cpp) so an
+  idled runtime restarts with fresh first-frame signaling instead of reusing
+  stale ring state
+- added a dedicated daemon `--rtsp-port` flag in
+  [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp) while keeping
+  backward-compatible parsing of `--rtsp-host` values that already include a
+  port
+- kept RTSP publication runtime repo-native in
+  [rtsp_publisher.cpp](/home/yixin/Coding/insight-io/backend/src/publication/rtsp_publisher.cpp)
+  and verified that exact single-channel runtimes expose one additive RTSP
+  publisher above the existing shared worker path
+- vendored the donor mediamtx payload into:
+  - [insightio.yml](/home/yixin/Coding/insight-io/third_party/mediamtx/insightio.yml)
+  - [LICENSE](/home/yixin/Coding/insight-io/third_party/mediamtx/LICENSE)
+  - [mediamtx](/home/yixin/Coding/insight-io/third_party/mediamtx/mediamtx)
+- removed the local ignore rule that previously hid the vendored mediamtx
+  binary from commits in
+  [/.gitignore](/home/yixin/Coding/insight-io/.gitignore)
+- extended focused runtime coverage in
+  [ipc_runtime_test.cpp](/home/yixin/Coding/insight-io/backend/tests/ipc_runtime_test.cpp)
+  so the test suite now proves:
+  - exact IPC attach publishes frames
+  - idle disconnect returns the runtime to `ready`
+  - the same logical session can attach again after going idle
+- refreshed the active docs, trackers, and Mermaid inventory, and added:
+  - [exact-rtsp-publication-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-rtsp-publication-sequence.md)
+  - [ipc-idle-teardown-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/ipc-idle-teardown-sequence.md)
+
+### Why
+
+- task 7 required the shared serving runtime to be actually attachable and to
+  release devices cleanly when no local consumer remained, not just when the
+  logical session was deleted
+- the pre-fix runtime would keep capture active after an IPC probe detached,
+  which held the device open idly and violated the lazy exact-session model
+- task 8 required one honest exact-source RTSP path that reused the same
+  worker stream as IPC and surfaced explicit status/error facts instead of
+  silently failing
+- the daemon-side RTSP address needed to stop assuming `8554` so live
+  validation could prove the path on an alternate port and the catalog could
+  reflect that port correctly
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4 --target \
+  insightiod \
+  discovery_test \
+  catalog_service_test \
+  session_service_test \
+  app_service_test \
+  rest_server_test \
+  ipc_runtime_test \
+  insightio_ipc_probe
+
+ctest --test-dir build --output-on-failure -R \
+  'discovery_test|catalog_service_test|session_service_test|app_service_test|rest_server_test|ipc_runtime_test'
+
+v4l2-ctl --list-devices
+
+for i in $(seq 1 8); do
+  db=/tmp/insight-io-orbbec-repro.sqlite3
+  rm -f "${db}"
+  ./build/bin/insightiod \
+    --host 127.0.0.1 \
+    --port $((18200 + i)) \
+    --db-path "${db}" \
+    --frontend /tmp/insight-io-repro-frontend \
+    --rtsp-host 127.0.0.1 \
+    --rtsp-port 8554 >/tmp/insight-io-repro-${i}.log 2>&1 &
+  pid=$!
+  for t in $(seq 1 30); do
+    curl -sf http://127.0.0.1:$((18200 + i))/api/health >/dev/null && break
+    sleep 0.2
+  done
+  echo "=== run ${i} ==="
+  curl -s http://127.0.0.1:$((18200 + i))/api/devices | jq -r \
+    '.devices[] | [.public_name, .driver, (.sources | map(.selector) | join(","))] | @tsv'
+  kill ${pid}
+  wait ${pid} 2>/dev/null || true
+  sleep 0.5
+done
+
+db=/tmp/insight-io-live2.sqlite3
+rm -f "${db}"
+mkdir -p /tmp/insight-io-live2-frontend Log/mediamtx
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18260 \
+  --db-path "${db}" \
+  --frontend /tmp/insight-io-live2-frontend \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18554 &
+daemon_pid=$!
+
+cfg=/tmp/insightio-mediamtx-18554.yml
+sed -e 's/apiAddress: :9997/apiAddress: :19997/' \
+    -e 's/rtspAddress: :8554/rtspAddress: :18554/' \
+    third_party/mediamtx/insightio.yml > "${cfg}"
+./third_party/mediamtx/mediamtx "${cfg}" &
+mediamtx_pid=$!
+
+for t in $(seq 1 30); do
+  curl -sf http://127.0.0.1:18260/api/health >/dev/null && break
+  sleep 0.2
+done
+
+curl -s http://127.0.0.1:18260/api/devices | jq \
+  '{devices: [.devices[] | {public_name, driver, sources: [.sources[].selector]}]}'
+
+web=$(curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}')
+audio=$(curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera-mono/audio/mono","rtsp_enabled":false}')
+orbbec=$(curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/color/480p_30","rtsp_enabled":false}')
+
+socket_path=$(curl -s http://127.0.0.1:18260/api/health | jq -r '.ipc_socket_path')
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+./build/bin/insightio_ipc_probe "${socket_path}" 2
+./build/bin/insightio_ipc_probe "${socket_path}" 3
+
+sleep 1
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{serving_runtimes: [.serving_runtimes[] | {runtime_key, state, ipc_channels: [.ipc_channels[] | {stream_name, attached_consumer_count, frames_published}]}]}'
+
+for id in 1 2 3; do
+  curl -s -X POST http://127.0.0.1:18260/api/sessions/${id}/stop \
+    -H 'Content-Type: application/json' -d '{}' >/dev/null
+  curl -s -X DELETE http://127.0.0.1:18260/api/sessions/${id} >/dev/null
+done
+
+timeout 5 v4l2-ctl --device /dev/video0 --stream-mmap=1 --stream-count=1 \
+  --stream-to=/tmp/insight-io-webcam-frame.mjpg
+
+app_id=$(curl -s -X POST http://127.0.0.1:18260/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"reroute-check"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18260/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"cam","expect":{"media":"video"}}' >/dev/null
+curl -s -X POST http://127.0.0.1:18260/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"cam","rtsp_enabled":false}' >/dev/null
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+sleep 2
+curl -s -X POST http://127.0.0.1:18260/api/apps/${app_id}/sources/1/rebind \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/color/480p_30","rtsp_enabled":false}' | jq
+sleep 1
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{after_rebind: [.serving_runtimes[] | {runtime_key, state, source: .resolved_source.selector}]}'
+timeout 5 v4l2-ctl --device /dev/video0 --stream-mmap=1 --stream-count=1 \
+  --stream-to=/tmp/insight-io-webcam-after-rebind.mjpg
+
+curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' >/dev/null
+curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}' | jq
+sleep 2
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{rtsp_runtime: [.serving_runtimes[] | select(.resolved_source.selector=="720p_30") | {runtime_key, state, consumer_count, rtsp_enabled, rtsp_publication}]}'
+
+ffmpeg -rtsp_transport tcp -loglevel warning \
+  -err_detect +crccheck+bitstream+buffer+careful \
+  -i rtsp://127.0.0.1:18554/web-camera/720p_30 \
+  -t 3 -an -f null /dev/null 2>/tmp/insight-io-rtsp-errors.log
+test ! -s /tmp/insight-io-rtsp-errors.log
+
+curl -s -X POST http://127.0.0.1:18260/api/sessions/4/stop \
+  -H 'Content-Type: application/json' -d '{}' | jq
+sleep 1
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{after_rtsp_stop: [.serving_runtimes[] | select(.resolved_source.selector=="720p_30") | {runtime_key, state, consumer_count, rtsp_enabled, rtsp_publication}]}'
+
+kill ${daemon_pid} ${mediamtx_pid}
+wait ${daemon_pid} ${mediamtx_pid} 2>/dev/null || true
+```
 
 ## 2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology
 

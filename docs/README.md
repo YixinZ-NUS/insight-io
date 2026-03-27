@@ -4,8 +4,13 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 22
+- version: 23
 - major changes:
+  - 2026-03-27 closed task 7 with live-verified IPC attach plus idle-worker
+    teardown, closed the first task-8 slice with exact single-channel RTSP
+    publication on a configurable daemon RTSP port, vendored mediamtx into the
+    repo, and refreshed the docs around the current host's stable Orbbec
+    color-only catalog boundary
   - 2026-03-26 added in-memory serving-runtime reuse for identical
     `stream_id` requests across direct sessions and app-owned sources,
     surfaced serving-runtime topology in session responses plus
@@ -73,6 +78,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
   - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
@@ -121,10 +127,11 @@
 - exact-member URIs still mean one delivered stream
 - grouped preset URIs may mean one fixed related stream bundle
 - the current worktree now serves health, device catalog, alias, direct
-  session lifecycle, app/route/source lifecycle, and runtime-status endpoints
+  session lifecycle, app/route/source lifecycle, runtime-status endpoints,
+  local IPC attach, and exact single-channel RTSP publication
 - `GET /api/status` now exposes `serving_runtimes` with owner session id,
-  consumer session ids, resolved source metadata, and additive RTSP intent for
-  shared serving paths
+  consumer session ids, resolved source metadata, additive RTSP intent, IPC
+  channel facts, and runtime RTSP publication facts for shared serving paths
 - the current worktree rejects `insightos://` inputs whose host does not match
   the configured local catalog host on both direct-session and app-source
   creation paths
@@ -140,10 +147,18 @@
   configured RTSP host
 - same `uri` plus the same publication requirements may share one serving path;
   RTSP publication may be additive on shared runtime when lifecycle rules allow
-- runtime still needs a post-capture publication phase for output profile,
-  codec, and protocol-description work, but that phase stays runtime-only in v1
+- the runtime now includes the first runtime-only post-capture publication
+  phase for exact single-channel RTSP publication, and that phase stays
+  runtime-only in v1
 - local SDK attach always uses IPC, but that is implicit and not a posted
   field
+- when the last local IPC consumer disconnects and no RTSP publication is
+  active, the serving runtime now returns to `ready` and releases the capture
+  worker instead of holding the device open idly
+- on the 2026-03-27 development-host verification pass, discovery remained
+  stable across eight cold starts and consistently exposed one SDK-backed
+  `sv1301s-u3` Orbbec device with color selectors only; grouped/depth selectors
+  were not reproduced on this host during that pass
 - `DELETE /api/sessions/{id}` must return `409 Conflict` while any app source
   still references that session
 - direct sessions are standalone session-first runtime intent; declaring a
@@ -204,6 +219,8 @@
 | `docs/diagram/direct-session-sequence.md` | sequence diagram for direct-session create, restart, and delete flow | active |
 | `docs/diagram/app-route-source-sequence.md` | sequence diagram for app create, route declaration, bind, stop/start, and rebind flow | active |
 | `docs/diagram/grouped-route-delete-sequence.md` | sequence diagram for grouped bind cleanup when one member route is deleted | active |
+| `docs/diagram/exact-rtsp-publication-sequence.md` | sequence diagram for exact-source shared-runtime RTSP publication | active |
+| `docs/diagram/ipc-idle-teardown-sequence.md` | sequence diagram for local IPC attach, idle disconnect, and worker release | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
 ## Status Rules

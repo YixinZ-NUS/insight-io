@@ -4,8 +4,13 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 11
+- version: 12
 - major changes:
+  - 2026-03-27 added local IPC attach and exact single-channel RTSP runtime
+    walkthroughs, documented the new `--rtsp-port` daemon flag plus vendored
+    mediamtx flow, verified idle-worker teardown and route rebind release on
+    the development host, and updated the live Orbbec notes to the current
+    stable color-only catalog boundary
   - 2026-03-26 added serving-runtime reuse across matching direct sessions and
     app-owned sources, documented the new `serving_runtime` and
     `serving_runtimes` status fields, and added a live shared-runtime smoke
@@ -37,6 +42,7 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
   - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
@@ -63,9 +69,11 @@ This guide covers the current worktree slice only:
 - create exact, grouped, and session-backed app-source bindings
 - stop, restart, and rebind app sources
 - inspect `/api/status`
+- attach to active exact sessions over the unix IPC control socket
+- publish exact single-channel RTSP on top of the shared serving runtime
 
-SDK callbacks, IPC attach, active RTSP serving runtime, and frontend
-management are still not available in this worktree slice.
+SDK callbacks and frontend management are still not available in this
+worktree slice.
 
 ## Build
 
@@ -83,6 +91,8 @@ Expected binaries:
 - `build/bin/session_service_test`
 - `build/bin/rest_server_test`
 - `build/bin/app_service_test`
+- `build/bin/ipc_runtime_test`
+- `build/bin/insightio_ipc_probe`
 
 ## Test
 
@@ -98,6 +108,7 @@ Current checked-in result on the development host:
 - `session_service_test`: pass
 - `rest_server_test`: pass
 - `app_service_test`: pass
+- `ipc_runtime_test`: pass
 
 ## Run
 
@@ -107,7 +118,8 @@ Current checked-in result on the development host:
   --port 18180 \
   --db-path /tmp/insight-io.sqlite3 \
   --frontend /tmp/frontend \
-  --rtsp-host 127.0.0.1
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18554
 ```
 
 Notes:
@@ -116,6 +128,8 @@ Notes:
   [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
 - `--frontend` is accepted now so later frontend slices can use the same CLI,
   but no static frontend is served yet
+- `--rtsp-host` and `--rtsp-port` together control the catalog RTSP URLs and
+  the runtime publisher destination
 
 ## Health Check
 
@@ -145,9 +159,16 @@ curl -s http://127.0.0.1:18180/api/devices | jq
 On the current development machine, the catalog currently shows:
 
 - one V4L2 webcam with selectors such as `720p_30`
-- one Orbbec device with selectors including `orbbec/depth/400p_30`,
-  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30`
+- one SDK-backed Orbbec device currently exposing color selectors such as
+  `orbbec/color/480p_30`
 - two PipeWire audio sources when PipeWire discovery is enabled
+
+Current 2026-03-27 host note:
+
+- eight cold daemon starts reproduced the same four-device catalog shape and
+  did not reproduce the earlier disappearing-Orbbec case during this pass
+- grouped Orbbec depth and preset selectors were not reproduced on this host
+  during this pass, so this guide does not claim them locally
 
 ## Device Alias
 
@@ -216,6 +237,7 @@ The current worktree test scope is intentionally narrow:
 - persisted catalog shaping
 - direct-session lifecycle and status verification
 - durable app, route, and app-source persistence plus lifecycle verification
+- local IPC attach and idle-worker teardown verification
 - REST health, catalog, alias, direct-session, and app/route/source surfaces
 
 Current audit result:
@@ -234,7 +256,8 @@ Current audit result:
   --port 18183 \
   --db-path /tmp/insight-io-review.sqlite3 \
   --frontend /tmp/frontend \
-  --rtsp-host 127.0.0.1
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18554
 
 curl -s http://127.0.0.1:18183/api/health | jq
 curl -s http://127.0.0.1:18183/api/devices | jq
@@ -244,11 +267,14 @@ Current audit result on the development host:
 
 - `GET /api/devices` returned four online devices on this host:
   - one V4L2 webcam
-  - one Orbbec camera
+  - one SDK-backed Orbbec color device
   - two PipeWire audio devices
 - the webcam retained compact selectors such as `720p_30`
-- the Orbbec device exposed `orbbec/depth/400p_30`,
-  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30`
+- the Orbbec device exposed color selectors such as
+  `orbbec/color/480p_30`
+- eight cold daemon starts in the 2026-03-27 pass reproduced the same
+  color-only Orbbec catalog and did not reproduce the earlier disappearing
+  device case during that pass
 - the direct-session smoke flow using `insightos://localhost/web-camera/720p_30`
   succeeded for create, inspect, status, stop, restart, and delete
 
@@ -361,13 +387,15 @@ The current backend now exposes these session endpoints:
 - `GET /api/status`
 
 The focused tests plus the live smoke flow above verify the direct-session
-REST and persistence slice on this host. Serving-runtime reuse is now also
-implemented and inspectable, but IPC attach, SDK callbacks, and active RTSP
-publication runtime are still future work.
+REST and persistence slice on this host. Serving-runtime reuse, IPC attach,
+idle-worker teardown, and exact single-channel RTSP publication are now also
+implemented and inspectable here. SDK callbacks and frontend flows remain
+future work.
 
 ## Shared Runtime Reuse Smoke Test
 
-Use this when verifying task 6 on the development host.
+Use this when verifying shared runtime plus additive RTSP publication on the
+development host.
 
 ```bash
 first=$(curl -s -X POST http://127.0.0.1:18180/api/sessions \
@@ -410,6 +438,94 @@ Expected observations on the current host:
   with `owner_session_id`, `consumer_session_ids`, resolved source metadata,
   and additive RTSP intent for the shared path
 
+## IPC Attach Smoke Test
+
+Use the repo-native IPC probe to attach to an exact active session:
+
+```bash
+session_json=$(curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}')
+
+session_id=$(printf '%s' "${session_json}" | jq -r '.session_id')
+socket_path=$(curl -s http://127.0.0.1:18180/api/health | jq -r '.ipc_socket_path')
+
+./build/bin/insightio_ipc_probe "${socket_path}" "${session_id}"
+
+sleep 1
+curl -s http://127.0.0.1:18180/api/status | jq \
+  '.serving_runtimes[] | select(.resolved_source.selector=="720p_30")'
+```
+
+Expected observations on the current host:
+
+- the probe prints one frame summary for the exact source
+- after the probe exits, the runtime returns to `state = "ready"`
+- `attached_consumer_count` returns to `0`
+- `frames_published` resets to `0`, proving the worker stopped instead of
+  holding the device open idly
+
+## Exact RTSP Publication Smoke Test
+
+Start the vendored RTSP server on a non-default port:
+
+```bash
+cfg=/tmp/insightio-mediamtx-18554.yml
+sed -e 's/apiAddress: :9997/apiAddress: :19997/' \
+    -e 's/rtspAddress: :8554/rtspAddress: :18554/' \
+    third_party/mediamtx/insightio.yml > "${cfg}"
+
+mkdir -p Log/mediamtx
+./third_party/mediamtx/mediamtx "${cfg}"
+```
+
+In another shell, start the backend with the same RTSP host and port:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18180 \
+  --db-path /tmp/insight-io.sqlite3 \
+  --frontend /tmp/frontend \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18554
+```
+
+Create one shared runtime and then add RTSP publication:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}' | jq
+
+curl -s http://127.0.0.1:18180/api/status | jq \
+  '.serving_runtimes[] | select(.resolved_source.selector=="720p_30")'
+```
+
+Validate the published RTSP path with strict FFmpeg checking:
+
+```bash
+ffmpeg -rtsp_transport tcp -loglevel warning \
+  -err_detect +crccheck+bitstream+buffer+careful \
+  -i rtsp://127.0.0.1:18554/web-camera/720p_30 \
+  -t 3 -an -f null /dev/null 2>errors.log
+```
+
+Expected observations on the current host:
+
+- the second session reports the same `runtime_key` as the first session plus
+  `rtsp_publication.state = "active"`
+- `GET /api/status` reports `consumer_count = 2`, `rtsp_enabled = true`, and
+  the runtime RTSP publication details
+- `errors.log` stays empty under the strict FFmpeg command above
+- after stopping the RTSP-requiring session, the runtime remains for the
+  non-RTSP consumer but returns to `state = "ready"` with
+  `rtsp_publication = null`
+
 ## App Route Source Smoke Test
 
 Create one idle app and inspect the durable record:
@@ -448,7 +564,8 @@ curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
   -d '{"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"}' | jq
 ```
 
-Create one grouped app-source bind from the live Orbbec preset:
+If the current host lists a grouped Orbbec preset, create one grouped
+app-source bind with:
 
 ```bash
 curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
@@ -467,7 +584,7 @@ curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/start \
 
 curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/rebind \
   -H 'Content-Type: application/json' \
-  -d '{"input":"insightos://localhost/web-camera/1080p_30"}' | jq
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/color/480p_30"}' | jq
 ```
 
 Session-backed attach and delete-conflict verification:

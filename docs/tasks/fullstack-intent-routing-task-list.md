@@ -4,8 +4,12 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 13
+- version: 14
 - major changes:
+  - 2026-03-27 closed task 7 with live-verified IPC attach, idle-worker
+    teardown, and repo-native unix-socket control flow, closed the first task
+    8 slice with exact single-channel RTSP publication plus strict FFmpeg
+    validation, and moved the next handoff to SDK callback delivery
   - 2026-03-26 closed task 6 by adding in-memory serving-runtime reuse across
     direct sessions and app-owned sources, exposing serving-runtime topology in
     `GET /api/status`, and moving the next handoff to donor IPC delivery
@@ -31,6 +35,7 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
@@ -45,16 +50,17 @@
 The current worktree covers the explicit v1 schema, a versioned health
 endpoint, persisted discovery and catalog reads, device alias updates, direct
 session REST/status flow, durable app/route/source CRUD and lifecycle
-endpoints, serving-runtime reuse across identical `stream_id` requests, and
+endpoints, serving-runtime reuse across identical `stream_id` requests, local
+IPC attach over the shared runtime, exact single-channel RTSP publication, and
 focused build/runtime tests. The ordered tasks below describe the remaining
 feature work.
 
 Completed slices:
 
-- tasks 1 through 6 are now implemented and verification-backed in the current
+- tasks 1 through 8 are now implemented and verification-backed in the current
   worktree
 
-The next implementation slice is task 7.
+The next implementation slice is task 9.
 
 ## Ordered Tasks
 
