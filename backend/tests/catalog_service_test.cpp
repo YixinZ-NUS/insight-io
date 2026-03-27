@@ -1,8 +1,10 @@
 // role: focused catalog service tests for the standalone backend.
-// revision: 2026-03-27 live-orbbec-depth-catalog-followup
+// revision: 2026-03-27 live-orbbec-persistence-and-format-followup
 // major changes: verifies alias persistence, reviewed V4L2 selector naming,
-// Orbbec selector shaping without a serial-specific allowlist, and the
-// intentional omission of raw IR streams from the public v1 catalog contract.
+// Orbbec selector shaping without a serial-specific allowlist, the public
+// `y16` depth-format contract for Orbbec selectors, persistence semantics
+// across missing/recovered discovery, and the intentional omission of raw IR
+// streams from the public v1 catalog contract.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/catalog.hpp"
@@ -146,6 +148,7 @@ DeviceInfo make_orbbec_with_ir() {
 }
 
 struct PersistedSourceRow {
+    std::string format;
     std::string media_kind;
     bool grouped{false};
     bool present{false};
@@ -157,7 +160,8 @@ std::map<std::string, PersistedSourceRow> persisted_sources_for_device(
     std::map<std::string, PersistedSourceRow> sources;
     sqlite3_stmt* statement = nullptr;
     const char* sql =
-        "SELECT s.selector, s.media_kind, s.members_json IS NOT NULL, s.is_present "
+        "SELECT s.selector, json_extract(s.caps_json, '$.format'), s.media_kind, "
+        "s.members_json IS NOT NULL, s.is_present "
         "FROM streams s "
         "JOIN devices d ON d.device_id = s.device_id "
         "WHERE d.public_name = ? "
@@ -174,12 +178,14 @@ std::map<std::string, PersistedSourceRow> persisted_sources_for_device(
     while (sqlite3_step(statement) == SQLITE_ROW) {
         const auto* selector =
             reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
-        const auto* media_kind =
+        const auto* format =
             reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
-        const bool grouped = sqlite3_column_int(statement, 2) != 0;
-        const bool present = sqlite3_column_int(statement, 3) != 0;
-        if (selector && media_kind) {
-            sources[selector] = {media_kind, grouped, present};
+        const auto* media_kind =
+            reinterpret_cast<const char*>(sqlite3_column_text(statement, 2));
+        const bool grouped = sqlite3_column_int(statement, 3) != 0;
+        const bool present = sqlite3_column_int(statement, 4) != 0;
+        if (selector && format && media_kind) {
+            sources[selector] = {format, media_kind, grouped, present};
         }
     }
     sqlite3_finalize(statement);
@@ -357,6 +363,8 @@ TEST(orbbec_depth_and_grouped_entries_persist_to_streams_table) {
     EXPECT_TRUE(persisted.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(persisted.contains("orbbec/depth/480p_30"));
     EXPECT_TRUE(persisted.contains("orbbec/preset/480p_30"));
+    EXPECT_EQ(persisted.at("orbbec/depth/400p_30").format, "y16");
+    EXPECT_EQ(persisted.at("orbbec/depth/480p_30").format, "y16");
     EXPECT_EQ(persisted.at("orbbec/depth/400p_30").media_kind, "depth");
     EXPECT_EQ(persisted.at("orbbec/depth/480p_30").media_kind, "depth");
     EXPECT_TRUE(persisted.at("orbbec/depth/400p_30").present);

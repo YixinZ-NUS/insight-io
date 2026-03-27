@@ -4,8 +4,13 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 24
+- version: 25
 - major changes:
+  - 2026-03-27 reverified live Orbbec persistence after a manual replug,
+    confirmed the catalog reloads the same 21 `sv1301s-u3` selectors from the
+    same SQLite file after restart, documented the intentional public IR
+    omission as a v1 contract boundary, and documented why the public Orbbec
+    depth format stays normalized to `y16`
   - 2026-03-27 rechecked live Orbbec discovery against the donor daemon,
     restored donor-style depth-family format mapping in Orbbec discovery plus
     the 480p catalog probe, confirmed the current host now republishes exact
@@ -83,6 +88,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
@@ -165,9 +171,14 @@
   SDK-backed `sv1301s-u3` Orbbec device with exact color selectors, exact
   depth selectors including `orbbec/depth/400p_30` and
   `orbbec/depth/480p_30`, and grouped `orbbec/preset/480p_30`
+- raw Orbbec SDK/config profiles may enumerate `Y10`, `Y11`, `Y12`, or `Y14`,
+  but the public Orbbec depth contract stays normalized to `y16` because the
+  checked-in worker, live IPC attach, donor app examples, and bundled SDK
+  samples all consume 16-bit depth buffers under that unified contract
 - donor-style raw Orbbec discovery also sees `ir` on this host, but the
-  current public catalog intentionally stays within the documented v1
-  color/depth exact-member and grouped-preset contract
+  current public catalog intentionally omits `orbbec/ir/...` until the v1
+  route/app/session contract defines an IR consumer surface rather than only
+  the current color/depth exact-member and grouped-preset contract
 - `DELETE /api/sessions/{id}` must return `409 Conflict` while any app source
   still references that session
 - direct sessions are standalone session-first runtime intent; declaring a

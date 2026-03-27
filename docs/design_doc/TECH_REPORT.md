@@ -4,8 +4,12 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 16
+- version: 17
 - major changes:
+  - 2026-03-27 reverified live Orbbec persistence after a manual replug,
+    recorded that the same SQLite file reloads the same 21 `sv1301s-u3`
+    selectors after restart, documented the intentional public IR omission, and
+    documented why the public Orbbec depth contract stays normalized to `y16`
   - 2026-03-27 rechecked live Orbbec publication against the donor daemon,
     restored donor-style depth-family format mapping in Orbbec discovery plus
     the 480p catalog probe, confirmed the current host now republishes exact
@@ -53,6 +57,7 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
@@ -155,10 +160,23 @@ Observed from the current audit:
   - exact depth selectors including `orbbec/depth/400p_30`,
     `orbbec/depth/480p_30`, and native `320x200` and `800p` depth families
   - grouped `orbbec/preset/480p_30`
+- a manual replug follow-up rerun against the same SQLite file then confirmed
+  that a restart still reloads the same 21 live `sv1301s-u3` selectors from
+  the catalog on this host
+- raw Orbbec SDK/config enumeration still contains depth-family formats such as
+  `Y10`, `Y11`, `Y12`, and `Y14`, but the checked-in public depth contract
+  stays normalized to `y16` because:
+  - the checked-in worker selects those profiles under one depth-like match and
+    reports live first frames as `format=y16`
+  - the bundled Orbbec SDK examples request or inspect `OB_FORMAT_Y16` for
+    depth in `Sample-DepthViewer`, `Sample-AlignFilterViewer`,
+    `Sample-PostProcessing`, and `Sample-DepthUnitControl`
+  - the donor `rgbd_proximity_capture` example also accepts only
+    `y16/gray16/z16` for depth consumption
 - raw Orbbec discovery now matches the donor daemon for `color`, `depth`, and
   `ir` on this host, but the checked-in public catalog still intentionally
   omits `ir` because the active v1 docs only define color/depth exact members
-  plus grouped preset publication
+  plus grouped preset publication and no first-class IR consumer path
 - exact IPC attach is now live-verified through the repo-native unix control
   socket for:
   - `insightos://localhost/web-camera/720p_30`
@@ -632,6 +650,10 @@ adding are:
   checked-in catalog again republishes the documented exact depth selectors and
   grouped `orbbec/preset/480p_30` for the proven `sv1301s-u3` family
   (`2bc5:0614`)
+- even though the underlying SDK config also lists raw depth-family names such
+  as `Y10`, `Y11`, `Y12`, and `Y14`, the checked-in public contract continues
+  to publish Orbbec depth as `y16` because that matches the delivered worker
+  type and the supported SDK/example consumer surface
 - serial-specific gating is gone, but pure SDK D2C capability gating is not yet
   the authoritative publication rule:
   the current catalog still accepts the proven family/hardcoded 480p path, and

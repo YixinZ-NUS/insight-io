@@ -4,8 +4,11 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 13
+- version: 14
 - major changes:
+  - 2026-03-27 reverified live Orbbec persistence after a manual replug,
+    documented the intentional IR omission more explicitly, and recorded why
+    the public Orbbec depth contract stays normalized to `y16`
   - 2026-03-27 rechecked the live Orbbec catalog against the donor daemon,
     restored donor-style depth-family format mapping in Orbbec discovery plus
     the 480p catalog probe, and updated the host notes now that
@@ -47,6 +50,7 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
@@ -178,9 +182,14 @@ Current 2026-03-27 host note:
 - a follow-up live rerun after restoring donor-style Orbbec depth-family
   format mapping confirmed the same host now republishes exact depth selectors
   and grouped `orbbec/preset/480p_30`
+- the public Orbbec depth selectors stay normalized to `y16` even when raw SDK
+  profile/config names vary across `Y10`, `Y11`, `Y12`, `Y14`, or `Y16`,
+  because the checked-in worker and supported SDK examples consume one 16-bit
+  depth-buffer contract
 - raw donor-style Orbbec discovery also sees `ir` on this host, but the
-  current public catalog intentionally stays within the documented v1
-  color/depth exact-member and grouped-preset contract
+  current public catalog intentionally omits `orbbec/ir/...` because the
+  documented v1 app/session contract only defines color, depth, and grouped
+  RGBD preset consumers
 
 ## Device Alias
 
@@ -285,8 +294,14 @@ Current audit result on the development host:
 - the Orbbec device exposed exact color selectors, exact depth selectors
   including `orbbec/depth/400p_30` and `orbbec/depth/480p_30`, and grouped
   `orbbec/preset/480p_30`
+- the Orbbec depth selectors and persisted `streams.caps_json.format` values
+  stayed normalized to `y16` across a same-DB restart after the manual replug
 - raw donor-style Orbbec discovery also sees `ir`, but the checked-in public
-  catalog intentionally does not yet publish `orbbec/ir/...` selectors
+  catalog intentionally omits `orbbec/ir/...` because v1 only documents
+  color/depth exact-member and grouped-preset consumers
+- a live direct-session plus `insightio_ipc_probe` attach on
+  `orbbec/depth/400p_30` produced a `640x400` first frame with
+  `frame_size = 512000`, matching the published `y16` contract
 - repeated daemon restarts in the 2026-03-27 pass did not reproduce the
   earlier disappearing device case during that pass
 - the direct-session smoke flow using `insightos://localhost/web-camera/720p_30`

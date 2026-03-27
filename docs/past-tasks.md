@@ -4,8 +4,12 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 17
+- version: 18
 - major changes:
+  - 2026-03-27 reverified live Orbbec persistence after a manual replug,
+    confirmed the same SQLite file reloads the same 21 `sv1301s-u3`
+    selectors after restart, and recorded why the public Orbbec depth contract
+    stays normalized to `y16` while raw `ir` remains outside the v1 catalog
   - 2026-03-27 restored live Orbbec depth and grouped catalog publication by
     rechecking the donor daemon on the same host, restoring donor-style
     depth-family format mapping in Orbbec discovery plus the 480p catalog
@@ -58,6 +62,93 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract
+
+### What Changed
+
+- extended
+  [catalog_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/catalog_service_test.cpp)
+  so the persisted Orbbec rows now assert the public depth-format contract as
+  `y16` in addition to the existing selector, grouped-flag, and
+  missing/recovered-discovery persistence checks
+- updated the active contract docs and operator notes to explain two current
+  Orbbec boundaries explicitly:
+  - raw `ir` discovery remains intentionally outside the public v1 catalog
+    because the documented app/session contract still defines only
+    color/depth exact members plus grouped RGBD preset consumers
+  - raw SDK depth-family names such as `Y10`, `Y11`, `Y12`, and `Y14` remain
+    normalized to public `y16` because the delivered runtime and supported SDK
+    examples consume one 16-bit depth-buffer contract
+
+### Why
+
+- the earlier follow-up fixed the missing depth/grouped Orbbec catalog entries,
+  but the next review question was whether those entries were really durable
+  across restart and whether the public format should expose raw SDK names or
+  one normalized `y16` contract
+- a clean answer needed both live host evidence and local SDK-example evidence
+  rather than only code inspection
+
+### Verification
+
+```bash
+ctest --test-dir build --output-on-failure -R 'catalog_service_test'
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18276 \
+  --db-path /tmp/insight-io-live-persist.sqlite3 \
+  --frontend /tmp/insight-io-live-persist-frontend \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18576
+
+curl -s http://127.0.0.1:18276/api/devices | jq \
+  '.devices[] | select(.driver=="orbbec") | {name: .public_name, source_count: (.sources|length), depth_formats: ([.sources[] | select(.media_kind=="depth") | .caps_json.format] | unique)}'
+
+sqlite3 /tmp/insight-io-live-persist.sqlite3 \
+  "select d.public_name, d.status, s.selector, s.media_kind, json_extract(s.caps_json, '$.format') as format, case when s.members_json is null then 0 else 1 end as grouped, s.is_present \
+   from streams s join devices d on d.device_id=s.device_id \
+   where d.driver='orbbec' order by s.selector;"
+
+# stop the daemon, restart with the same SQLite file, then rerun:
+curl -s http://127.0.0.1:18276/api/devices | jq \
+  '.devices[] | select(.driver=="orbbec") | {name: .public_name, source_count: (.sources|length), depth_formats: ([.sources[] | select(.media_kind=="depth") | .caps_json.format] | unique)}'
+
+curl -s -X POST http://127.0.0.1:18276/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/depth/400p_30","rtsp_enabled":false}'
+
+socket_path=$(curl -s http://127.0.0.1:18276/api/health | jq -r '.ipc_socket_path')
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+
+sed -n '1,140p' ../insightos/third_party/orbbec_sdk/Example/cpp/Sample-DepthViewer/DepthViewer.cpp
+sed -n '1,240p' ../insightos/examples/rgbd_proximity_capture.cpp
+```
+
+Observed results:
+
+- after a manual replug, a fresh daemon start on this host again published one
+  Orbbec `sv1301s-u3` device with 21 selectors, including exact depth entries
+  and grouped `orbbec/preset/480p_30`
+- the persisted SQLite rows for that device used `format = y16` for every
+  exact depth selector
+- after stopping and restarting the daemon against the same SQLite file, the
+  same host again loaded the same 21 live Orbbec selectors and the same public
+  `y16` depth contract
+- a live exact direct session plus `insightio_ipc_probe` attach on
+  `orbbec/depth/400p_30` produced `frame_size = 512000`, exactly matching
+  `640x400x2`, and the daemon log printed
+  `depth first frame: 640x400 format=y16 bytes=512000`
+- the bundled Orbbec SDK examples and donor consumer example continue to treat
+  depth as a 16-bit delivered type:
+  - `Sample-DepthViewer` inspects `OB_FORMAT_Y16`
+  - `Sample-AlignFilterViewer`, `Sample-PostProcessing`, and
+    `Sample-DepthUnitControl` request `OB_FORMAT_Y16`
+  - donor `rgbd_proximity_capture` accepts only `y16/gray16/z16` for depth
+- raw `ir` discovery is still visible internally on this host, but remains out
+  of the public catalog because the documented v1 app/session contract does
+  not yet define IR consumers
 
 ## 2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication
 
