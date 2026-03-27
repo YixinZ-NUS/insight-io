@@ -1,9 +1,10 @@
 // role: REST server implementation for the current standalone backend slices.
-// revision: 2026-03-26 task6-serving-runtime-reuse
+// revision: 2026-03-27 task9-browser-surface
 // major changes: exposes catalog, direct-session, app/route/source, and
 // runtime-status endpoints while keeping media realization lightweight, route
 // responses aligned with the documented `expect` field, surfacing serving
-// runtime reuse, and hardening path-id parsing against 64-bit overflow.
+// runtime reuse, adding AIP-style custom-method aliases, and serving the
+// repo-native browser UI from optional static frontend assets.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/rest_server.hpp"
@@ -16,6 +17,10 @@
 
 #include <chrono>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <sstream>
 #include <string_view>
 #include <thread>
 
@@ -68,6 +73,17 @@ void send_error(httplib::Response& response,
                 int status,
                 const std::string& code,
                 const std::string& message);
+
+std::optional<std::string> read_text_file(const std::filesystem::path& path) {
+    std::ifstream stream(path);
+    if (!stream.is_open()) {
+        return std::nullopt;
+    }
+
+    std::ostringstream buffer;
+    buffer << stream.rdbuf();
+    return buffer.str();
+}
 
 nlohmann::json resolved_source_to_json(const SessionResolvedSource& source) {
     nlohmann::json json = {
@@ -424,6 +440,194 @@ void RestServer::stop() {
 }
 
 void RestServer::setup_routes() {
+    const auto serve_frontend_index =
+        [this](const httplib::Request&, httplib::Response& response) {
+            if (frontend_dir_.empty()) {
+                send_error(response,
+                           404,
+                           "not_found",
+                           "Frontend assets are not configured on this server");
+                return;
+            }
+
+            const auto index_path =
+                std::filesystem::path(frontend_dir_) / "index.html";
+            const auto index_html = read_text_file(index_path);
+            if (!index_html.has_value()) {
+                send_error(response,
+                           404,
+                           "not_found",
+                           "Frontend index file '" + index_path.string() +
+                               "' was not found");
+                return;
+            }
+
+            response.set_content(*index_html, "text/html; charset=utf-8");
+        };
+
+    auto handle_start_source =
+        [this](const httplib::Request& request, httplib::Response& response) {
+            std::int64_t app_id = 0;
+            if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                return;
+            }
+            std::int64_t source_id = 0;
+            if (!parse_path_id(request, response, 2, "source_id", source_id)) {
+                return;
+            }
+            AppSourceRecord updated;
+            int error_status = 500;
+            std::string error_code;
+            std::string error_message;
+            if (!apps_.start_source(app_id,
+                                    source_id,
+                                    updated,
+                                    error_status,
+                                    error_code,
+                                    error_message)) {
+                send_error(response, error_status, error_code, error_message);
+                return;
+            }
+            response.set_content(source_binding_to_json(updated).dump(2),
+                                 "application/json");
+        };
+
+    auto handle_stop_source =
+        [this](const httplib::Request& request, httplib::Response& response) {
+            std::int64_t app_id = 0;
+            if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                return;
+            }
+            std::int64_t source_id = 0;
+            if (!parse_path_id(request, response, 2, "source_id", source_id)) {
+                return;
+            }
+            AppSourceRecord updated;
+            int error_status = 500;
+            std::string error_code;
+            std::string error_message;
+            if (!apps_.stop_source(app_id,
+                                   source_id,
+                                   updated,
+                                   error_status,
+                                   error_code,
+                                   error_message)) {
+                send_error(response, error_status, error_code, error_message);
+                return;
+            }
+            response.set_content(source_binding_to_json(updated).dump(2),
+                                 "application/json");
+        };
+
+    auto handle_rebind_source =
+        [this](const httplib::Request& request, httplib::Response& response) {
+            std::int64_t app_id = 0;
+            if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                return;
+            }
+            std::int64_t source_id = 0;
+            if (!parse_path_id(request, response, 2, "source_id", source_id)) {
+                return;
+            }
+            nlohmann::json body;
+            if (!parse_json_body(request, response, body)) {
+                return;
+            }
+
+            std::optional<std::string> input;
+            if (body.contains("input")) {
+                if (!body.at("input").is_string()) {
+                    send_error(response, 400, "bad_request",
+                               "Field 'input' must be string when present");
+                    return;
+                }
+                input = body.at("input").get<std::string>();
+            }
+
+            std::optional<std::int64_t> session_id;
+            if (body.contains("session_id")) {
+                if (!body.at("session_id").is_number_integer()) {
+                    send_error(response, 400, "bad_request",
+                               "Field 'session_id' must be integer when present");
+                    return;
+                }
+                session_id = body.at("session_id").get<std::int64_t>();
+            }
+
+            bool rtsp_enabled = false;
+            if (body.contains("rtsp_enabled")) {
+                if (!body.at("rtsp_enabled").is_boolean()) {
+                    send_error(response, 400, "bad_request",
+                               "Field 'rtsp_enabled' must be boolean when present");
+                    return;
+                }
+                rtsp_enabled = body.at("rtsp_enabled").get<bool>();
+            }
+
+            AppSourceRecord updated;
+            int error_status = 500;
+            std::string error_code;
+            std::string error_message;
+            if (!apps_.rebind_source(app_id,
+                                     source_id,
+                                     input,
+                                     session_id,
+                                     rtsp_enabled,
+                                     updated,
+                                     error_status,
+                                     error_code,
+                                     error_message)) {
+                send_error(response, error_status, error_code, error_message);
+                return;
+            }
+            response.set_content(source_binding_to_json(updated).dump(2),
+                                 "application/json");
+        };
+
+    auto handle_start_session =
+        [this](const httplib::Request& request, httplib::Response& response) {
+            std::int64_t session_id = 0;
+            if (!parse_path_id(request, response, 1, "session_id", session_id)) {
+                return;
+            }
+            SessionRecord updated;
+            int error_status = 500;
+            std::string error_code;
+            std::string error_message;
+            if (!sessions_.start_session(session_id,
+                                         updated,
+                                         error_status,
+                                         error_code,
+                                         error_message)) {
+                send_error(response, error_status, error_code, error_message);
+                return;
+            }
+            response.set_content(session_to_json(updated).dump(2),
+                                 "application/json");
+        };
+
+    auto handle_stop_session =
+        [this](const httplib::Request& request, httplib::Response& response) {
+            std::int64_t session_id = 0;
+            if (!parse_path_id(request, response, 1, "session_id", session_id)) {
+                return;
+            }
+            SessionRecord updated;
+            int error_status = 500;
+            std::string error_code;
+            std::string error_message;
+            if (!sessions_.stop_session(session_id,
+                                        updated,
+                                        error_status,
+                                        error_code,
+                                        error_message)) {
+                send_error(response, error_status, error_code, error_message);
+                return;
+            }
+            response.set_content(session_to_json(updated).dump(2),
+                                 "application/json");
+        };
+
     server_->Get("/api/health", [this](const httplib::Request&, httplib::Response& response) {
         const auto devices = catalog_.list_devices();
         const auto status = sessions_.runtime_status();
@@ -449,6 +653,29 @@ void RestServer::setup_routes() {
         }
         response.set_content(body.dump(2), "application/json");
     });
+
+    auto handle_refresh_devices =
+        [this](const httplib::Request&, httplib::Response& response) {
+            if (!catalog_.refresh()) {
+                send_error(response,
+                           500,
+                           "refresh_failed",
+                           "Failed to refresh the discovery catalog");
+                return;
+            }
+
+            nlohmann::json body = {
+                {"devices", nlohmann::json::array()},
+                {"errors", catalog_.last_errors()},
+            };
+            for (const auto& device : catalog_.list_devices()) {
+                body["devices"].push_back(device_to_json(device));
+            }
+            response.set_content(body.dump(2), "application/json");
+        };
+
+    server_->Post("/api/devices/refresh", handle_refresh_devices);
+    server_->Post("/api/devices:refresh", handle_refresh_devices);
 
     server_->Get(R"(/api/devices/([^/]+))",
                  [this](const httplib::Request& request, httplib::Response& response) {
@@ -733,6 +960,29 @@ void RestServer::setup_routes() {
                      response.set_content(body.dump(2), "application/json");
                  });
 
+    server_->Get(R"(/api/apps/(\d+)/routes/(.+))",
+                 [this](const httplib::Request& request, httplib::Response& response) {
+                     std::int64_t app_id = 0;
+                     if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                         return;
+                     }
+                     RouteRecord route;
+                     int error_status = 500;
+                     std::string error_code;
+                     std::string error_message;
+                     if (!apps_.get_route(app_id,
+                                          request.matches[2].str(),
+                                          route,
+                                          error_status,
+                                          error_code,
+                                          error_message)) {
+                         send_error(response, error_status, error_code, error_message);
+                         return;
+                     }
+                     response.set_content(route_to_json(route).dump(2),
+                                          "application/json");
+                 });
+
     server_->Delete(R"(/api/apps/(\d+)/routes/(.+))",
                     [this](const httplib::Request& request, httplib::Response& response) {
                         std::int64_t app_id = 0;
@@ -779,6 +1029,33 @@ void RestServer::setup_routes() {
                          body["sources"].push_back(source_binding_to_json(source));
                      }
                      response.set_content(body.dump(2), "application/json");
+                 });
+
+    server_->Get(R"(/api/apps/(\d+)/sources/(\d+))",
+                 [this](const httplib::Request& request, httplib::Response& response) {
+                     std::int64_t app_id = 0;
+                     if (!parse_path_id(request, response, 1, "app_id", app_id)) {
+                         return;
+                     }
+                     std::int64_t source_id = 0;
+                     if (!parse_path_id(request, response, 2, "source_id", source_id)) {
+                         return;
+                     }
+                     AppSourceRecord source;
+                     int error_status = 500;
+                     std::string error_code;
+                     std::string error_message;
+                     if (!apps_.get_source(app_id,
+                                           source_id,
+                                           source,
+                                           error_status,
+                                           error_code,
+                                           error_message)) {
+                         send_error(response, error_status, error_code, error_message);
+                         return;
+                     }
+                     response.set_content(source_binding_to_json(source).dump(2),
+                                          "application/json");
                  });
 
     server_->Post(R"(/api/apps/(\d+)/sources)",
@@ -849,124 +1126,14 @@ void RestServer::setup_routes() {
                                            "application/json");
                   });
 
-    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/start)",
-                  [this](const httplib::Request& request, httplib::Response& response) {
-                      std::int64_t app_id = 0;
-                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
-                          return;
-                      }
-                      std::int64_t source_id = 0;
-                      if (!parse_path_id(request, response, 2, "source_id", source_id)) {
-                          return;
-                      }
-                      AppSourceRecord updated;
-                      int error_status = 500;
-                      std::string error_code;
-                      std::string error_message;
-                      if (!apps_.start_source(app_id,
-                                              source_id,
-                                              updated,
-                                              error_status,
-                                              error_code,
-                                              error_message)) {
-                          send_error(response, error_status, error_code, error_message);
-                          return;
-                      }
-                      response.set_content(source_binding_to_json(updated).dump(2),
-                                           "application/json");
-                  });
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/start)", handle_start_source);
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+):start)", handle_start_source);
 
-    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/stop)",
-                  [this](const httplib::Request& request, httplib::Response& response) {
-                      std::int64_t app_id = 0;
-                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
-                          return;
-                      }
-                      std::int64_t source_id = 0;
-                      if (!parse_path_id(request, response, 2, "source_id", source_id)) {
-                          return;
-                      }
-                      AppSourceRecord updated;
-                      int error_status = 500;
-                      std::string error_code;
-                      std::string error_message;
-                      if (!apps_.stop_source(app_id,
-                                             source_id,
-                                             updated,
-                                             error_status,
-                                             error_code,
-                                             error_message)) {
-                          send_error(response, error_status, error_code, error_message);
-                          return;
-                      }
-                      response.set_content(source_binding_to_json(updated).dump(2),
-                                           "application/json");
-                  });
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/stop)", handle_stop_source);
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+):stop)", handle_stop_source);
 
-    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/rebind)",
-                  [this](const httplib::Request& request, httplib::Response& response) {
-                      std::int64_t app_id = 0;
-                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
-                          return;
-                      }
-                      std::int64_t source_id = 0;
-                      if (!parse_path_id(request, response, 2, "source_id", source_id)) {
-                          return;
-                      }
-                      nlohmann::json body;
-                      if (!parse_json_body(request, response, body)) {
-                          return;
-                      }
-
-                      std::optional<std::string> input;
-                      if (body.contains("input")) {
-                          if (!body.at("input").is_string()) {
-                              send_error(response, 400, "bad_request",
-                                         "Field 'input' must be string when present");
-                              return;
-                          }
-                          input = body.at("input").get<std::string>();
-                      }
-
-                      std::optional<std::int64_t> session_id;
-                      if (body.contains("session_id")) {
-                          if (!body.at("session_id").is_number_integer()) {
-                              send_error(response, 400, "bad_request",
-                                         "Field 'session_id' must be integer when present");
-                              return;
-                          }
-                          session_id = body.at("session_id").get<std::int64_t>();
-                      }
-
-                      bool rtsp_enabled = false;
-                      if (body.contains("rtsp_enabled")) {
-                          if (!body.at("rtsp_enabled").is_boolean()) {
-                              send_error(response, 400, "bad_request",
-                                         "Field 'rtsp_enabled' must be boolean when present");
-                              return;
-                          }
-                          rtsp_enabled = body.at("rtsp_enabled").get<bool>();
-                      }
-
-                      AppSourceRecord updated;
-                      int error_status = 500;
-                      std::string error_code;
-                      std::string error_message;
-                      if (!apps_.rebind_source(app_id,
-                                               source_id,
-                                               input,
-                                               session_id,
-                                               rtsp_enabled,
-                                               updated,
-                                               error_status,
-                                               error_code,
-                                               error_message)) {
-                          send_error(response, error_status, error_code, error_message);
-                          return;
-                      }
-                      response.set_content(source_binding_to_json(updated).dump(2),
-                                           "application/json");
-                  });
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+)/rebind)", handle_rebind_source);
+    server_->Post(R"(/api/apps/(\d+)/sources/(\d+):rebind)", handle_rebind_source);
 
     server_->Get(R"(/api/sessions/(\d+))",
                  [this](const httplib::Request& request, httplib::Response& response) {
@@ -984,49 +1151,11 @@ void RestServer::setup_routes() {
                                           "application/json");
                  });
 
-    server_->Post(R"(/api/sessions/(\d+)/start)",
-                  [this](const httplib::Request& request, httplib::Response& response) {
-                      std::int64_t session_id = 0;
-                      if (!parse_path_id(request, response, 1, "session_id", session_id)) {
-                          return;
-                      }
-                      SessionRecord updated;
-                      int error_status = 500;
-                      std::string error_code;
-                      std::string error_message;
-                      if (!sessions_.start_session(session_id,
-                                                   updated,
-                                                   error_status,
-                                                   error_code,
-                                                   error_message)) {
-                          send_error(response, error_status, error_code, error_message);
-                          return;
-                      }
-                      response.set_content(session_to_json(updated).dump(2),
-                                           "application/json");
-                  });
+    server_->Post(R"(/api/sessions/(\d+)/start)", handle_start_session);
+    server_->Post(R"(/api/sessions/(\d+):start)", handle_start_session);
 
-    server_->Post(R"(/api/sessions/(\d+)/stop)",
-                  [this](const httplib::Request& request, httplib::Response& response) {
-                      std::int64_t session_id = 0;
-                      if (!parse_path_id(request, response, 1, "session_id", session_id)) {
-                          return;
-                      }
-                      SessionRecord updated;
-                      int error_status = 500;
-                      std::string error_code;
-                      std::string error_message;
-                      if (!sessions_.stop_session(session_id,
-                                                  updated,
-                                                  error_status,
-                                                  error_code,
-                                                  error_message)) {
-                          send_error(response, error_status, error_code, error_message);
-                          return;
-                      }
-                      response.set_content(session_to_json(updated).dump(2),
-                                           "application/json");
-                  });
+    server_->Post(R"(/api/sessions/(\d+)/stop)", handle_stop_session);
+    server_->Post(R"(/api/sessions/(\d+):stop)", handle_stop_session);
 
     server_->Delete(R"(/api/sessions/(\d+))",
                     [this](const httplib::Request& request, httplib::Response& response) {
@@ -1066,6 +1195,13 @@ void RestServer::setup_routes() {
         }
         response.set_content(body.dump(2), "application/json");
     });
+
+    if (!frontend_dir_.empty() &&
+        std::filesystem::is_directory(std::filesystem::path(frontend_dir_))) {
+        (void)server_->set_mount_point("/static", frontend_dir_);
+    }
+    server_->Get("/", serve_frontend_index);
+    server_->Get("/index.html", serve_frontend_index);
 }
 
 }  // namespace insightio::backend

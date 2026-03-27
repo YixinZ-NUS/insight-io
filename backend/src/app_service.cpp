@@ -1,9 +1,10 @@
 // role: durable app, route, and app-source implementation for the backend.
-// revision: 2026-03-26 task6-serving-runtime-reuse
+// revision: 2026-03-27 task9-sdk-route-surface
 // major changes: cleans grouped source rows when one member route is deleted,
 // removes app-owned grouped sessions that would retain stale member metadata,
 // propagates app-delete session stop failures, hardens post-insert reloads,
-// and reuses in-memory serving runtimes across direct and app-owned sessions.
+// reuses in-memory serving runtimes across direct and app-owned sessions, and
+// adds route/source detail lookups for the task-9 SDK and REST subresources.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -1046,6 +1047,32 @@ bool AppService::list_routes(std::int64_t app_id,
     return true;
 }
 
+bool AppService::get_route(std::int64_t app_id,
+                           const std::string& route_name,
+                           RouteRecord& route,
+                           int& error_status,
+                           std::string& error_code,
+                           std::string& error_message) const {
+    if (!load_app(store_.db(), app_id).has_value()) {
+        error_status = 404;
+        error_code = "not_found";
+        error_message = "App '" + std::to_string(app_id) + "' not found";
+        return false;
+    }
+
+    auto loaded = find_route_by_name(store_.db(), app_id, route_name);
+    if (!loaded.has_value()) {
+        error_status = 404;
+        error_code = "not_found";
+        error_message =
+            "Route '" + route_name + "' not found on app '" + std::to_string(app_id) + "'";
+        return false;
+    }
+
+    route = std::move(*loaded);
+    return true;
+}
+
 bool AppService::create_route(std::int64_t app_id,
                               const std::string& route_name,
                               const nlohmann::json& expect_json,
@@ -1244,6 +1271,36 @@ bool AppService::list_sources(std::int64_t app_id,
         return false;
     }
     sources = load_sources_for_app(store_.db(), sessions_, app_id, uri_host_, rtsp_host_);
+    return true;
+}
+
+bool AppService::get_source(std::int64_t app_id,
+                            std::int64_t source_id,
+                            AppSourceRecord& source,
+                            int& error_status,
+                            std::string& error_code,
+                            std::string& error_message) const {
+    if (!load_app(store_.db(), app_id).has_value()) {
+        error_status = 404;
+        error_code = "not_found";
+        error_message = "App '" + std::to_string(app_id) + "' not found";
+        return false;
+    }
+
+    if (!load_source_row(store_.db(),
+                         sessions_,
+                         app_id,
+                         source_id,
+                         uri_host_,
+                         rtsp_host_,
+                         source)) {
+        error_status = 404;
+        error_code = "not_found";
+        error_message =
+            "Source '" + std::to_string(source_id) + "' not found on this app";
+        return false;
+    }
+
     return true;
 }
 

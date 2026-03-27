@@ -1,10 +1,11 @@
 // role: focused catalog service tests for the standalone backend.
-// revision: 2026-03-27 live-orbbec-persistence-and-format-followup
+// revision: 2026-03-27 task9-grouped-720p-preset
 // major changes: verifies alias persistence, reviewed V4L2 selector naming,
 // Orbbec selector shaping without a serial-specific allowlist, the public
 // `y16` depth-format contract for Orbbec selectors, persistence semantics
-// across missing/recovered discovery, and the intentional omission of raw IR
-// streams from the public v1 catalog contract.
+// across missing/recovered discovery, the grouped 720p preset contract, and
+// the intentional omission of raw IR streams from the public v1 catalog
+// contract.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/catalog.hpp"
@@ -103,11 +104,13 @@ DeviceInfo make_orbbec() {
     color.stream_id = "color";
     color.name = "color";
     color.supported_caps.push_back(ResolvedCaps{0, "mjpeg", 640, 480, 30});
+    color.supported_caps.push_back(ResolvedCaps{1, "mjpeg", 1280, 720, 30});
 
     StreamInfo depth;
     depth.stream_id = "depth";
     depth.name = "depth";
     depth.supported_caps.push_back(ResolvedCaps{0, "y16", 640, 400, 30});
+    depth.supported_caps.push_back(ResolvedCaps{1, "y16", 1280, 800, 30});
 
     device.streams.push_back(std::move(color));
     device.streams.push_back(std::move(depth));
@@ -292,6 +295,7 @@ TEST(orbbec_adds_aligned_depth_and_grouped_preset) {
     EXPECT_TRUE(selectors.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(selectors.contains("orbbec/depth/480p_30"));
     EXPECT_TRUE(selectors.contains("orbbec/preset/480p_30"));
+    EXPECT_TRUE(selectors.contains("orbbec/preset/720p_30"));
 }
 
 TEST(color_only_orbbec_does_not_publish_synthetic_depth_or_grouped_preset) {
@@ -318,6 +322,7 @@ TEST(color_only_orbbec_does_not_publish_synthetic_depth_or_grouped_preset) {
     EXPECT_TRUE(!selectors.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(!selectors.contains("orbbec/depth/480p_30"));
     EXPECT_TRUE(!selectors.contains("orbbec/preset/480p_30"));
+    EXPECT_TRUE(!selectors.contains("orbbec/preset/720p_30"));
 }
 
 TEST(orbbec_ir_streams_are_not_published_in_current_v1_catalog) {
@@ -363,6 +368,7 @@ TEST(orbbec_depth_and_grouped_entries_persist_to_streams_table) {
     EXPECT_TRUE(persisted.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(persisted.contains("orbbec/depth/480p_30"));
     EXPECT_TRUE(persisted.contains("orbbec/preset/480p_30"));
+    EXPECT_TRUE(persisted.contains("orbbec/preset/720p_30"));
     EXPECT_EQ(persisted.at("orbbec/depth/400p_30").format, "y16");
     EXPECT_EQ(persisted.at("orbbec/depth/480p_30").format, "y16");
     EXPECT_EQ(persisted.at("orbbec/depth/400p_30").media_kind, "depth");
@@ -371,6 +377,7 @@ TEST(orbbec_depth_and_grouped_entries_persist_to_streams_table) {
     EXPECT_TRUE(persisted.at("orbbec/depth/480p_30").present);
     EXPECT_TRUE(!persisted.at("orbbec/depth/400p_30").grouped);
     EXPECT_TRUE(persisted.at("orbbec/preset/480p_30").grouped);
+    EXPECT_TRUE(persisted.at("orbbec/preset/720p_30").grouped);
 }
 
 TEST(orbbec_rows_persist_across_missing_and_recovered_discovery) {
@@ -391,6 +398,7 @@ TEST(orbbec_rows_persist_across_missing_and_recovered_discovery) {
     const auto first_persisted = persisted_sources_for_device(store.db(), "desk-rgbd");
     EXPECT_TRUE(first_persisted.at("orbbec/depth/400p_30").present);
     EXPECT_TRUE(first_persisted.at("orbbec/preset/480p_30").present);
+    EXPECT_TRUE(first_persisted.at("orbbec/preset/720p_30").present);
 
     CatalogService missing_catalog(
         store,
@@ -406,8 +414,10 @@ TEST(orbbec_rows_persist_across_missing_and_recovered_discovery) {
         persisted_sources_for_device(store.db(), "desk-rgbd");
     EXPECT_TRUE(missing_persisted.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(missing_persisted.contains("orbbec/preset/480p_30"));
+    EXPECT_TRUE(missing_persisted.contains("orbbec/preset/720p_30"));
     EXPECT_TRUE(!missing_persisted.at("orbbec/depth/400p_30").present);
     EXPECT_TRUE(!missing_persisted.at("orbbec/preset/480p_30").present);
+    EXPECT_TRUE(!missing_persisted.at("orbbec/preset/720p_30").present);
 
     CatalogService recovered_catalog(
         store,
@@ -428,6 +438,7 @@ TEST(orbbec_rows_persist_across_missing_and_recovered_discovery) {
     EXPECT_TRUE(recovered_persisted.at("orbbec/depth/400p_30").present);
     EXPECT_TRUE(recovered_persisted.at("orbbec/depth/480p_30").present);
     EXPECT_TRUE(recovered_persisted.at("orbbec/preset/480p_30").present);
+    EXPECT_TRUE(recovered_persisted.at("orbbec/preset/720p_30").present);
 }
 
 }  // namespace

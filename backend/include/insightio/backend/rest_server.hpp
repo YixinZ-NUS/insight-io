@@ -1,9 +1,10 @@
 #pragma once
 
 // role: standalone HTTP surface for the current backend slices.
-// revision: 2026-03-26 app-route-source-persistence
+// revision: 2026-03-27 task9-browser-surface
 // major changes: exposes catalog, direct-session, app/route/source, and
-// runtime-status endpoints over cpp-httplib.
+// runtime-status endpoints over cpp-httplib while optionally serving the
+// repo-native frontend assets for the browser route-builder flow.
 
 #include "insightio/backend/app_service.hpp"
 #include "insightio/backend/catalog.hpp"

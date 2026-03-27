@@ -1,10 +1,11 @@
 #pragma once
 
 // role: durable app, route, and app-source service for the standalone backend.
-// revision: 2026-03-27 task8-rtsp-runtime-validation
-// major changes: keeps SQLite-backed app CRUD and source lifecycle handling
-// while aligning default RTSP publication addresses with the live runtime
-// contract.
+// revision: 2026-03-27 task9-sdk-route-surface
+// major changes: keeps SQLite-backed app CRUD and source lifecycle handling,
+// adds route/source detail lookups for the route-oriented SDK and REST
+// subresource reads, and keeps default RTSP publication addresses aligned with
+// the live runtime contract.
 
 #include "insightio/backend/schema_store.hpp"
 #include "insightio/backend/session_service.hpp"
@@ -90,6 +91,13 @@ public:
                      std::string& error_code,
                      std::string& error_message) const;
 
+    bool get_route(std::int64_t app_id,
+                   const std::string& route_name,
+                   RouteRecord& route,
+                   int& error_status,
+                   std::string& error_code,
+                   std::string& error_message) const;
+
     bool create_route(std::int64_t app_id,
                       const std::string& route_name,
                       const nlohmann::json& expect_json,
@@ -110,6 +118,13 @@ public:
                       int& error_status,
                       std::string& error_code,
                       std::string& error_message) const;
+
+    bool get_source(std::int64_t app_id,
+                    std::int64_t source_id,
+                    AppSourceRecord& source,
+                    int& error_status,
+                    std::string& error_code,
+                    std::string& error_message) const;
 
     bool create_source(std::int64_t app_id,
                        const std::optional<std::string>& input,

@@ -1,9 +1,10 @@
 // role: persisted discovery catalog for the standalone backend.
-// revision: 2026-03-27 live-orbbec-depth-catalog-followup
+// revision: 2026-03-27 task9-grouped-720p-preset
 // major changes: restores donor-style depth-family format mapping in the
 // Orbbec 480p catalog probe, keeps the proven 480p publication rule for the
-// SV1301S_U3 family, intentionally leaves raw IR discovery out of the public
-// v1 catalog contract, and preserves per-device selector uniqueness.
+// SV1301S_U3 family, adds the grouped 720p color-plus-800p-depth preset used
+// by the task-9 example app, intentionally leaves raw IR discovery out of the
+// public v1 catalog contract, and preserves per-device selector uniqueness.
 // See docs/past-tasks.md.
 
 #include "insightio/backend/catalog.hpp"
@@ -912,12 +913,15 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
     }
 
     const auto* color_480 = color == nullptr ? nullptr : find_cap(*color, 640, 480, 30);
+    const auto* color_720 = color == nullptr ? nullptr : find_cap(*color, 1280, 720, 30);
+    const auto* depth_800 = depth == nullptr ? nullptr : find_cap(*depth, 1280, 800, 30);
     // Publish aligned 480p and grouped RGBD entries only when one real depth
     // stream is present and the SDK probe either proved the D2C path or could
     // not run for this synthetic/non-live test device.
     const bool supports_480_family =
         color_480 != nullptr && depth != nullptr &&
         (probe.supports_hw_d2c_480 || !probe.probe_ran);
+    const bool supports_720_family = color_720 != nullptr && depth_800 != nullptr;
     if (depth != nullptr) {
         for (const auto& caps : depth->supported_caps) {
             const auto selector = "orbbec/depth/" + resolution_label(caps.width, caps.height) +
@@ -1008,6 +1012,44 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
             sources.push_back(make_source(public_name,
                                           rtsp_host,
                                           "orbbec/preset/480p_30",
+                                          "grouped",
+                                          "grouped",
+                                          grouped_caps,
+                                          std::move(capture_policy),
+                                          std::move(members),
+                                          {},
+                                          "orbbec-rgbd"));
+        }
+
+        if (supports_720_family) {
+            ResolvedCaps grouped_caps = *color_720;
+            auto capture_policy = nlohmann::json{
+                {"driver", "orbbec"},
+                {"device_uri", device.uri},
+                {"mode", "grouped_preset"},
+                {"preset", "720p_30"},
+                {"color_caps", caps_to_json(*color_720)},
+                {"depth_native_caps", caps_to_json(*depth_800)},
+                {"depth_delivered_caps", caps_to_json(*depth_800)},
+                {"d2c", "off"},
+                {"comment",
+                 "Grouped 720p preset keeps native 800p depth because no aligned 720p depth path is published"},
+            };
+            auto members = nlohmann::json::array({
+                {
+                    {"route", "orbbec/color"},
+                    {"selector", "orbbec/color/720p_30"},
+                    {"media", "video"},
+                },
+                {
+                    {"route", "orbbec/depth"},
+                    {"selector", "orbbec/depth/800p_30"},
+                    {"media", "depth"},
+                },
+            });
+            sources.push_back(make_source(public_name,
+                                          rtsp_host,
+                                          "orbbec/preset/720p_30",
                                           "grouped",
                                           "grouped",
                                           grouped_caps,
