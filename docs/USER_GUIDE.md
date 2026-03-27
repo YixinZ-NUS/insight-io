@@ -4,8 +4,12 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 18
+- version: 19
 - major changes:
+  - 2026-03-27 added current-host V4L2 concurrency stress notes for
+    `v4l2_latency_monitor`, documenting the published 1080p and raw selector
+    set plus the observed supported and unsupported concurrent selector
+    combinations
   - 2026-03-27 documented the example-app argument surface more explicitly,
     including default backend host and port behavior, environment-variable
     overrides, and the stop semantics for `--max-frames` and `--max-pairs`
@@ -410,6 +414,34 @@ Equivalence:
   as two separate `POST /api/apps/{id}/sources` requests
 - `--rtsp-host` and `--rtsp-port` together control the catalog RTSP URLs and
   the runtime publisher destination
+
+## Concurrent V4L2 Stress
+
+Current host results for running multiple
+[v4l2_latency_monitor](/home/yixin/Coding/insight-io/examples/v4l2_latency_monitor.cpp)
+instances against the same `web-camera`:
+
+- the published `1920x1080` selector on this host is currently
+  `1080p_30` with `mjpeg`; there is no published `1080p` raw selector in the
+  active catalog
+- the currently published raw `yuyv` selectors are `720p_10` and
+  `800x600_10`
+- two `1080p_30` consumers can both complete when the second instance starts
+  after the first is already active
+- one observed simultaneous cold-start run of two `1080p_30` consumers was not
+  reliable: one consumer completed and the other timed out without receiving
+  frames
+- one `1080p_30` consumer plus one `720p_30` consumer is not currently
+  supported concurrently on this host; the second consumer failed with
+  `IPC attach rejected route 'camera': VIDIOC_S_FMT: Device or resource busy`
+- one `720p_30` consumer plus one `720p_10` raw consumer is also not currently
+  supported concurrently on this host; the second consumer failed with the same
+  `VIDIOC_S_FMT: Device or resource busy` error
+- `720p_10` raw works correctly by itself, so the mixed-format failure is
+  contention on the shared V4L2 device rather than a broken raw selector
+
+Treat these results as current-host runtime evidence, not as a generic promise
+for every V4L2 camera.
 
 ## Health Check
 

@@ -4,8 +4,11 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 21
+- version: 22
 - major changes:
+  - 2026-03-27 added current-host V4L2 concurrency stress verification for
+    `v4l2_latency_monitor`, recording the published selector set plus the
+    observed supported and unsupported concurrent selector combinations
   - 2026-03-27 simplified the checked-in example startup path so the example
     apps can now start either with startup binds or idle for later REST
     injection, added focused regression coverage for omitted app names plus
@@ -76,6 +79,121 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Stress V4L2 Concurrent Selector Combinations
+
+### What Changed
+
+- runtime-checked the current-host V4L2 selector set published for
+  `web-camera`
+- stress-tested concurrent
+  [v4l2_latency_monitor](/home/yixin/Coding/insight-io/examples/v4l2_latency_monitor.cpp)
+  instances against:
+  - the same exact selector twice: `1080p_30` plus `1080p_30`
+  - mixed resolutions: `1080p_30` plus `720p_30`
+  - mixed formats at the nearest available raw size:
+    `720p_30` `mjpeg` plus `720p_10` `yuyv`
+- recorded the observed startup-race caveat for simultaneous cold-start on the
+  same exact selector and the device-busy failures for mixed-selector pairs
+- updated the operator guide so the current host notes now explain what
+  combinations were empirically supported and what combinations were rejected
+
+### Why
+
+- the follow-up question for this turn was whether multiple
+  `v4l2_latency_monitor` instances can consume the webcam at different exact
+  selector combinations, specifically around `1080p`, raw-versus-`mjpeg`, and
+  `1080p` plus `720p`
+- the catalog on this host does not currently publish a raw `1080p` selector,
+  so the closest real mixed-format check is `720p_30` `mjpeg` together with
+  `720p_10` `yuyv`
+
+### Verification
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18293 \
+  --db-path /tmp/insight-io-stress-18293.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18593
+
+curl -s http://127.0.0.1:18293/api/devices | jq -r \
+  '.devices[] | select(.driver=="v4l2" and .name=="web-camera") | .sources[] |
+   [.selector, .caps_json.format, .caps_json.width, .caps_json.height, .caps_json.fps] | @tsv'
+
+curl -s http://127.0.0.1:18293/api/devices | jq -r \
+  '.devices[] | select(.driver=="v4l2" and .name=="web-camera") | .sources[] |
+   select(.caps_json.width==1920 and .caps_json.height==1080) |
+   [.selector, .caps_json.format, .uri] | @tsv'
+
+curl -s http://127.0.0.1:18293/api/devices | jq -r \
+  '.devices[] | select(.driver=="v4l2" and .name=="web-camera") | .sources[] |
+   select(.caps_json.format=="yuyv") |
+   [.selector, .caps_json.width, .caps_json.height, .caps_json.fps] | @tsv'
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-1080-a \
+    --max-frames=90 \
+    insightos://localhost/web-camera/1080p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-1080-b \
+    --max-frames=90 \
+    insightos://localhost/web-camera/1080p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-1080 \
+    --max-frames=90 \
+    insightos://localhost/web-camera/1080p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720 \
+    --max-frames=90 \
+    insightos://localhost/web-camera/720p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720-mjpeg \
+    --max-frames=90 \
+    insightos://localhost/web-camera/720p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720-raw \
+    --max-frames=90 \
+    insightos://localhost/web-camera/720p_10
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720-raw-solo \
+    --max-frames=40 \
+    insightos://localhost/web-camera/720p_10
+```
+
+Observed results:
+
+- the current host publishes `1080p_30` only as `mjpeg`; there is no published
+  raw `1080p` selector
+- the currently published raw `yuyv` selectors are `720p_10` and
+  `800x600_10`
+- one simultaneous cold-start run of two `1080p_30` consumers was not reliable:
+  one process exited `0`, the other timed out with exit `124`, and the timed
+  out process produced no frame log output
+- two `1080p_30` consumers both completed successfully when the second
+  instance started after the first had already become active
+- one `1080p_30` consumer plus one `720p_30` consumer is not currently
+  supported concurrently on this host; the second consumer failed with:
+  `IPC attach rejected route 'camera': VIDIOC_S_FMT: Device or resource busy`
+- one `720p_30` `mjpeg` consumer plus one `720p_10` `yuyv` consumer is also
+  not currently supported concurrently on this host; the second consumer failed
+  with the same `VIDIOC_S_FMT: Device or resource busy` error
+- `720p_10` raw succeeds by itself, proving the mixed-format failure is device
+  contention rather than a bad catalog selector
 
 ## 2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog
 
