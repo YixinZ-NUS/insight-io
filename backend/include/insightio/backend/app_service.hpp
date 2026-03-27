@@ -1,9 +1,10 @@
 #pragma once
 
 // role: durable app, route, and app-source service for the standalone backend.
-// revision: 2026-03-26 app-route-source-persistence
-// major changes: adds SQLite-backed app CRUD, route declaration guards, and
-// URI-backed plus session-backed app-source lifecycle handling.
+// revision: 2026-03-27 task8-rtsp-runtime-validation
+// major changes: keeps SQLite-backed app CRUD and source lifecycle handling
+// while aligning default RTSP publication addresses with the live runtime
+// contract.
 
 #include "insightio/backend/schema_store.hpp"
 #include "insightio/backend/session_service.hpp"
@@ -63,7 +64,7 @@ public:
     AppService(SchemaStore& store,
                SessionService& sessions,
                std::string uri_host = "localhost",
-               std::string rtsp_host = "127.0.0.1");
+               std::string rtsp_host = "127.0.0.1:8554");
 
     bool initialize();
 

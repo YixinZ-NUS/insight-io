@@ -62,13 +62,29 @@ std::string hex_identifier(std::string_view prefix,
     return stream.str();
 }
 
+}  // namespace
+
 bool is_audio_format(std::string_view format) {
     return format == "s16le" || format == "s24le" || format == "s32le" ||
            format == "f32le" || format == "s16be" || format == "s24be" ||
-           format == "s32be" || format == "f32be" || format == "u8";
+           format == "s32be" || format == "f32be" || format == "u8" ||
+           format == "mp3" || format == "aac" || format == "opus";
 }
 
-}  // namespace
+bool is_compressed_audio(std::string_view format) {
+    return format == "mp3" || format == "aac" || format == "opus" ||
+           format == "flac";
+}
+
+bool is_compressed_video(std::string_view format) {
+    return format == "mjpeg" || format == "jpeg" || format == "h264" ||
+           format == "h265" || format == "hevc" || format == "vp8" ||
+           format == "vp9" || format == "av1";
+}
+
+bool is_depth_format(std::string_view format) {
+    return format == "y16" || format == "z16" || format == "gray16";
+}
 
 bool ResolvedCaps::is_audio() const {
     return fps == 0 && is_audio_format(format);

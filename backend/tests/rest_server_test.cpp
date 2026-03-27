@@ -146,11 +146,11 @@ TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
             return result;
         },
         "localhost",
-        "127.0.0.1");
+        "127.0.0.1:8554");
     EXPECT_TRUE(catalog.initialize());
-    SessionService sessions(store, "localhost", "127.0.0.1");
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(sessions.initialize());
-    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(apps.initialize());
 
     RestServer server(store, catalog, sessions, apps, "/tmp/frontend");
@@ -176,7 +176,7 @@ TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
                   .at("rtsp")
                   .at("url")
                   .get<std::string>(),
-              "rtsp://127.0.0.1/web-camera/1080p_30");
+              "rtsp://127.0.0.1:8554/web-camera/1080p_30");
 
     const auto rgbd = std::find_if(json.at("devices").begin(),
                                    json.at("devices").end(),
@@ -233,7 +233,7 @@ TEST(alias_endpoint_updates_public_name_and_derived_uris) {
                   .at("rtsp")
                   .at("url")
                   .get<std::string>(),
-              "rtsp://127.0.0.1/front-camera/1080p_30");
+              "rtsp://127.0.0.1:8554/front-camera/1080p_30");
 
     server.stop();
 }
@@ -250,12 +250,12 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
             return result;
         },
         "localhost",
-        "127.0.0.1");
+        "127.0.0.1:8554");
     EXPECT_TRUE(catalog.initialize());
 
-    SessionService sessions(store, "localhost", "127.0.0.1");
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(sessions.initialize());
-    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(apps.initialize());
 
     RestServer server(store, catalog, sessions, apps, "");
@@ -288,9 +288,20 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     EXPECT_EQ(second_create->status, 201);
     const auto second_json = nlohmann::json::parse(second_create->body);
     EXPECT_EQ(second_json.at("rtsp_url").get<std::string>(),
-              "rtsp://127.0.0.1/web-camera/720p_30");
+              "rtsp://127.0.0.1:8554/web-camera/720p_30");
     EXPECT_TRUE(second_json.at("serving_runtime").at("shared").get<bool>());
     EXPECT_EQ(second_json.at("serving_runtime").at("consumer_count").get<int>(), 2);
+    EXPECT_TRUE(second_json.at("serving_runtime").contains("rtsp_publication"));
+    EXPECT_EQ(second_json.at("serving_runtime")
+                  .at("rtsp_publication")
+                  .at("url")
+                  .get<std::string>(),
+              "rtsp://127.0.0.1:8554/web-camera/720p_30");
+    EXPECT_EQ(second_json.at("serving_runtime")
+                  .at("rtsp_publication")
+                  .at("promised_format")
+                  .get<std::string>(),
+              "h264");
     const auto second_session_id = second_json.at("session_id").get<std::int64_t>();
 
     const auto list = client.Get("/api/sessions");
@@ -316,6 +327,7 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     EXPECT_EQ(status_json.at("serving_runtimes").size(), 1u);
     EXPECT_EQ(status_json.at("serving_runtimes")[0].at("consumer_count").get<int>(), 2);
     EXPECT_TRUE(status_json.at("serving_runtimes")[0].at("rtsp_enabled").get<bool>());
+    EXPECT_TRUE(status_json.at("serving_runtimes")[0].contains("rtsp_publication"));
 
     const auto stop_second =
         client.Post(("/api/sessions/" + std::to_string(second_session_id) + "/stop").c_str(),
@@ -373,12 +385,12 @@ TEST(app_endpoints_cover_exact_and_grouped_bind_flow) {
             return result;
         },
         "localhost",
-        "127.0.0.1");
+        "127.0.0.1:8554");
     EXPECT_TRUE(catalog.initialize());
 
-    SessionService sessions(store, "localhost", "127.0.0.1");
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(sessions.initialize());
-    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(apps.initialize());
 
     RestServer server(store, catalog, sessions, apps, "");
@@ -509,12 +521,12 @@ TEST(oversized_path_ids_return_bad_request) {
             return result;
         },
         "localhost",
-        "127.0.0.1");
+        "127.0.0.1:8554");
     EXPECT_TRUE(catalog.initialize());
 
-    SessionService sessions(store, "localhost", "127.0.0.1");
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(sessions.initialize());
-    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(apps.initialize());
 
     RestServer server(store, catalog, sessions, apps, "");
@@ -550,12 +562,12 @@ TEST(delete_grouped_member_route_cleans_up_grouped_binding) {
             return result;
         },
         "localhost",
-        "127.0.0.1");
+        "127.0.0.1:8554");
     EXPECT_TRUE(catalog.initialize());
 
-    SessionService sessions(store, "localhost", "127.0.0.1");
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(sessions.initialize());
-    AppService apps(store, sessions, "localhost", "127.0.0.1");
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(apps.initialize());
 
     RestServer server(store, catalog, sessions, apps, "");

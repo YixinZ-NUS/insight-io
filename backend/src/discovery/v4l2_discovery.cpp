@@ -1,16 +1,19 @@
 // role: Linux V4L2 discovery for the standalone backend.
-// revision: 2026-03-26 catalog-discovery-slice
-// major changes: discovers real capture-capable V4L2 nodes and skips vendor
-// IDs already claimed by Orbbec discovery.
+// revision: 2026-03-26 orbbec-v4l2-fallback-fix
+// major changes: discovers real capture-capable V4L2 nodes, skips vendor IDs
+// already claimed by usable SDK-backed Orbbec discovery, and retries briefly
+// when a node is temporarily unavailable after a failed Orbbec SDK probe.
 
 #include "insightio/backend/discovery.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <set>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <dirent.h>
@@ -61,6 +64,26 @@ std::string read_sysfs_device_path(const std::string& video_name) {
     return lower_copy(path.string());
 }
 
+constexpr int kOpenRetryAttempts = 5;
+constexpr auto kOpenRetryDelay = std::chrono::milliseconds(25);
+
+int open_v4l2_capture_device(const std::string& path, v4l2_capability& capability) {
+    for (int attempt = 0; attempt < kOpenRetryAttempts; ++attempt) {
+        const int file_descriptor = ::open(path.c_str(), O_RDWR | O_NONBLOCK);
+        if (file_descriptor >= 0) {
+            if (::ioctl(file_descriptor, VIDIOC_QUERYCAP, &capability) == 0) {
+                return file_descriptor;
+            }
+            ::close(file_descriptor);
+        }
+
+        if (attempt + 1 < kOpenRetryAttempts) {
+            std::this_thread::sleep_for(kOpenRetryDelay);
+        }
+    }
+    return -1;
+}
+
 }  // namespace
 
 std::vector<DeviceInfo> discover_v4l2(const std::set<std::string>& skip_vendor_ids) {
@@ -86,14 +109,9 @@ std::vector<DeviceInfo> discover_v4l2(const std::set<std::string>& skip_vendor_i
         }
 
         const std::string path = "/dev/" + name;
-        const int file_descriptor = ::open(path.c_str(), O_RDWR | O_NONBLOCK);
-        if (file_descriptor < 0) {
-            continue;
-        }
-
         v4l2_capability capability{};
-        if (::ioctl(file_descriptor, VIDIOC_QUERYCAP, &capability) < 0) {
-            ::close(file_descriptor);
+        const int file_descriptor = open_v4l2_capture_device(path, capability);
+        if (file_descriptor < 0) {
             continue;
         }
 

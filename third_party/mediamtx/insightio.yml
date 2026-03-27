@@ -1,0 +1,71 @@
+# role: mediamtx configuration for local insight-io RTSP publication.
+# revision: 2026-03-27 vendored-mediamtx-runtime
+# major changes: copies the donor mediamtx baseline into this repo so task-8
+# RTSP validation can run locally against the exact shared-runtime publisher.
+
+###############################################
+# Global settings
+
+logLevel: info
+logDestinations: [file]
+logFile: Log/mediamtx/mediamtx.log
+
+readTimeout: 10s
+writeTimeout: 10s
+writeQueueSize: 512
+
+###############################################
+# Authentication - allow all for local dev
+
+authMethod: internal
+authInternalUsers:
+- user: any
+  pass:
+  ips: []
+  permissions:
+  - action: publish
+    path:
+  - action: read
+    path:
+  - action: api
+  - action: metrics
+
+###############################################
+# Control API
+
+api: yes
+apiAddress: :9997
+apiEncryption: no
+apiAllowOrigins: ['*']
+
+###############################################
+# RTSP server
+
+rtsp: yes
+rtspTransports: [udp, tcp]
+rtspEncryption: "no"
+rtspAddress: :8554
+
+###############################################
+# Disable unused protocols
+
+rtmp: no
+hls: no
+webrtc: no
+srt: no
+
+###############################################
+# Path defaults
+
+pathDefaults:
+  source: publisher
+  overridePublisher: yes
+  record: no
+
+###############################################
+# Paths — dynamically created by insightosd
+# Pattern: <endpoint>/<stream_name>
+# Example: cam-web-camera/image, rgbd-sv1301s-u3/color
+
+paths:
+  all_others:

@@ -148,9 +148,9 @@ struct Fixture {
                       return result;
                   },
                   "localhost",
-                  "127.0.0.1"),
-          sessions(store, "localhost", "127.0.0.1"),
-          apps(store, sessions, "localhost", "127.0.0.1") {
+                  "127.0.0.1:8554"),
+          sessions(store, "localhost", "127.0.0.1:8554"),
+          apps(store, sessions, "localhost", "127.0.0.1:8554") {
         EXPECT_TRUE(store.initialize());
         EXPECT_TRUE(catalog.initialize());
         EXPECT_TRUE(sessions.initialize());
@@ -223,9 +223,10 @@ TEST(uri_backed_exact_source_persists_and_restarts) {
     EXPECT_TRUE(restarted.active_session_id > 0);
     EXPECT_TRUE(restarted.active_session_id != original_active_session_id);
 
-    SessionService restarted_sessions(fx.store, "localhost", "127.0.0.1");
+    SessionService restarted_sessions(fx.store, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(restarted_sessions.initialize());
-    AppService restarted_apps(fx.store, restarted_sessions, "localhost", "127.0.0.1");
+    AppService restarted_apps(
+        fx.store, restarted_sessions, "localhost", "127.0.0.1:8554");
     EXPECT_TRUE(restarted_apps.initialize());
 
     std::vector<AppSourceRecord> listed_sources;

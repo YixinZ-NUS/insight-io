@@ -109,6 +109,27 @@ DeviceInfo make_orbbec() {
     return device;
 }
 
+DeviceInfo make_color_only_orbbec() {
+    DeviceInfo device;
+    device.uri = "orbbec://COLOR001";
+    device.kind = DeviceKind::kOrbbec;
+    device.name = "Color Only RGBD";
+    device.identity.device_uri = device.uri;
+    device.identity.device_id = "COLOR001";
+    device.identity.kind_str = "orbbec";
+    device.identity.hardware_name = device.name;
+    device.identity.usb_vendor_id = "2bc5";
+    device.identity.usb_serial = "COLOR001";
+
+    StreamInfo color;
+    color.stream_id = "color";
+    color.name = "color";
+    color.supported_caps.push_back(ResolvedCaps{0, "mjpeg", 640, 480, 30});
+
+    device.streams.push_back(std::move(color));
+    return device;
+}
+
 TEST(alias_persists_across_refresh) {
     SchemaStore store(make_temp_db_path());
     EXPECT_TRUE(store.initialize());
@@ -184,6 +205,32 @@ TEST(orbbec_adds_aligned_depth_and_grouped_preset) {
     EXPECT_TRUE(selectors.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(selectors.contains("orbbec/depth/480p_30"));
     EXPECT_TRUE(selectors.contains("orbbec/preset/480p_30"));
+}
+
+TEST(color_only_orbbec_does_not_publish_synthetic_depth_or_grouped_preset) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_color_only_orbbec()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto device = catalog.get_device("color-only-rgbd");
+    EXPECT_TRUE(device.has_value());
+
+    std::set<std::string> selectors;
+    for (const auto& source : device->sources) {
+        selectors.insert(source.selector);
+    }
+    EXPECT_TRUE(selectors.contains("orbbec/color/480p_30"));
+    EXPECT_TRUE(!selectors.contains("orbbec/depth/400p_30"));
+    EXPECT_TRUE(!selectors.contains("orbbec/depth/480p_30"));
+    EXPECT_TRUE(!selectors.contains("orbbec/preset/480p_30"));
 }
 
 }  // namespace
