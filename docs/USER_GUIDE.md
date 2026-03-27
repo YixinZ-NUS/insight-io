@@ -4,8 +4,12 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 16
+- version: 17
 - major changes:
+  - 2026-03-27 made the example-app CLI and REST usage equivalence explicit:
+    one startup bind argument maps to one later `POST /api/apps/{id}/sources`
+    request with the same target and source, and multi-target startup forms map
+    to one POST per target
   - 2026-03-27 simplified the checked-in example startup path so each example
     can now start either with a startup URI or idle for later REST injection,
     documented that omitted app names derive from the executable name, and
@@ -177,6 +181,16 @@ Shared rules for the checked-in examples:
 - each example still accepts the existing startup URI or `session:<id>` bind
 - if no startup bind is posted on the CLI, the app starts idle and waits for a
   later `POST /api/apps/{id}/sources`
+- one startup bind argument is equivalent to one later
+  `POST /api/apps/{id}/sources` request that carries the same target and the
+  same `input` or `session_id`
+- if the CLI form uses one bare startup URI rather than `target=value`, the
+  example's implicit target is what the later REST request must post:
+  `camera` for `v4l2_latency_monitor` and `orbbec` for
+  `orbbec_depth_overlay`
+- if the CLI form uses multiple startup bind arguments, the later REST flow is
+  the same set of binds expressed as one source-create POST per target; the
+  current REST API does not accept a multi-source batch body
 - `--app-name` is optional; when omitted, the app name derives from the
   executable name:
   `v4l2-latency-monitor`, `orbbec-depth-overlay`, or
@@ -211,6 +225,12 @@ curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
   -H 'Content-Type: application/json' \
   -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
 ```
+
+Equivalence:
+
+- running `v4l2_latency_monitor insightos://localhost/web-camera/720p_30` is
+  equivalent to starting the app with no startup bind and later posting
+  `{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}`
 
 ### Orbbec Overlay
 
@@ -254,6 +274,15 @@ The second command is the checked-in proof path for the current `720p` grouped
 contract on this host: `1280x720` color plus `1280x800` depth with no aligned
 `720p` depth selector.
 
+Equivalence:
+
+- running `orbbec_depth_overlay insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
+  is equivalent to starting the app with no startup bind and later posting
+  `{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}`
+- the same rule holds for the checked-in `720p_30` preset:
+  the startup URI form is equivalent to later posting
+  `{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30"}`
+
 ### Mixed Device Routing
 
 Startup binds at launch:
@@ -285,6 +314,16 @@ curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
   -H 'Content-Type: application/json' \
   -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
 ```
+
+Equivalence:
+
+- running
+  `mixed_device_consumer camera=insightos://localhost/web-camera/720p_30 orbbec=insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
+  is equivalent to starting the app with no startup binds and later posting
+  `{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}`
+  and
+  `{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}`
+  as two separate `POST /api/apps/{id}/sources` requests
 - `--rtsp-host` and `--rtsp-port` together control the catalog RTSP URLs and
   the runtime publisher destination
 

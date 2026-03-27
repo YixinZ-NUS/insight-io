@@ -6,6 +6,8 @@
 - status: active
 - revision: 2026-03-27 task9-runtime-verification
 - major changes:
+  - 2026-03-27 added an explicit CLI-versus-REST equivalence summary for the
+    checked-in example apps
   - 2026-03-27 captured the bare verification command list and observed outputs
     for the current task-9 SDK, browser, and example-app slice
 - past tasks:
@@ -66,6 +68,19 @@ Test project /home/yixin/Coding/insight-io/build
 Total Test time (real) =  27.55 sec
 """
 ```
+
+## CLI And REST Equivalence
+
+- `./build/bin/v4l2_latency_monitor ... insightos://localhost/web-camera/720p_30`
+  is equivalent to starting `v4l2_latency_monitor` without a startup bind and
+  later posting one source bind with `target = camera` and the same URI
+- `./build/bin/orbbec_depth_overlay ... insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
+  is equivalent to starting `orbbec_depth_overlay` without a startup bind and
+  later posting one source bind with `target = orbbec` and the same grouped
+  preset URI
+- `./build/bin/mixed_device_consumer ... camera=... orbbec=...`
+  is equivalent to starting `mixed_device_consumer` without startup binds and
+  later posting two source binds: one for `camera`, then one for `orbbec`
 
 ## Daemon
 
