@@ -1,0 +1,197 @@
+<!--
+role: repo-native browser UI for the task-9 app-route-source flow.
+revision: 2026-03-27 task9-browser-surface
+major changes: adds a single-page app builder for catalog browsing, app/route
+creation, source binding, source restart, and runtime inspection on top of the
+checked-in REST API. See docs/past-tasks.md.
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>insight-io Control Room</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="backdrop"></div>
+  <header class="shell-header">
+    <div>
+      <p class="eyebrow">Intent Routing</p>
+      <h1>insight-io Control Room</h1>
+      <p class="subtitle">Catalog, apps, routes, sources, and shared runtime state in one browser surface.</p>
+    </div>
+    <div class="header-actions">
+      <button id="refresh-all" class="ghost-button" type="button">Refresh</button>
+      <div id="health-chip" class="health-chip offline">offline</div>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel panel-catalog">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Catalog</p>
+          <h2>Discovered Sources</h2>
+        </div>
+        <button id="refresh-catalog" class="ghost-button" type="button">Re-discover</button>
+      </div>
+      <p id="catalog-error" class="inline-error" hidden></p>
+      <div id="catalog-list" class="stack"></div>
+    </section>
+
+    <section class="panel panel-apps">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Apps</p>
+          <h2>Route Builder</h2>
+        </div>
+      </div>
+
+      <form id="app-form" class="card form-card">
+        <div class="card-title-row">
+          <h3>Create App</h3>
+          <span class="muted">Persistent SQLite record</span>
+        </div>
+        <label>
+          <span>Name</span>
+          <input id="app-name" name="name" placeholder="vision-runner" required>
+        </label>
+        <label>
+          <span>Description</span>
+          <input id="app-description" name="description" placeholder="optional">
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="primary-button">Create app</button>
+        </div>
+        <p id="app-form-error" class="inline-error" hidden></p>
+      </form>
+
+      <div class="split-pane">
+        <div class="card list-card">
+          <div class="card-title-row">
+            <h3>App Records</h3>
+            <span id="app-count" class="muted">0</span>
+          </div>
+          <div id="app-list" class="list-stack"></div>
+        </div>
+
+        <div class="card detail-card">
+          <div class="card-title-row">
+            <div>
+              <h3 id="selected-app-name">Select an app</h3>
+              <p id="selected-app-meta" class="muted">Create or pick an app to manage routes and sources.</p>
+            </div>
+            <button id="delete-app" class="ghost-button danger" type="button" disabled>Delete app</button>
+          </div>
+
+          <form id="route-form" class="subform">
+            <div class="subform-header">
+              <h4>Declare Route</h4>
+              <span class="muted">Purpose-first target name plus expectation</span>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>Route name</span>
+                <input id="route-name" name="route_name" placeholder="orbbec/depth" required>
+              </label>
+              <label>
+                <span>Media</span>
+                <select id="route-media" name="media">
+                  <option value="video">video</option>
+                  <option value="depth">depth</option>
+                  <option value="audio">audio</option>
+                </select>
+              </label>
+            </div>
+            <div class="form-actions">
+              <button type="submit" class="primary-button" id="route-submit" disabled>Add route</button>
+            </div>
+            <p id="route-form-error" class="inline-error" hidden></p>
+          </form>
+
+          <form id="source-form" class="subform">
+            <div class="subform-header">
+              <div>
+                <h4 id="source-form-title">Create Source Bind</h4>
+                <p id="source-form-mode" class="muted">Use a catalog URI or existing session to activate one app-local target.</p>
+              </div>
+              <button id="clear-source-form" class="ghost-button" type="button" hidden>Clear rebind</button>
+            </div>
+            <div class="field-grid">
+              <label>
+                <span>Target</span>
+                <input id="source-target" name="target" placeholder="camera or orbbec" required>
+              </label>
+              <label>
+                <span>Input URI</span>
+                <input id="source-input" name="input" placeholder="insightos://localhost/web-camera/720p_30">
+              </label>
+              <label>
+                <span>Session ID</span>
+                <input id="source-session" name="session_id" inputmode="numeric" placeholder="optional existing session">
+              </label>
+              <label class="checkbox-label">
+                <span>RTSP publication</span>
+                <input id="source-rtsp" name="rtsp_enabled" type="checkbox">
+              </label>
+            </div>
+            <p id="source-selected-uri" class="hint"></p>
+            <div class="form-actions">
+              <button type="submit" class="primary-button" id="source-submit" disabled>Create source</button>
+            </div>
+            <p id="source-form-error" class="inline-error" hidden></p>
+          </form>
+
+          <div class="detail-columns">
+            <div>
+              <div class="card-title-row">
+                <h4>Routes</h4>
+                <span class="muted">Logical input roles</span>
+              </div>
+              <div id="route-list" class="list-stack empty-state">No routes yet.</div>
+            </div>
+            <div>
+              <div class="card-title-row">
+                <h4>Sources</h4>
+                <span class="muted">Durable bindings and runtime state</span>
+              </div>
+              <div id="source-list" class="list-stack empty-state">No sources yet.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel panel-runtime">
+      <div class="panel-header">
+        <div>
+          <p class="eyebrow">Runtime</p>
+          <h2>Shared Serving State</h2>
+        </div>
+      </div>
+      <div id="runtime-summary" class="metric-grid"></div>
+      <div class="card runtime-card">
+        <div class="card-title-row">
+          <h3>Serving Runtimes</h3>
+          <span class="muted">Reuse, IPC, and additive RTSP</span>
+        </div>
+        <div id="runtime-list" class="list-stack empty-state">No serving runtimes are active.</div>
+      </div>
+      <div class="card runtime-card">
+        <div class="card-title-row">
+          <h3>Logical Sessions</h3>
+          <span class="muted">Direct and app-owned sessions</span>
+        </div>
+        <div id="session-list" class="list-stack empty-state">No logical sessions are active.</div>
+      </div>
+    </section>
+  </main>
+
+  <template id="chip-template">
+    <span class="chip"></span>
+  </template>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

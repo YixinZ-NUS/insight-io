@@ -1,11 +1,10 @@
 // role: standalone backend entrypoint for the current insight-io slices.
-// revision: 2026-03-27 task8-rtsp-runtime-validation
+// revision: 2026-03-27 task9-browser-surface
 // major changes: starts the SQLite-backed catalog, session, and durable
 // app/route/source services while keeping media-runtime realization
-// intentionally lightweight, and binds the aggregate discovery entrypoint
-// through an overload-safe callback while surfacing the local IPC attach
-// socket plus the mediamtx-compatible RTSP host contract. See
-// docs/past-tasks.md.
+// intentionally lightweight, binds the aggregate discovery entrypoint through
+// an overload-safe callback, and auto-serves the repo-native frontend when a
+// local `frontend/` directory is present. See docs/past-tasks.md.
 
 #include "insightio/backend/app_service.hpp"
 #include "insightio/backend/catalog.hpp"
@@ -20,6 +19,7 @@
 #include <chrono>
 #include <csignal>
 #include <exception>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -72,6 +72,12 @@ int main(int argc, char* argv[]) {
         } else if (arg == "--rtsp-port" && index + 1 < argc) {
             rtsp_port = static_cast<uint16_t>(std::stoi(argv[++index]));
             rtsp_port_overridden = true;
+        }
+    }
+    if (frontend_dir.empty()) {
+        const auto default_frontend = std::filesystem::current_path() / "frontend";
+        if (std::filesystem::is_directory(default_frontend)) {
+            frontend_dir = std::filesystem::absolute(default_frontend).string();
         }
     }
     const std::string rtsp_endpoint = rtsp_host + ":" + std::to_string(rtsp_port);

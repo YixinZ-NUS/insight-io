@@ -1,10 +1,9 @@
 // role: focused REST tests for the standalone backend slices.
-// revision: 2026-03-26 task6-serving-runtime-reuse
+// revision: 2026-03-27 task9-browser-surface
 // major changes: verifies catalog, direct-session, app/route/source,
-// grouped-route delete cleanup, and runtime-status plus serving-runtime reuse
-// behavior on the SQLite-backed HTTP surface without relying on a fixed
-// Orbbec serial, while covering route JSON shape and path-id overflow
-// handling.
+// grouped-route delete cleanup, runtime-status reuse, browser-facing frontend
+// asset serving, and AIP-style custom method aliases on the SQLite-backed
+// HTTP surface without relying on a fixed Orbbec serial.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -16,9 +15,10 @@
 #include <httplib.h>
 #include <nlohmann/json.hpp>
 
-#include <cstdlib>
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <set>
 #include <string>
@@ -71,6 +71,20 @@ std::string make_temp_db_path() {
                       ("insight-io-rest-test-" + std::to_string(::getpid()) +
                        "-" + std::to_string(counter++) + ".sqlite3");
     return path.string();
+}
+
+std::string make_temp_frontend_dir() {
+    static int counter = 0;
+    const auto path = std::filesystem::temp_directory_path() /
+                      ("insight-io-frontend-test-" + std::to_string(::getpid()) +
+                       "-" + std::to_string(counter++));
+    std::filesystem::create_directories(path);
+    return path.string();
+}
+
+void write_text_file(const std::filesystem::path& path, const std::string& content) {
+    std::ofstream stream(path);
+    stream << content;
 }
 
 DeviceInfo make_v4l2_camera() {
@@ -193,6 +207,93 @@ TEST(devices_endpoint_lists_rtsp_and_grouped_orbbec_entries) {
     EXPECT_TRUE(selectors.contains("orbbec/depth/400p_30"));
     EXPECT_TRUE(selectors.contains("orbbec/depth/480p_30"));
     EXPECT_TRUE(selectors.contains("orbbec/preset/480p_30"));
+    EXPECT_TRUE(selectors.contains("orbbec/preset/720p_30"));
+
+    server.stop();
+}
+
+TEST(device_refresh_alias_reloads_catalog) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    int discovery_calls = 0;
+    CatalogService catalog(
+        store,
+        [&]() {
+            ++discovery_calls;
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            if (discovery_calls > 1) {
+                result.devices.push_back(make_orbbec_device());
+            }
+            return result;
+        },
+        "localhost",
+        "127.0.0.1:8554");
+    EXPECT_TRUE(catalog.initialize());
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+    const auto before = client.Get("/api/devices");
+    EXPECT_TRUE(before);
+    EXPECT_EQ(before->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(before->body).at("devices").size(), 1u);
+
+    const auto refresh = client.Post("/api/devices:refresh", "", "application/json");
+    EXPECT_TRUE(refresh);
+    EXPECT_EQ(refresh->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(refresh->body).at("devices").size(), 2u);
+
+    server.stop();
+}
+
+TEST(frontend_root_and_static_assets_are_served) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1:8554");
+    EXPECT_TRUE(catalog.initialize());
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(apps.initialize());
+
+    const auto frontend_dir = make_temp_frontend_dir();
+    write_text_file(std::filesystem::path(frontend_dir) / "index.html",
+                    "<!doctype html><title>insight-io-ui</title>"
+                    "<script src=\"/static/app.js\"></script>");
+    write_text_file(std::filesystem::path(frontend_dir) / "app.js",
+                    "window.__frontendLoaded = true;\n");
+
+    RestServer server(store, catalog, sessions, apps, frontend_dir);
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+    const auto root = client.Get("/");
+    EXPECT_TRUE(root);
+    EXPECT_EQ(root->status, 200);
+    EXPECT_TRUE(root->body.find("insight-io-ui") != std::string::npos);
+
+    const auto script = client.Get("/static/app.js");
+    EXPECT_TRUE(script);
+    EXPECT_EQ(script->status, 200);
+    EXPECT_TRUE(script->body.find("__frontendLoaded") != std::string::npos);
 
     server.stop();
 }
@@ -330,7 +431,7 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     EXPECT_TRUE(status_json.at("serving_runtimes")[0].contains("rtsp_publication"));
 
     const auto stop_second =
-        client.Post(("/api/sessions/" + std::to_string(second_session_id) + "/stop").c_str(),
+        client.Post(("/api/sessions/" + std::to_string(second_session_id) + ":stop").c_str(),
                     "",
                     "application/json");
     EXPECT_TRUE(stop_second);
@@ -348,7 +449,7 @@ TEST(session_endpoints_cover_lifecycle_and_status) {
     EXPECT_EQ(stop->status, 200);
     EXPECT_EQ(nlohmann::json::parse(stop->body).at("state").get<std::string>(), "stopped");
 
-    const auto start = client.Post(("/api/sessions/" + std::to_string(session_id) + "/start").c_str(),
+    const auto start = client.Post(("/api/sessions/" + std::to_string(session_id) + ":start").c_str(),
                                    "",
                                    "application/json");
     EXPECT_TRUE(start);
@@ -418,6 +519,13 @@ TEST(app_endpoints_cover_exact_and_grouped_bind_flow) {
     EXPECT_TRUE(!created_route_json.contains("expect_json"));
     EXPECT_EQ(created_route_json.at("expect").at("media").get<std::string>(), "video");
 
+    const auto get_route = client.Get(
+        ("/api/apps/" + std::to_string(app_id) + "/routes/yolov5").c_str());
+    EXPECT_TRUE(get_route);
+    EXPECT_EQ(get_route->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(get_route->body).at("route_name").get<std::string>(),
+              "yolov5");
+
     const auto bind_exact = client.Post(
         ("/api/apps/" + std::to_string(app_id) + "/sources").c_str(),
         R"({"input":"insightos://localhost/web-camera/720p_30","target":"yolov5"})",
@@ -430,9 +538,18 @@ TEST(app_endpoints_cover_exact_and_grouped_bind_flow) {
     const auto source_id = exact_json.at("source_id").get<std::int64_t>();
     const auto first_session_id = exact_json.at("active_session_id").get<std::int64_t>();
 
+    const auto get_source = client.Get(
+        ("/api/apps/" + std::to_string(app_id) + "/sources/" +
+         std::to_string(source_id))
+            .c_str());
+    EXPECT_TRUE(get_source);
+    EXPECT_EQ(get_source->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(get_source->body).at("target").get<std::string>(),
+              "yolov5");
+
     const auto stop = client.Post(
         ("/api/apps/" + std::to_string(app_id) + "/sources/" +
-         std::to_string(source_id) + "/stop")
+         std::to_string(source_id) + ":stop")
             .c_str(),
         "",
         "application/json");
@@ -442,7 +559,7 @@ TEST(app_endpoints_cover_exact_and_grouped_bind_flow) {
 
     const auto start = client.Post(
         ("/api/apps/" + std::to_string(app_id) + "/sources/" +
-         std::to_string(source_id) + "/start")
+         std::to_string(source_id) + ":start")
             .c_str(),
         "",
         "application/json");

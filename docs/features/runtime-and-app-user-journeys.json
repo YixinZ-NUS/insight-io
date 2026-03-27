@@ -1,5 +1,5 @@
 {
-  "version": 13,
+  "version": 16,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -262,7 +262,7 @@
         "Verify a logical session is linked",
         "Verify the app receives callbacks on the declared route"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "late-connect-depth-source-to-declared-route",
@@ -274,7 +274,7 @@
         "Verify the source record stores the resolved exact stream identity",
         "Verify the app receives callbacks on the declared route"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "attach-existing-session-to-running-app-route",
@@ -286,7 +286,7 @@
         "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on the attached route without recreating the session"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "direct-session-stays-idle-until-app-bind-exists",
@@ -299,7 +299,7 @@
         "Create one app-source bind using either the same `input` URI or the existing `session_id` plus `target`",
         "Verify callbacks begin only after that bind becomes active"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "attach-existing-grouped-session-to-running-app-grouped-target",
@@ -311,7 +311,7 @@
         "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on both routes without separately managing `/color` and `/depth`"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "mixed-app-video-plus-related-group-routing",
@@ -323,7 +323,7 @@
         "Connect two compatible V4L2 video URIs plus one Orbbec color/depth source or grouped preset source",
         "Verify all routed sources remain active independently"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "rgbd-grouped-preset-over-target-root",
@@ -336,7 +336,7 @@
         "Verify ordinary route callbacks still fire independently on both routes",
         "Verify no extra SDK-only frame-merge helper is required for the grouped preset flow"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "identical-uri-fanout-same-frames",
@@ -348,7 +348,7 @@
         "Verify shared serving reuse is visible when applicable",
         "Verify the consumers observe the same frame sequence"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "different-rtsp-publication-shared-runtime",
@@ -373,7 +373,7 @@
         "Verify the CLI connects that URI to the declared route",
         "Verify the app receives the expected route callbacks"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "single-uri-launch-still-works-for-single-grouped-target-apps",
@@ -385,7 +385,7 @@
         "Verify the CLI connects that URI to the grouped target without requiring separate `/color` and `/depth` inputs",
         "Verify the app receives the expected grouped route callbacks"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "multi-uri-launch-supports-explicit-route-connections",
@@ -397,7 +397,7 @@
         "Verify each route receives the correct source",
         "Verify no post-launch REST injection is required for that startup path"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "source-response-exposes-exact-stream-identity",
@@ -434,7 +434,7 @@
         "Verify the durable route binding points at the replacement",
         "Verify status and callbacks reflect the new source"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "delete-grouped-member-route-cleans-up-grouped-bind",
@@ -461,7 +461,7 @@
         "Connect a listed URI to a selected route",
         "Verify the routed source appears in the app detail view"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "browser-restart-recovery-flow",
@@ -475,7 +475,21 @@
         "Restart the source from the UI",
         "Verify status updates reflect the fresh runtime session"
       ],
-      "passes": false
+      "passes": true
+    },
+    {
+      "id": "example-app-idle-startup-and-late-bind",
+      "category": "functional",
+      "description": "A checked-in example app, including the PipeWire audio example, can start without a startup URI, expose a derived default app name, and begin processing only after a later REST source bind",
+      "steps": [
+        "Run one example app without `--app-name` and without a startup URI",
+        "Call GET /api/apps and verify the app name derives from the executable name",
+        "Verify no frames are processed before a source bind exists",
+        "Create one source bind through POST /api/apps/{id}/sources",
+        "Verify the example begins processing after the bind and exits cleanly when its frame limit is reached",
+        "When the example consumes PipeWire audio, verify a later bind to `target = audio` can use either `audio/mono` or `audio/stereo` and that the delivered channel count matches the selector"
+      ],
+      "passes": true
     }
   ]
 }

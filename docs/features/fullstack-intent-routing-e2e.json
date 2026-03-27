@@ -1,5 +1,5 @@
 {
-  "version": 15,
+  "version": 18,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -228,7 +228,7 @@
         "Verify the backend records the resolved exact stream identity",
         "Verify the SDK receives callbacks on the declared route"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "inject-grouped-orbbec-preset",
@@ -240,7 +240,7 @@
         "Verify the backend records one grouped source bind with resolved member mappings",
         "Verify the SDK receives callbacks on both declared routes without an extra SDK-only frame-merge layer"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "attach-existing-session-to-route",
@@ -252,7 +252,7 @@
         "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on the attached route without recreating the stream"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "attach-existing-grouped-session-to-grouped-target",
@@ -264,7 +264,7 @@
         "Create one app-source bind using the existing `session_id` plus `target`",
         "Verify the app receives callbacks on both declared routes without separately managing `/color` and `/depth`"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "fanout-identical-uri",
@@ -276,7 +276,7 @@
         "Verify shared serving reuse is visible when applicable",
         "Verify consumers observe the same frame sequence"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "rtsp-publication-adds-on-shared-runtime",
@@ -353,7 +353,21 @@
         "Stop the source",
         "Verify status updates are visible in the UI"
       ],
-      "passes": false
+      "passes": true
+    },
+    {
+      "id": "example-apps-start-with-or-without-uri",
+      "category": "functional",
+      "description": "The checked-in example apps, including PipeWire audio, support both startup URI binds and idle startup plus later REST source injection, while omitted app names derive from the executable name",
+      "steps": [
+        "Start one example app without `--app-name` and without a startup URI",
+        "Inspect GET /api/apps and verify the app record name derives from the executable name",
+        "Create one app source through POST /api/apps/{id}/sources",
+        "Verify the example begins receiving routed callbacks only after the bind is created",
+        "Start the same example again with an explicit startup URI and verify direct startup still works",
+        "When the example consumes PipeWire audio, verify `audio/mono` and `audio/stereo` stay separate exact selectors that deliver different channel counts"
+      ],
+      "passes": true
     }
   ]
 }

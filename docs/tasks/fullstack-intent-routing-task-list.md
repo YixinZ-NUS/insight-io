@@ -4,8 +4,20 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 14
+- version: 17
 - major changes:
+  - 2026-03-27 added the checked-in PipeWire audio example app, live-verified
+    mono and stereo exact-selector behavior on the current host, and refreshed
+    the example-app docs to keep the task closeout coherent
+  - 2026-03-27 simplified the checked-in example startup path so the example
+    apps can now start either with a startup URI or idle for later REST
+    injection, confirmed omitted app names derive from the executable name,
+    and closed the remaining Mermaid backlog
+  - 2026-03-27 closed task 9 with the checked-in route-oriented SDK, grouped
+    target fan-out, exact and grouped `session_id` attach, runtime rebind, and
+    example apps; closed task 10 with the repo-native browser route-builder UI;
+    closed tasks 11 and 12 with focused SDK/browser tests, live hardware
+    runtime verification, and a full feature-tracker sweep
   - 2026-03-27 closed task 7 with live-verified IPC attach, idle-worker
     teardown, and repo-native unix-socket control flow, closed the first task
     8 slice with exact single-channel RTSP publication plus strict FFmpeg
@@ -35,6 +47,8 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
+  - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
@@ -47,20 +61,23 @@
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
-The current worktree covers the explicit v1 schema, a versioned health
-endpoint, persisted discovery and catalog reads, device alias updates, direct
+The current worktree covers the full documented v1 surface: the explicit
+schema, persisted discovery and catalog reads, device alias updates, direct
 session REST/status flow, durable app/route/source CRUD and lifecycle
-endpoints, serving-runtime reuse across identical `stream_id` requests, local
-IPC attach over the shared runtime, exact single-channel RTSP publication, and
-focused build/runtime tests. The ordered tasks below describe the remaining
-feature work.
+endpoints, shared-runtime reuse, local IPC attach, exact RTSP publication, the
+route-oriented SDK, the repo-native browser UI, example apps including
+PipeWire audio consumption, focused automated tests, and live hardware
+verification on the development host.
+
+The example apps now explicitly cover both startup modes:
+
+- startup with one CLI-posted URI or `session:<id>`
+- idle startup with later `POST /api/apps/{id}/sources` injection
 
 Completed slices:
 
-- tasks 1 through 8 are now implemented and verification-backed in the current
-  worktree
-
-The next implementation slice is task 9.
+- tasks 1 through 12 are now implemented and verification-backed in the
+  current worktree
 
 ## Ordered Tasks
 

@@ -4,8 +4,29 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 19
+- version: 24
 - major changes:
+  - 2026-03-27 fixed the two actionable PR #8 review items by validating
+    browser source-form payloads before submit and making `bind_from_cli()`
+    propagate `argv[0]` for omitted app-name derivation, then reverified the
+    SDK and full checked-in test suite
+  - 2026-03-27 added the checked-in `pipewire_audio_monitor` example, focused
+    SDK coverage for synthetic PipeWire audio delivery, live mono-versus-
+    stereo selector verification on the current host, and more accurate
+    callback-threshold wording for example auto-stop flags
+  - 2026-03-27 added current-host V4L2 concurrency stress verification for
+    `v4l2_latency_monitor`, recording the published selector set plus the
+    observed supported and unsupported concurrent selector combinations
+  - 2026-03-27 simplified the checked-in example startup path so the example
+    apps can now start either with startup binds or idle for later REST
+    injection, added focused regression coverage for omitted app names plus
+    late bind, closed the remaining Mermaid backlog, and refreshed the docs to
+    match the verified runtime behavior
+  - 2026-03-27 completed the task-9 SDK slice, added the repo-native browser
+    UI, added focused SDK/browser regression coverage, live-verified the
+    webcam and Orbbec example apps plus exact/grouped `session_id` attach and
+    runtime rebind on this host, and flipped the remaining feature trackers to
+    green
   - 2026-03-27 added a dedicated runtime-wait writeup that records the current
     RTSP and worker startup-grace sleeps, the live evidence that they work on
     the development host today, and the empirical optimization plan for
@@ -66,6 +87,520 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Fix Actionable PR #8 Review Items
+
+### What Changed
+
+- updated [app.js](/home/yixin/Coding/insight-io/frontend/app.js) so the
+  browser source form now rejects:
+  - empty `input` plus empty `session_id`
+  - simultaneous `input` plus `session_id`
+  - non-positive or malformed `session_id` values
+- updated [app.cpp](/home/yixin/Coding/insight-io/sdk/src/app.cpp) so
+  `bind_from_cli(argc, argv, ...)` now copies `argv[0]` into the SDK's
+  `program_name`, which makes omitted app-name derivation work even when a
+  caller uses `bind_from_cli()` followed by `connect()` instead of
+  `run(argc, argv)`
+- extended [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+  with a focused regression test for the `bind_from_cli()` plus `connect()`
+  omitted-name path
+
+### Why
+
+- PR #8 had two actionable review comments:
+  - the browser source form could serialize invalid source-create payloads that
+    the backend would reject later
+  - the public SDK path `bind_from_cli()` plus `connect()` still derived the
+    default app name as `app` instead of using `argv[0]`
+- both comments were still real against the previous branch head:
+  I reproed the frontend/backend mismatch with live `400` responses from the
+  daemon, and I reproed the SDK naming bug with a temporary program that
+  created an app named `app` through the public API path
+
+### Verification
+
+```bash
+node --check frontend/app.js
+cmake --build build -j4 --target app_sdk_test
+./build/bin/app_sdk_test
+ctest --test-dir build --output-on-failure
+app_id=$(curl -s -X POST http://127.0.0.1:18294/api/apps -H 'Content-Type: application/json' -d '{"name":"review-fix-check","description":""}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18294/api/apps/${app_id}/routes -H 'Content-Type: application/json' -d '{"route_name":"audio","expect":{"media":"audio"}}'
+curl -s -o /tmp/review_both.json -w '%{http_code}\n' -X POST http://127.0.0.1:18294/api/apps/${app_id}/sources -H 'Content-Type: application/json' -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono","session_id":1}'
+curl -s -o /tmp/review_null.json -w '%{http_code}\n' -X POST http://127.0.0.1:18294/api/apps/${app_id}/sources -H 'Content-Type: application/json' -d '{"target":"audio","session_id":null}'
+curl -s -X DELETE http://127.0.0.1:18294/api/apps/${app_id}
+```
+
+Observed results:
+
+- `node --check frontend/app.js` passed
+- `./build/bin/app_sdk_test` now reports `app_sdk_test: 12 test(s) passed`
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- the live backend still rejects the invalid payloads the browser now blocks
+  earlier:
+  - `input` plus `session_id` returns `400` with
+    `Exactly one of 'input' or 'session_id' is required`
+  - `session_id: null` returns `400` with
+    `Field 'session_id' must be integer when present`
+
+## 2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors
+
+### What Changed
+
+- added
+  [pipewire_audio_monitor.cpp](/home/yixin/Coding/insight-io/examples/pipewire_audio_monitor.cpp)
+  as a checked-in SDK example app for one exact PipeWire audio route
+- added the new example to
+  [examples/CMakeLists.txt](/home/yixin/Coding/insight-io/examples/CMakeLists.txt)
+- extended
+  [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+  with a synthetic PipeWire device plus a focused callback-delivery test for
+  `insightos::Audio{}`
+- live-queried the current PipeWire catalog and documented that both current
+  audio devices publish both `audio/mono` and `audio/stereo` as separate exact
+  selectors
+- updated the guide, report, task list, feature trackers, and demo transcript
+  so the new audio example and the selector split are documented coherently
+- tightened the example-app stop wording so `--max-frames` and similar flags
+  are described as `request_stop()` thresholds; on the live audio run, one
+  already queued callback still printed after the threshold was reached
+
+### Why
+
+- the follow-up request for this turn was to add another checked-in app that
+  consumes PipeWire audio and to answer whether the current selector surface
+  needs to tell mono and stereo apart
+- the current catalog and the live example output both show that the selector
+  distinction is real:
+  mono and stereo resolve to different delivered channel counts and different
+  per-callback sample totals even when the route target name stays `audio`
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+./build/bin/app_sdk_test
+ctest --test-dir build --output-on-failure
+curl -s http://127.0.0.1:18294/api/devices | jq -r '.devices[] | select(.driver=="pipewire") | .name as $name | .sources[] | [$name, .selector, (.caps_json.format // ""), ((.caps_json.sample_rate // 0)|tostring), ((.caps_json.channels // 0)|tostring), .uri] | @tsv'
+./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18294 --max-frames=6 --report-every=3 insightos://localhost/web-camera-mono/audio/stereo
+./build/bin/pipewire_audio_monitor --app-name=pipewire-audio-rest --backend-host=127.0.0.1 --backend-port=18294 --max-frames=5 --report-every=1
+curl -s http://127.0.0.1:18294/api/apps
+curl -s -X POST http://127.0.0.1:18294/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono"}'
+```
+
+Observed results:
+
+- `./build/bin/app_sdk_test` now reports `app_sdk_test: 11 test(s) passed`
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- the current host publishes both current PipeWire devices with both
+  `audio/mono` and `audio/stereo`, each at `s16le` `48000`
+- direct startup on `web-camera-mono/audio/stereo` reported `channels=2` and
+  `samples=2048`
+- idle startup plus later REST bind on `web-camera-mono/audio/mono` reported
+  `channels=1` and `samples=1024`
+- the mono late-bind run used `--max-frames=5`, but one queued sixth callback
+  still printed before exit, so the docs now describe these flags as stop
+  requests rather than exact hard ceilings
+
+## 2026-03-27 – Stress V4L2 Concurrent Selector Combinations
+
+### What Changed
+
+- runtime-checked the current-host V4L2 selector set published for
+  `web-camera`
+- stress-tested concurrent
+  [v4l2_latency_monitor](/home/yixin/Coding/insight-io/examples/v4l2_latency_monitor.cpp)
+  instances against:
+  - the same exact selector twice: `1080p_30` plus `1080p_30`
+  - mixed resolutions: `1080p_30` plus `720p_30`
+  - mixed formats at the nearest available raw size:
+    `720p_30` `mjpeg` plus `720p_10` `yuyv`
+- recorded the observed startup-race caveat for simultaneous cold-start on the
+  same exact selector and the device-busy failures for mixed-selector pairs
+- updated the operator guide so the current host notes now explain what
+  combinations were empirically supported and what combinations were rejected
+
+### Why
+
+- the follow-up question for this turn was whether multiple
+  `v4l2_latency_monitor` instances can consume the webcam at different exact
+  selector combinations, specifically around `1080p`, raw-versus-`mjpeg`, and
+  `1080p` plus `720p`
+- the catalog on this host does not currently publish a raw `1080p` selector,
+  so the closest real mixed-format check is `720p_30` `mjpeg` together with
+  `720p_10` `yuyv`
+
+### Verification
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18293 \
+  --db-path /tmp/insight-io-stress-18293.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18593
+
+curl -s http://127.0.0.1:18293/api/devices | jq -r \
+  '.devices[] | select(.driver=="v4l2" and .name=="web-camera") | .sources[] |
+   [.selector, .caps_json.format, .caps_json.width, .caps_json.height, .caps_json.fps] | @tsv'
+
+curl -s http://127.0.0.1:18293/api/devices | jq -r \
+  '.devices[] | select(.driver=="v4l2" and .name=="web-camera") | .sources[] |
+   select(.caps_json.width==1920 and .caps_json.height==1080) |
+   [.selector, .caps_json.format, .uri] | @tsv'
+
+curl -s http://127.0.0.1:18293/api/devices | jq -r \
+  '.devices[] | select(.driver=="v4l2" and .name=="web-camera") | .sources[] |
+   select(.caps_json.format=="yuyv") |
+   [.selector, .caps_json.width, .caps_json.height, .caps_json.fps] | @tsv'
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-1080-a \
+    --max-frames=90 \
+    insightos://localhost/web-camera/1080p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-1080-b \
+    --max-frames=90 \
+    insightos://localhost/web-camera/1080p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-1080 \
+    --max-frames=90 \
+    insightos://localhost/web-camera/1080p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720 \
+    --max-frames=90 \
+    insightos://localhost/web-camera/720p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720-mjpeg \
+    --max-frames=90 \
+    insightos://localhost/web-camera/720p_30
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720-raw \
+    --max-frames=90 \
+    insightos://localhost/web-camera/720p_10
+
+INSIGHTIO_BACKEND_HOST=127.0.0.1 INSIGHTIO_BACKEND_PORT=18293 \
+  timeout -k 2 20s ./build/bin/v4l2_latency_monitor \
+    --app-name=stress-720-raw-solo \
+    --max-frames=40 \
+    insightos://localhost/web-camera/720p_10
+```
+
+Observed results:
+
+- the current host publishes `1080p_30` only as `mjpeg`; there is no published
+  raw `1080p` selector
+- the currently published raw `yuyv` selectors are `720p_10` and
+  `800x600_10`
+- one simultaneous cold-start run of two `1080p_30` consumers was not reliable:
+  one process exited `0`, the other timed out with exit `124`, and the timed
+  out process produced no frame log output
+- two `1080p_30` consumers both completed successfully when the second
+  instance started after the first had already become active
+- one `1080p_30` consumer plus one `720p_30` consumer is not currently
+  supported concurrently on this host; the second consumer failed with:
+  `IPC attach rejected route 'camera': VIDIOC_S_FMT: Device or resource busy`
+- one `720p_30` `mjpeg` consumer plus one `720p_10` `yuyv` consumer is also
+  not currently supported concurrently on this host; the second consumer failed
+  with the same `VIDIOC_S_FMT: Device or resource busy` error
+- `720p_10` raw succeeds by itself, proving the mixed-format failure is device
+  contention rather than a bad catalog selector
+
+## 2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog
+
+### What Changed
+
+- updated the checked-in example binaries under
+  [examples/](/home/yixin/Coding/insight-io/examples) so they now support both:
+  - startup binds posted on the CLI
+  - idle startup with later `POST /api/apps/{id}/sources` injection
+- switched the examples onto the SDK path that derives the default app name
+  from the executable name when `--app-name` is omitted, while still keeping
+  explicit `--app-name` support when a unique durable name is useful
+- added one focused regression case to
+  [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+  covering omitted app name plus idle startup and later REST bind
+- closed the previously listed Mermaid backlog by adding:
+  - [exact-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-session-attach-sequence.md)
+  - [grouped-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-session-attach-sequence.md)
+  - [browser-restart-recovery-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-restart-recovery-sequence.md)
+  - [discovery-runtime-boundary-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/discovery-runtime-boundary-sequence.md)
+- refreshed the active guide/report/task docs plus both feature trackers so
+  they now describe the verified example startup options and the expanded
+  diagram inventory
+
+### Why
+
+- the examples already had the right late-bind runtime contract, but the
+  checked-in binaries still hid the SDK-derived default-name path behind
+  hard-coded app names and the written guide only showed startup-with-URI
+  invocations
+- the follow-up requirement for this turn was to keep the examples minimal,
+  avoid a new helper abstraction, make no-URI startup a first-class documented
+  path, and close the remaining internal explanation backlog
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18291 \
+  --db-path /tmp/insight-io-examples-18291.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18591
+
+curl -s http://127.0.0.1:18291/api/devices | jq \
+  '.devices[] | {public_name, default_name, driver, selectors: [.sources[].selector]}'
+
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-frames=20
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="v4l2-latency-monitor") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-frames=10 \
+  insightos://localhost/web-camera/720p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-pairs=2 \
+  --output=/tmp/insight-io-overlay-480-runtime.png
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="orbbec-depth-overlay") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=orbbec-depth-overlay-720 \
+  --max-pairs=2 \
+  --output=/tmp/insight-io-overlay-720-runtime.png
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="orbbec-depth-overlay-720") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30"}' | jq .
+
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --max-frames=60
+app_id=$(curl -s http://127.0.0.1:18291/api/apps | jq -r \
+  '.apps[] | select(.name=="mixed-device-consumer") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+curl -s -X POST http://127.0.0.1:18291/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+
+ls -l /tmp/insight-io-overlay-480-runtime.png /tmp/insight-io-overlay-720-runtime.png
+file /tmp/insight-io-overlay-480-runtime.png /tmp/insight-io-overlay-720-runtime.png
+```
+
+Observed results:
+
+- `ctest` remained green after the new omitted-app-name plus late-bind
+  regression case landed
+- the live catalog on this host still published one V4L2 `web-camera`, one
+  SDK-backed Orbbec `sv1301s-u3`, and grouped presets
+  `orbbec/preset/480p_30` plus `orbbec/preset/720p_30`
+- `v4l2_latency_monitor` now proved both startup modes:
+  - idle startup with omitted `--app-name`, later REST bind, and routed frames
+  - direct startup from the explicit webcam URI
+- `orbbec_depth_overlay` proved idle startup plus later grouped-preset bind at
+  both `480p` and `720p`
+- the generated overlay files were valid PNGs:
+  - `/tmp/insight-io-overlay-480-runtime.png`: `640x480`
+  - `/tmp/insight-io-overlay-720-runtime.png`: `1280x720`
+- `mixed_device_consumer` proved idle startup plus later REST injection of one
+  exact webcam source and one grouped Orbbec preset in the same app
+
+## 2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification
+
+### What Changed
+
+- added the route-oriented SDK under
+  [sdk/](/home/yixin/Coding/insight-io/sdk) with:
+  - named-route declarations
+  - later REST bind support for running idle apps
+  - exact and grouped `session_id` attach
+  - runtime `rebind(...)`
+  - focused callback-delivery tests in
+    [app_sdk_test.cpp](/home/yixin/Coding/insight-io/sdk/tests/app_sdk_test.cpp)
+- added example apps under
+  [examples/](/home/yixin/Coding/insight-io/examples):
+  - [v4l2_latency_monitor.cpp](/home/yixin/Coding/insight-io/examples/v4l2_latency_monitor.cpp)
+  - [orbbec_depth_overlay.cpp](/home/yixin/Coding/insight-io/examples/orbbec_depth_overlay.cpp)
+  - [mixed_device_consumer.cpp](/home/yixin/Coding/insight-io/examples/mixed_device_consumer.cpp)
+- extended the catalog and tests so the checked-in public Orbbec contract now
+  includes grouped `orbbec/preset/720p_30` alongside the earlier `480p`
+  grouped preset
+- added the repo-native browser UI under
+  [frontend/](/home/yixin/Coding/insight-io/frontend) and updated
+  [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  plus [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp) so:
+  - `GET /` serves the static frontend
+  - `/static/*` serves the bundled assets
+  - `POST /api/devices:refresh` reruns discovery
+  - the canonical documented custom-method form now follows Google-AIP-style
+    `:start`, `:stop`, and `:rebind`
+- added two new Mermaid diagrams:
+  - [sdk-idle-rest-bind-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/sdk-idle-rest-bind-sequence.md)
+  - [browser-route-builder-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-route-builder-sequence.md)
+- swept the active docs, user guide, tech report, task list, and both feature
+  trackers so the repo now describes the implemented SDK plus browser state
+
+### Why
+
+- the previous worktree already had a substantial task-9 implementation in
+  flight, but the repo still lacked the browser client, the last verification
+  coverage for idle-bind/rebind/fanout behavior, and the doc/tracker sweep
+  needed to claim the design was fully implemented
+- the user goal for this turn was to finish the design-doc contract, keep the
+  apps minimal, preserve all tests, and move both feature trackers to
+  verification-backed green
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18291 \
+  --db-path /tmp/insight-io-task9-1774588668.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18591
+
+curl -s http://127.0.0.1:18291/api/health | jq .
+curl -s http://127.0.0.1:18291/api/devices | jq \
+  '.devices[] | {public_name, driver, source_count: (.sources|length), selectors: [.sources[].selector]}'
+
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-v4l2-latency \
+  --max-frames=30 \
+  insightos://localhost/web-camera/720p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-orbbec-overlay-480 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-480.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-orbbec-overlay-720 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-720.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/720p_30
+
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-mixed-device \
+  --max-frames=90 \
+  camera=insightos://localhost/web-camera/720p_30 \
+  orbbec=insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+
+session_id=$(curl -s -X POST http://127.0.0.1:18291/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq -r '.session_id')
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-session-camera \
+  --max-frames=20 \
+  camera=session:${session_id}
+
+grouped_session_id=$(curl -s -X POST http://127.0.0.1:18291/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30","rtsp_enabled":false}' | jq -r '.session_id')
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18291 \
+  --app-name=live-session-orbbec \
+  --max-pairs=2 \
+  --output=/tmp/insight-io-session-overlay-720.png \
+  orbbec=session:${grouped_session_id}
+```
+
+Additional exact verification paths used in the live pass:
+
+- started one idle `v4l2_latency_monitor` app with no startup binds, confirmed
+  the log stayed empty for one second, then created
+  `POST /api/apps/{app_id}/sources` with target `camera` and verified frames
+  began only after that bind was created
+- started one idle `mixed_device_consumer` app, confirmed the log stayed empty
+  for one second, then created
+  `POST /api/apps/{app_id}/sources` with exact
+  `insightos://localhost/sv1301s-u3/orbbec/depth/480p_30` and target
+  `orbbec/depth`, and verified routed depth callbacks began
+- started one running `v4l2_latency_monitor` app, created an initial webcam
+  source bind, then called
+  `POST /api/apps/{app_id}/sources/{source_id}:rebind` to move the same target
+  to `insightos://localhost/sv1301s-u3/orbbec/color/480p_30`, and verified a
+  second caps change from `1280x720` to `640x480`
+- installed `jsdom@26.1.0` under `/tmp/insight-io-jsdom`, loaded
+  `http://127.0.0.1:18291/` through a headless DOM driver, created app
+  `browser-ui-1774588770675`, declared routes `camera`, `orbbec/color`, and
+  `orbbec/depth`, bound exact `web-camera/720p_30` plus grouped
+  `orbbec/preset/480p_30`, stopped and restarted the exact source from the UI,
+  restarted `insightiod` against the same SQLite file, reloaded the page, and
+  restarted the persisted source from the browser surface
+
+Observed results:
+
+- all eight checked-in test targets passed, including the expanded
+  `app_sdk_test`
+- live discovery on this host published one V4L2 webcam, one SDK-backed
+  Orbbec `sv1301s-u3`, and both grouped presets
+  `orbbec/preset/480p_30` and `orbbec/preset/720p_30`
+- the webcam latency example delivered steady-clock latency stats from the live
+  V4L2 camera
+- the Orbbec overlay example produced valid PNG overlays for both grouped
+  presets, and the `720p` preset verified the documented `1280x720` color plus
+  `1280x800` depth contract
+- the mixed-device example consumed webcam video plus grouped Orbbec color and
+  depth at the same time
+- exact and grouped `session_id` attach both delivered live callbacks on this
+  host
+- late bind, idle-until-bind, runtime rebind, and browser restart recovery all
+  executed successfully against the real daemon
+- after this verification sweep, every `passes` field in both feature trackers
+  was flipped to `true`
 
 ## 2026-03-27 – Document Runtime Wait And Startup Sleep Behavior
 

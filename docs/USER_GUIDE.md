@@ -4,8 +4,33 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 14
+- version: 20
 - major changes:
+  - 2026-03-27 added the checked-in `pipewire_audio_monitor` example, runtime
+    verified direct stereo startup plus idle mono late bind on the current
+    PipeWire catalog, documented why `audio/mono` and `audio/stereo` stay
+    distinct exact selectors, and clarified that example auto-stop flags are
+    asynchronous `request_stop()` thresholds rather than hard callback ceilings
+  - 2026-03-27 added current-host V4L2 concurrency stress notes for
+    `v4l2_latency_monitor`, documenting the published 1080p and raw selector
+    set plus the observed supported and unsupported concurrent selector
+    combinations
+  - 2026-03-27 documented the example-app argument surface more explicitly,
+    including default backend host and port behavior, environment-variable
+    overrides, and the stop semantics for `--max-frames` and `--max-pairs`
+  - 2026-03-27 made the example-app CLI and REST usage equivalence explicit:
+    one startup bind argument maps to one later `POST /api/apps/{id}/sources`
+    request with the same target and source, and multi-target startup forms map
+    to one POST per target
+  - 2026-03-27 simplified the checked-in example startup path so each example
+    can now start either with a startup URI or idle for later REST injection,
+    documented that omitted app names derive from the executable name, and
+    added the four previously backlogged Mermaid diagrams to the active docs
+  - 2026-03-27 documented the completed task-9 SDK plus browser slices, added
+    the frontend startup and headless-browser verification notes, added the
+    example-app walkthroughs for webcam latency, Orbbec overlay, and mixed
+    multi-device routing, and recorded the live 480p/720p grouped-preset
+    verification on this host
   - 2026-03-27 reverified live Orbbec persistence after a manual replug,
     documented the intentional IR omission more explicitly, and recorded why
     the public Orbbec depth contract stays normalized to `y16`
@@ -50,6 +75,8 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
+  - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
@@ -81,9 +108,10 @@ This guide covers the current worktree slice only:
 - inspect `/api/status`
 - attach to active exact sessions over the unix IPC control socket
 - publish exact single-channel RTSP on top of the shared serving runtime
-
-SDK callbacks and frontend management are still not available in this
-worktree slice.
+- build and run the route-oriented SDK test target
+- run the example apps through CLI and late REST binding
+- use the repo-native browser UI for catalog browse, app create, route declare,
+  source bind, source restart, and restart recovery
 
 ## Build
 
@@ -103,6 +131,11 @@ Expected binaries:
 - `build/bin/app_service_test`
 - `build/bin/ipc_runtime_test`
 - `build/bin/insightio_ipc_probe`
+- `build/bin/app_sdk_test`
+- `build/bin/pipewire_audio_monitor`
+- `build/bin/v4l2_latency_monitor`
+- `build/bin/orbbec_depth_overlay`
+- `build/bin/mixed_device_consumer`
 
 ## Test
 
@@ -119,6 +152,7 @@ Current checked-in result on the development host:
 - `rest_server_test`: pass
 - `app_service_test`: pass
 - `ipc_runtime_test`: pass
+- `app_sdk_test`: pass
 
 ## Run
 
@@ -127,7 +161,6 @@ Current checked-in result on the development host:
   --host 127.0.0.1 \
   --port 18180 \
   --db-path /tmp/insight-io.sqlite3 \
-  --frontend /tmp/frontend \
   --rtsp-host 127.0.0.1 \
   --rtsp-port 18554
 ```
@@ -136,10 +169,368 @@ Notes:
 
 - `--db-path` points to the SQLite file initialized from
   [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
-- `--frontend` is accepted now so later frontend slices can use the same CLI,
-  but no static frontend is served yet
+- when started from the repo root, `insightiod` now auto-serves
+  [frontend/](/home/yixin/Coding/insight-io/frontend)
+- `--frontend /absolute/path/to/frontend` still overrides the frontend asset
+  directory explicitly when needed
+
+## Browser UI
+
+Open `http://127.0.0.1:18180/`.
+
+Current browser flow:
+
+- inspect exact and grouped catalog URIs
+- create one persistent app
+- declare routes with `expect.media`
+- bind one `input` URI or `session_id` to one target
+- stop, restart, and rebind sources
+- reload after backend restart and explicitly restart persisted sources
+
+## Example Apps
+
+Shared rules for the checked-in examples:
+
+- each example still accepts the existing startup URI or `session:<id>` bind
+- if no startup bind is posted on the CLI, the app starts idle and waits for a
+  later `POST /api/apps/{id}/sources`
+- `--backend-host` and `--backend-port` are optional in all checked-in
+  examples
+- if omitted, the SDK defaults to `127.0.0.1:18180`
+- if omitted and the environment exports `INSIGHTIO_BACKEND_HOST` or
+  `INSIGHTIO_BACKEND_PORT`, the SDK uses those values instead of the built-in
+  defaults
+- one startup bind argument is equivalent to one later
+  `POST /api/apps/{id}/sources` request that carries the same target and the
+  same `input` or `session_id`
+- if the CLI form uses one bare startup URI rather than `target=value`, the
+  example's implicit target is what the later REST request must post:
+  `camera` for `v4l2_latency_monitor` and `orbbec` for
+  `orbbec_depth_overlay`
+- if the CLI form uses multiple startup bind arguments, the later REST flow is
+  the same set of binds expressed as one source-create POST per target; the
+  current REST API does not accept a multi-source batch body
+- `pipewire_audio_monitor` uses one logical target name, `audio`, but the
+  source selector still matters:
+  `audio/mono` and `audio/stereo` are separate exact catalog choices because
+  they deliver different channel counts
+- `--app-name` is optional; when omitted, the app name derives from the
+  executable name:
+  `pipewire-audio-monitor`, `v4l2-latency-monitor`,
+  `orbbec-depth-overlay`, or
+  `mixed-device-consumer`
+- if multiple copies of the same example might run at once, set `--app-name`
+  explicitly so later REST injection can target the right app row without
+  ambiguity
+- example auto-stop flags call `request_stop()` once their callback threshold
+  is reached, but shutdown is asynchronous, so one already queued callback may
+  still appear before the process exits
+
+### Example Arg Reference
+
+All four examples support `--help`.
+
+`pipewire_audio_monitor` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-frames=<count>`
+- `--report-every=<count>`
+- optional startup bind:
+  bare `insightos://...`, `audio=insightos://...`, or `audio=session:<id>`
+
+`pipewire_audio_monitor` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-frames`: `150`
+- `report-every`: `25`
+
+`pipewire_audio_monitor` stop semantics:
+
+- `--max-frames=N` means the app calls `request_stop()` after the audio
+  route's `on_frame(...)` callback count reaches `N`
+- the exact bound URI still decides whether the callback delivers one channel
+  or two:
+  `audio/mono` versus `audio/stereo`
+
+`v4l2_latency_monitor` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-frames=<count>`
+- optional startup bind:
+  bare `insightos://...`, `camera=insightos://...`, or `camera=session:<id>`
+
+`v4l2_latency_monitor` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-frames`: `120`
+
+`v4l2_latency_monitor` stop semantics:
+
+- `--max-frames=N` means the app calls `request_stop()` after the camera
+  route's `on_frame(...)` callback has run `N` times
+- `--max-frames=0` or any negative value disables that auto-stop path
+
+`orbbec_depth_overlay` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-pairs=<count>`
+- `--pair-threshold-ms=<ms>`
+- `--output=<path>`
+- optional startup bind:
+  bare `insightos://...`, `orbbec=insightos://...`, or `orbbec=session:<id>`
+
+`orbbec_depth_overlay` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-pairs`: `60`
+- `pair-threshold-ms`: `80`
+- output path: `/tmp/insight-io-orbbec-overlay.png`
+
+`orbbec_depth_overlay` stop semantics:
+
+- `--max-pairs=N` means the app calls `request_stop()` after it has produced
+  and written `N` successful color-plus-depth overlay images
+- this counter advances on rendered overlay pairs, not on every incoming frame
+- `--max-pairs=0` or any negative value disables that auto-stop path
+
+`mixed_device_consumer` accepts:
+
+- `--app-name=<name>`
+- `--backend-host=<host>`
+- `--backend-port=<port>`
+- `--max-frames=<count>`
+- optional startup binds:
+  `camera=insightos://...`, `camera=session:<id>`,
+  `orbbec=insightos://...`, or `orbbec=session:<id>`
+
+`mixed_device_consumer` defaults:
+
+- backend host: `127.0.0.1`
+- backend port: `18180`
+- `max-frames`: `180`
+
+`mixed_device_consumer` stop semantics:
+
+- `--max-frames=N` means the app calls `request_stop()` once the combined total
+  of processed camera, Orbbec color, and Orbbec depth frames reaches `N`
+- it also requires that at least one frame has arrived on all three routes, so
+  the app does not stop before the mixed-device fanout is proven
+- `--max-frames=0` or any negative value disables that auto-stop path
+
+### PipeWire Audio
+
+Current selector note on this host:
+
+- both current PipeWire devices publish `audio/mono` and `audio/stereo`
+- both selectors currently resolve to `s16le` at `48000` Hz
+- `audio/mono` delivers one channel and `audio/stereo` delivers two, so the
+  selector must stay distinct whenever channel count matters
+- the app route target stays `audio` in both cases; only the bound URI changes
+
+Startup bind at launch:
+
+```bash
+./build/bin/pipewire_audio_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=30 \
+  --report-every=10 \
+  insightos://localhost/web-camera-mono/audio/stereo
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/pipewire_audio_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-pipewire-audio \
+  --max-frames=30 \
+  --report-every=10
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="guide-pipewire-audio") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono"}' | jq .
+```
+
+Equivalence:
+
+- running
+  `pipewire_audio_monitor insightos://localhost/web-camera-mono/audio/stereo`
+  is equivalent to starting the app with no startup bind and later posting
+  `{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/stereo"}`
+- the same rule holds for `audio/mono`; only the exact selector changes, not
+  the app target name
+- on the current host, the live stereo run reported `channels=2` and
+  `samples=2048` while the live mono late-bind run reported `channels=1` and
+  `samples=1024`, which is why the selector distinction must remain public
+
+### Webcam Latency
+
+Startup bind at launch:
+
+```bash
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=30 \
+  insightos://localhost/web-camera/720p_30
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/v4l2_latency_monitor \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=30
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="v4l2-latency-monitor") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+```
+
+Equivalence:
+
+- running `v4l2_latency_monitor insightos://localhost/web-camera/720p_30` is
+  equivalent to starting the app with no startup bind and later posting
+  `{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}`
+
+### Orbbec Overlay
+
+Startup bind at launch:
+
+```bash
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-480.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-orbbec-720 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-720.png \
+  insightos://localhost/sv1301s-u3/orbbec/preset/720p_30
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/orbbec_depth_overlay \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-orbbec-480 \
+  --max-pairs=4 \
+  --output=/tmp/insight-io-overlay-480.png
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="guide-orbbec-480") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+```
+
+The second command is the checked-in proof path for the current `720p` grouped
+contract on this host: `1280x720` color plus `1280x800` depth with no aligned
+`720p` depth selector.
+
+Equivalence:
+
+- running `orbbec_depth_overlay insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
+  is equivalent to starting the app with no startup bind and later posting
+  `{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}`
+- the same rule holds for the checked-in `720p_30` preset:
+  the startup URI form is equivalent to later posting
+  `{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30"}`
+
+### Mixed Device Routing
+
+Startup binds at launch:
+
+```bash
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --max-frames=90 \
+  camera=insightos://localhost/web-camera/720p_30 \
+  orbbec=insightos://localhost/sv1301s-u3/orbbec/preset/480p_30
+```
+
+Idle startup plus later REST injection:
+
+```bash
+./build/bin/mixed_device_consumer \
+  --backend-host=127.0.0.1 \
+  --backend-port=18180 \
+  --app-name=guide-mixed-devices \
+  --max-frames=90
+
+app_id=$(curl -s http://127.0.0.1:18180/api/apps | jq -r \
+  '.apps[] | select(.name=="guide-mixed-devices") | .app_id' | tail -n1)
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}' | jq .
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}' | jq .
+```
+
+Equivalence:
+
+- running
+  `mixed_device_consumer camera=insightos://localhost/web-camera/720p_30 orbbec=insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
+  is equivalent to starting the app with no startup binds and later posting
+  `{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}`
+  and
+  `{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}`
+  as two separate `POST /api/apps/{id}/sources` requests
 - `--rtsp-host` and `--rtsp-port` together control the catalog RTSP URLs and
   the runtime publisher destination
+
+## Concurrent V4L2 Stress
+
+Current host results for running multiple
+[v4l2_latency_monitor](/home/yixin/Coding/insight-io/examples/v4l2_latency_monitor.cpp)
+instances against the same `web-camera`:
+
+- the published `1920x1080` selector on this host is currently
+  `1080p_30` with `mjpeg`; there is no published `1080p` raw selector in the
+  active catalog
+- the currently published raw `yuyv` selectors are `720p_10` and
+  `800x600_10`
+- two `1080p_30` consumers can both complete when the second instance starts
+  after the first is already active
+- one observed simultaneous cold-start run of two `1080p_30` consumers was not
+  reliable: one consumer completed and the other timed out without receiving
+  frames
+- one `1080p_30` consumer plus one `720p_30` consumer is not currently
+  supported concurrently on this host; the second consumer failed with
+  `IPC attach rejected route 'camera': VIDIOC_S_FMT: Device or resource busy`
+- one `720p_30` consumer plus one `720p_10` raw consumer is also not currently
+  supported concurrently on this host; the second consumer failed with the same
+  `VIDIOC_S_FMT: Device or resource busy` error
+- `720p_10` raw works correctly by itself, so the mixed-format failure is
+  contention on the shared V4L2 device rather than a broken raw selector
+
+Treat these results as current-host runtime evidence, not as a generic promise
+for every V4L2 camera.
 
 ## Health Check
 
@@ -223,13 +614,13 @@ curl -s http://127.0.0.1:18180/api/status | jq
 Exercise the remaining lifecycle endpoints:
 
 ```bash
-curl -s -X POST http://127.0.0.1:18180/api/sessions/1/stop \
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/sessions/1/start \
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1:start \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/sessions/1/stop \
+curl -s -X POST http://127.0.0.1:18180/api/sessions/1:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
 curl -i -X DELETE http://127.0.0.1:18180/api/sessions/1
@@ -237,7 +628,7 @@ curl -i -X DELETE http://127.0.0.1:18180/api/sessions/1
 
 To verify restart normalization, stop the session, restart `insightiod` with
 the same `--db-path`, and then inspect `GET /api/sessions/1` before calling
-`POST /api/sessions/1/start` again.
+`POST /api/sessions/1:start` again.
 
 ## Review Walkthrough
 
@@ -325,10 +716,10 @@ printf '%s\n' "${source_json}" | jq
 
 source_id=$(printf '%s' "${source_json}" | jq -r '.source_id')
 
-curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}/stop \
+curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}/start \
+curl -s -X POST http://127.0.0.1:18183/api/apps/${app_id}/sources/${source_id}:start \
   -H 'Content-Type: application/json' -d '{}' | jq
 
 mismatch_app_id=$(curl -s -X POST http://127.0.0.1:18183/api/apps \
@@ -366,9 +757,9 @@ Current audit result on the development host:
 
 - exact app-source responses now include `target`, `uri`, `state`,
   `rtsp_enabled`, `resolved_exact_stream_id`, and nested session metadata
-- `POST /api/apps/{id}/sources/{source_id}/stop` keeps the durable source row
+- `POST /api/apps/{id}/sources/{source_id}:stop` keeps the durable source row
   and clears only the active runtime link
-- `POST /api/apps/{id}/sources/{source_id}/start` recreates runtime state and
+- `POST /api/apps/{id}/sources/{source_id}:start` recreates runtime state and
   links a fresh app-owned session to the same durable source row
 - `POST /api/apps/{id}/sources` now returns `422 Unprocessable Content` with
   `route_expectation_mismatch` when source media and route expectation disagree
@@ -410,16 +801,16 @@ The current backend now exposes these session endpoints:
 - `POST /api/sessions`
 - `GET /api/sessions`
 - `GET /api/sessions/{id}`
-- `POST /api/sessions/{id}/start`
-- `POST /api/sessions/{id}/stop`
+- `POST /api/sessions/{id}:start`
+- `POST /api/sessions/{id}:stop`
 - `DELETE /api/sessions/{id}`
 - `GET /api/status`
 
 The focused tests plus the live smoke flow above verify the direct-session
 REST and persistence slice on this host. Serving-runtime reuse, IPC attach,
 idle-worker teardown, and exact single-channel RTSP publication are now also
-implemented and inspectable here. SDK callbacks and frontend flows remain
-future work.
+implemented and inspectable here, and the same host now also verifies the
+checked-in SDK callbacks and browser route-builder flow.
 
 ## Shared Runtime Reuse Smoke Test
 
@@ -604,13 +995,13 @@ curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources \
 Exercise source lifecycle:
 
 ```bash
-curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/stop \
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1:stop \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/start \
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1:start \
   -H 'Content-Type: application/json' -d '{}' | jq
 
-curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1/rebind \
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/sources/1:rebind \
   -H 'Content-Type: application/json' \
   -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/color/480p_30"}' | jq
 ```
