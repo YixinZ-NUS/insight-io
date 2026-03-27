@@ -4,8 +4,11 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 20
+- version: 21
 - major changes:
+  - 2026-03-27 completed the task-10 developer control surface, documented the
+    thin `/api/dev/*` facade plus browser direct-session and alias controls,
+    and recorded the live runtime-alias coherence verification after rename
   - 2026-03-27 added the checked-in `pipewire_audio_monitor` example, runtime
     verified direct stereo startup plus idle mono late bind on the current
     PipeWire catalog, documented why `audio/mono` and `audio/stereo` stay
@@ -75,6 +78,7 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
@@ -100,6 +104,10 @@ This guide covers the current worktree slice only:
 - query `GET /api/health`
 - inspect `GET /api/devices`
 - update `POST /api/devices/{device}/alias`
+- inspect the thin developer facade through `GET /api/dev/health`,
+  `GET /api/dev/catalog`, `GET /api/dev/uris`, and `GET /api/dev/runtime`
+- update `POST /api/dev/devices/{device}/alias` and
+  `POST /api/dev/streams/{stream_id}/alias`
 - create, inspect, start, stop, and delete direct sessions through the REST API
 - create, inspect, and delete apps
 - create, inspect, and delete routes
@@ -169,6 +177,9 @@ Notes:
 
 - `--db-path` points to the SQLite file initialized from
   [001_initial.sql](/home/yixin/Coding/insight-io/backend/schema/001_initial.sql)
+- use a fresh SQLite file when moving to the 2026-03-27
+  `developer-rest-and-stream-aliases` schema revision because no migration is
+  checked in for the new `streams.public_name` column
 - when started from the repo root, `insightiod` now auto-serves
   [frontend/](/home/yixin/Coding/insight-io/frontend)
 - `--frontend /absolute/path/to/frontend` still overrides the frontend asset
@@ -181,11 +192,60 @@ Open `http://127.0.0.1:18180/`.
 Current browser flow:
 
 - inspect exact and grouped catalog URIs
+- start one direct session from the catalog-side session form
+- rename one device or stream from the catalog cards
 - create one persistent app
 - declare routes with `expect.media`
 - bind one `input` URI or `session_id` to one target
 - stop, restart, and rebind sources
 - reload after backend restart and explicitly restart persisted sources
+
+The checked-in browser UI now uses the thin `/api/dev/*` facade rather than
+the more verbose canonical `/api/*` payloads.
+
+## Thin Developer REST
+
+Minimal developer-health and catalog walkthrough:
+
+```bash
+curl -s http://127.0.0.1:18180/api/dev/health | jq
+curl -s http://127.0.0.1:18180/api/dev/catalog | jq '.devices[] | {name, driver, streams: [.streams[] | {stream_id, name, selector, uri}]}'
+curl -s http://127.0.0.1:18180/api/dev/uris | jq '.uris[] | {stream_id, device, name, uri}'
+```
+
+Minimal alias walkthrough:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/dev/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"front-camera"}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/dev/streams/29/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"main-preview"}' | jq
+```
+
+Minimal direct-session plus app-source walkthrough:
+
+```bash
+session_id=$(curl -s -X POST http://127.0.0.1:18180/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+
+app_id=$(curl -s -X POST http://127.0.0.1:18180/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"dev-runner"}' | jq -r '.app_id')
+
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"camera","media":"video"}' | jq
+
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"camera\"}" | jq
+
+curl -s http://127.0.0.1:18180/api/dev/runtime | jq
+```
 
 ## Example Apps
 

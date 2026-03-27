@@ -4,8 +4,14 @@
 
 - role: ordered implementation backlog for the active intent-routing contract
 - status: active
-- version: 17
+- version: 19
 - major changes:
+  - 2026-03-27 revalidated the task-10 developer surface on the live host,
+    added `/api/dev/*` demo-command coverage, and kept tasks 11 and 12
+    explicitly pending instead of overclaiming them
+  - 2026-03-27 completed task 10 with the thin `/api/dev/*` developer control
+    surface, browser direct-session plus alias controls, runtime-status alias
+    coherence after rename, and the related doc/tracker sweep
   - 2026-03-27 added the checked-in PipeWire audio example app, live-verified
     mono and stereo exact-selector behavior on the current host, and refreshed
     the example-app docs to keep the task closeout coherent
@@ -15,9 +21,8 @@
     and closed the remaining Mermaid backlog
   - 2026-03-27 closed task 9 with the checked-in route-oriented SDK, grouped
     target fan-out, exact and grouped `session_id` attach, runtime rebind, and
-    example apps; closed task 10 with the repo-native browser route-builder UI;
-    closed tasks 11 and 12 with focused SDK/browser tests, live hardware
-    runtime verification, and a full feature-tracker sweep
+    the checked-in example-app scaffolding; task 10 then added the thin
+    `/api/dev/*` developer surface plus repo-native browser controls
   - 2026-03-27 closed task 7 with live-verified IPC attach, idle-worker
     teardown, and repo-native unix-socket control flow, closed the first task
     8 slice with exact single-channel RTSP publication plus strict FFmpeg
@@ -47,6 +52,8 @@
     to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI grammar
 - past tasks:
+  - `2026-03-27 – Revalidate Task-10 Developer Surface, Correct Overclaim, And Add Dev Demo Alternatives`
+  - `2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence`
   - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
@@ -61,13 +68,15 @@
   - `2026-03-25 – Unify App Targets And Reframe RTSP As Publication Intent`
   - `2026-03-24 – Derive URIs, Persist Delivery Intent, And Unify App Source Binds`
 
-The current worktree covers the full documented v1 surface: the explicit
+The current worktree now covers the documented implementation slices through
+task 10: the explicit
 schema, persisted discovery and catalog reads, device alias updates, direct
 session REST/status flow, durable app/route/source CRUD and lifecycle
 endpoints, shared-runtime reuse, local IPC attach, exact RTSP publication, the
-route-oriented SDK, the repo-native browser UI, example apps including
-PipeWire audio consumption, focused automated tests, and live hardware
-verification on the development host.
+route-oriented SDK, the thin `/api/dev/*` developer surface, the repo-native
+browser UI, checked-in example apps including PipeWire audio consumption,
+focused automated tests, and live hardware validation for the current task-10
+scope on the development host.
 
 The example apps now explicitly cover both startup modes:
 
@@ -76,7 +85,7 @@ The example apps now explicitly cover both startup modes:
 
 Completed slices:
 
-- tasks 1 through 12 are now implemented and verification-backed in the
+- tasks 1 through 10 are now implemented and verification-backed in the
   current worktree
 
 ## Ordered Tasks

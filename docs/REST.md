@@ -4,8 +4,12 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 13
+- version: 14
 - major changes:
+  - 2026-03-27 documented the thin `/api/dev/*` developer-facing facade,
+    added device and stream alias actions plus browser direct-session controls,
+    and updated the copied-handle wording so public paths mirror current
+    device and stream aliases instead of always using raw selectors
   - 2026-03-27 documented the completed task-9 SDK and browser slice, added
     the frontend entrypoint plus catalog refresh endpoint, and made the
     Google-AIP-style custom methods such as `:start`, `:stop`, and `:rebind`
@@ -31,6 +35,7 @@
     than a peer to implicit local IPC attach
   - 2026-03-25 removed `/channel/...` from the active URI contract
 - past tasks:
+  - `2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-26 – Close Grouped Route Delete Cleanup And Refresh Runtime Handoff`
   - `2026-03-26 – Review App Route Source Persistence Slice And Reproduce Grouped Route Delete Bug`
@@ -93,6 +98,73 @@ Resource-oriented API note:
 | `POST` | `/api/apps/{id}/sources/{source_id}:rebind` | move one durable source record to a replacement URI or session |
 | `GET` | `/api/status` | inspect shared capture and publication state |
 
+## Thin Developer Facade
+
+The checked-in backend also exposes one thin developer-facing facade that keeps
+the same runtime behavior while returning only the fields the current browser
+UI and internal developer tooling need.
+
+Key endpoints:
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | `/api/dev/health` | minimal daemon health plus device/session counts |
+| `GET` | `/api/dev/catalog` | minimal device + stream catalog with canonical URIs |
+| `POST` | `/api/dev/catalog:refresh` | rerun discovery and return the refreshed minimal catalog |
+| `GET` | `/api/dev/uris` | flat list of all usable canonical URIs |
+| `POST` | `/api/dev/devices/{device}/alias` | change one device public alias with `{ "name": "..." }` |
+| `POST` | `/api/dev/streams/{stream_id}/alias` | change one stream public alias with `{ "name": "..." }` |
+| `POST` | `/api/dev/sessions` | create one direct session from one canonical URI |
+| `GET` | `/api/dev/sessions` | list minimal direct/app runtime session views |
+| `GET` | `/api/dev/sessions/{id}` | inspect one minimal session view |
+| `POST` | `/api/dev/sessions/{id}:start` | restart one direct session |
+| `POST` | `/api/dev/sessions/{id}:stop` | stop one direct session |
+| `DELETE` | `/api/dev/sessions/{id}` | delete one unreferenced direct session |
+| `POST` | `/api/dev/apps` | create one app with `{ "name": "...", "description": "..." }` |
+| `GET` | `/api/dev/apps` | list minimal app rows |
+| `GET` | `/api/dev/apps/{id}` | inspect one app plus routes and sources in one response |
+| `DELETE` | `/api/dev/apps/{id}` | delete one app |
+| `POST` | `/api/dev/apps/{id}/routes` | create one route with `{ "name": "...", "media": "..." }` |
+| `DELETE` | `/api/dev/apps/{id}/routes/{route}` | delete one route |
+| `POST` | `/api/dev/apps/{id}/sources` | create one URI-backed or session-backed bind |
+| `POST` | `/api/dev/apps/{id}/sources/{source_id}:start` | start one durable source |
+| `POST` | `/api/dev/apps/{id}/sources/{source_id}:stop` | stop one durable source |
+| `POST` | `/api/dev/apps/{id}/sources/{source_id}:rebind` | replace one durable source upstream |
+| `GET` | `/api/dev/runtime` | inspect minimal sessions plus serving runtimes |
+
+Minimal catalog response shape:
+
+```json
+{
+  "devices": [
+    {
+      "device_key": "dev_...",
+      "name": "front-camera",
+      "default_name": "web-camera",
+      "driver": "v4l2",
+      "status": "online",
+      "streams": [
+        {
+          "stream_id": 29,
+          "name": "main-preview",
+          "default_name": "720p_30",
+          "selector": "720p_30",
+          "uri": "insightos://localhost/front-camera/main-preview",
+          "media": "video",
+          "shape": "exact",
+          "caps": {
+            "format": "mjpeg",
+            "width": 1280,
+            "height": 720,
+            "fps": 30
+          }
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## Browser UI
 
 - `GET /` serves the checked-in static frontend when `insightiod` knows a
@@ -101,6 +173,12 @@ Resource-oriented API note:
   from the repository root
 - `/static/*` serves the bundled HTML, CSS, and JavaScript assets for the
   browser route-builder flow
+- the checked-in browser UI now talks to `/api/dev/*` and supports:
+  - catalog browse plus direct-session start from a selected URI
+  - device and stream alias updates
+  - app create, route declaration, URI-backed bind, session-backed bind, and
+    source rebind
+  - source stop/start and live runtime inspection
 
 ## Grouped Route Delete Cleanup
 
@@ -128,7 +206,8 @@ Rules:
 - single-stream V4L2 selectors stay compact, for example `720p_30`
 - grouped Orbbec selectors keep the `orbbec/...` namespace so grouped preset
   selectors and grouped target names stay aligned
-- the RTSP URL should keep the same `/<device>/<selector>` path as the derived
+- the RTSP URL should keep the same public
+  `/<device-public-name>/<stream-public-name>` path as the derived
   `insightos://` URI while replacing `localhost` with the configured RTSP host
 - the presence of that URL does not by itself guarantee an active RTSP
   publisher; reachability still depends on current runtime publication state
@@ -150,6 +229,27 @@ Rules:
 - the normalized alias must be unique across devices
 - the response returns the updated device object and re-derives both
   `uri` and `publications_json.rtsp.url` on the new public device name
+- the thin `/api/dev/devices/{device}/alias` facade uses the same semantics but
+  accepts `{ "name": "front-camera" }`
+
+## Stream Alias Request
+
+The checked-in stream-alias request body on the thin developer facade is:
+
+```json
+{
+  "name": "main-preview"
+}
+```
+
+Rules:
+
+- stream aliases are persisted on `streams.public_name`
+- `selector` remains the stable internal catalog identity and default stream
+  alias
+- the normalized stream alias must be unique within the owning device row
+- the canonical URI and mirrored RTSP catalog path now use the current device
+  alias plus the current stream alias
 
 ## App Create Contract
 
@@ -354,8 +454,8 @@ Rules:
 - `rtsp_enabled` is optional and defaults to `false`
 - when `rtsp_enabled = true`, the runtime should publish an `rtsp_url` for the
   serving session using the backend default RTSP profile and the same
-  `/<device>/<selector>` path as the selected `insightos://` URI, with the
-  configured RTSP host replacing `localhost`
+  public `/<device-public-name>/<stream-public-name>` path as the selected
+  `insightos://` URI, with the configured RTSP host replacing `localhost`
 - local IPC attach is implicit for local SDK consumers; it is not a posted
   field and there is no public `ipc` delivery selector
 - if a catalog entry needs extra explanation, discovery may include a short
@@ -429,9 +529,9 @@ Normal-use rule:
   the session may later be bound to one app target through `session_id`
 - `rtsp_enabled` is optional and defaults to `false`
 - when `rtsp_enabled = true`, the runtime publishes an `rtsp_url` using the
-  backend default RTSP profile and the same `/<device>/<selector>` path as the
-  selected `insightos://` URI, with the configured RTSP host replacing
-  `localhost`
+  backend default RTSP profile and the same public
+  `/<device-public-name>/<stream-public-name>` path as the selected
+  `insightos://` URI, with the configured RTSP host replacing `localhost`
 - local IPC attach is not a client-posted field
 - apps that merely declare compatible routes do not receive callbacks from this
   session until they create one app-source bind by `input` or `session_id`

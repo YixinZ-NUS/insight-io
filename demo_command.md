@@ -2,10 +2,15 @@
 
 ## Role
 
-- role: exact bash transcript for the task-9 runtime verification flow
+- role: exact bash transcript for the task-10 developer-surface follow-up plus
+  the checked-in runtime verification flow
 - status: active
-- revision: 2026-03-27 task9-runtime-verification-and-pipewire-audio
+- revision: 2026-03-27 task10-dev-surface-followup
 - major changes:
+  - 2026-03-27 added thin `/api/dev/*` alternatives for catalog browse,
+    direct-session create, app/route/source control, alias updates, and the
+    live runtime-alias coherence check while keeping the original `/api/*`
+    transcript intact
   - 2026-03-27 added the PipeWire audio example verification commands,
     including direct stereo startup, idle mono late bind, and the current
     selector query that shows why `audio/mono` and `audio/stereo` stay
@@ -15,6 +20,7 @@
   - 2026-03-27 captured the bare verification command list and observed outputs
     for the current task-9 SDK, browser, and example-app slice
 - past tasks:
+  - `2026-03-27 – Revalidate Task-10 Developer Surface, Correct Overclaim, And Add Dev Demo Alternatives`
   - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
@@ -85,6 +91,66 @@ Total Test time (real) =  27.75 sec
 - `./build/bin/mixed_device_consumer ... camera=... orbbec=...`
   is equivalent to starting `mixed_device_consumer` without startup binds and
   later posting two source binds: one for `camera`, then one for `orbbec`
+
+## Thin Developer REST Alternatives
+
+These commands mirror the same control flow through the thinner
+developer-facing surface. They do not replace the canonical `/api/*`
+transcript below; they are the friendlier alternative for day-to-day internal
+use.
+
+```bash
+curl -s http://127.0.0.1:18291/api/dev/health | jq
+curl -s http://127.0.0.1:18291/api/dev/catalog | jq '.devices[] | {name, streams: [.streams[] | {stream_id, name, selector, uri}]}'
+curl -s http://127.0.0.1:18291/api/dev/uris | jq '.uris[] | {stream_id, device, name, selector, uri}'
+```
+
+```bash
+session_id=$(curl -s -X POST http://127.0.0.1:18291/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+
+app_id=$(curl -s -X POST http://127.0.0.1:18291/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"dev-runner"}' | jq -r '.app_id')
+
+curl -s -X POST http://127.0.0.1:18291/api/dev/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"camera","media":"video"}' | jq
+
+curl -s -X POST http://127.0.0.1:18291/api/dev/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"camera\"}" | jq
+
+curl -s http://127.0.0.1:18291/api/dev/runtime | jq
+```
+
+## Live Alias-Coherence Follow-Up
+
+The task-10 follow-up check for live alias rename while a runtime is already
+active can be rerun with:
+
+```bash
+curl -s -X POST http://127.0.0.1:18291/api/dev/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"front-camera-dev"}' | jq
+
+curl -s -X POST http://127.0.0.1:18291/api/dev/streams/29/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"main-preview"}' | jq
+
+curl -s http://127.0.0.1:18291/api/dev/uris | jq '.uris[] | select(.stream_id == 29)'
+curl -s http://127.0.0.1:18291/api/dev/sessions | jq '.sessions[] | select(.stream_id == 29)'
+curl -s http://127.0.0.1:18291/api/dev/runtime | jq '.serving_runtimes[] | select(.runtime_key == "stream:29")'
+```
+
+Expected result:
+
+- `selector` stays `720p_30`
+- the canonical URI updates to
+  `insightos://localhost/front-camera-dev/main-preview`
+- both the session view and the serving-runtime view report the updated alias
+  rather than the stale pre-rename URI
 
 ## Daemon
 

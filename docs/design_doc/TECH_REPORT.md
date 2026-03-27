@@ -4,8 +4,16 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 20
+- version: 22
 - major changes:
+  - 2026-03-27 revalidated the task-10 developer surface on the live host,
+    added `/api/dev/*` demo-command coverage, and corrected the remaining
+    task-11/task-12 overclaim so the report stays aligned with the requested
+    task-10 scope
+  - 2026-03-27 completed the task-10 developer control surface by extending
+    the thin `/api/dev/*` facade into the checked-in browser UI, adding
+    direct-session and alias controls, fixing stale alias reporting in
+    runtime-status snapshots, and live-verifying the browser plus alias flow
   - 2026-03-27 added the checked-in PipeWire audio example app, live-verified
     direct stereo startup plus idle mono late bind on the current host,
     documented why `audio/mono` and `audio/stereo` remain separate exact
@@ -17,9 +25,10 @@
     name, and closed the remaining Mermaid backlog with four new diagrams
   - 2026-03-27 closed task 9 with the route-oriented SDK, grouped target
     callback fan-out, exact and grouped `session_id` attach, runtime rebind,
-    and live-verified example apps; closed task 10 with the repo-native
-    browser route-builder UI; and closed tasks 11 and 12 with focused SDK and
-    browser tests plus live feature verification on the development host
+    and the checked-in example-app scaffolding; task 10 then closed with the
+    repo-native browser route-builder UI plus the thin developer-facing REST
+    surface, while the broader task-11/task-12 verification sweep remains
+    separate
   - 2026-03-27 reverified live Orbbec persistence after a manual replug,
     recorded that the same SQLite file reloads the same 21 `sv1301s-u3`
     selectors after restart, documented the intentional public IR omission, and
@@ -71,6 +80,8 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-27 – Revalidate Task-10 Developer Surface, Correct Overclaim, And Add Dev Demo Alternatives`
+  - `2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence`
   - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
@@ -92,12 +103,15 @@
 
 ## Current Slice
 
-The current implementation slice now covers the full documented v1 surface:
+The current implementation slice now covers the checked-in backend, SDK, and
+browser control-plane/runtime work through task 10:
 
 - explicit seven-table SQLite schema checked into the repository
 - one standalone backend binary, `insightiod`
 - persisted catalog reads and alias control for `devices` and `streams`
 - direct-session persistence, lifecycle, and status endpoints
+- the thin `/api/dev/*` developer-facing facade for health, catalog, URIs,
+  direct sessions, app/route/source lifecycle, aliases, and runtime status
 - durable app CRUD
 - durable app-route CRUD with ambiguity guards
 - durable app-source create/list/start/stop/rebind for exact, grouped, and
@@ -113,13 +127,16 @@ The current implementation slice now covers the full documented v1 surface:
   attach, and runtime rebind
 - the repo-native browser UI under
   [frontend/](/home/yixin/Coding/insight-io/frontend) for catalog browse,
-  app create, route declaration, source bind/rebind/start/stop, and restart
-  recovery
+  direct-session start, device/stream alias updates, app create, route
+  declaration, source bind/rebind/start/stop, and restart recovery
 - example apps for webcam latency, PipeWire audio monitoring, Orbbec grouped
   overlay, and mixed-device routing under
   [examples/](/home/yixin/Coding/insight-io/examples) that can now either
   start with a CLI bind or start idle for later REST injection, while deriving
   the default app name from the executable when `--app-name` is omitted
+- the checked-in example and broader runtime-verification surfaces that feed
+  tasks 11 and 12 remain present in the repo, but this report keeps their
+  closeout status separate from the now-verified task-10 developer surface
 - runtime-status inspection that surfaces serving-runtime ownership, consumer
   session ids, resolved source metadata, additive RTSP intent, IPC channel
   facts, and runtime RTSP publication details
@@ -173,6 +190,29 @@ In concrete HTTP terms, the current backend now serves:
 - `POST /api/apps/{id}/sources/{source_id}:stop`
 - `POST /api/apps/{id}/sources/{source_id}:rebind`
 - `GET /api/status`
+- `GET /api/dev/health`
+- `GET /api/dev/catalog`
+- `POST /api/dev/catalog:refresh`
+- `GET /api/dev/uris`
+- `POST /api/dev/devices/{device}/alias`
+- `POST /api/dev/streams/{stream_id}/alias`
+- `POST /api/dev/sessions`
+- `GET /api/dev/sessions`
+- `GET /api/dev/sessions/{id}`
+- `POST /api/dev/sessions/{id}:start`
+- `POST /api/dev/sessions/{id}:stop`
+- `DELETE /api/dev/sessions/{id}`
+- `POST /api/dev/apps`
+- `GET /api/dev/apps`
+- `GET /api/dev/apps/{id}`
+- `DELETE /api/dev/apps/{id}`
+- `POST /api/dev/apps/{id}/routes`
+- `DELETE /api/dev/apps/{id}/routes/{route}`
+- `POST /api/dev/apps/{id}/sources`
+- `POST /api/dev/apps/{id}/sources/{source_id}:start`
+- `POST /api/dev/apps/{id}/sources/{source_id}:stop`
+- `POST /api/dev/apps/{id}/sources/{source_id}:rebind`
+- `GET /api/dev/runtime`
 
 ## Review Snapshot
 
@@ -190,6 +230,25 @@ Observed from the current audit:
   - `rest_server_test`
   - `app_service_test`
   - `ipc_runtime_test`
+- the focused `rest_server_test` coverage now also proves:
+  - the thin `/api/dev/*` alias endpoints
+  - direct-session creation through `/api/dev/sessions`
+  - session-backed `POST /api/dev/apps/{id}/sources`
+  - runtime-status alias coherence after a live rename
+- the browser UI was rerun headlessly through the Chrome DevTools Protocol on
+  the current host and the verified flow now includes:
+  - selecting `web-camera/720p_30` from the catalog into the direct-session
+    form
+  - creating one direct session from the browser
+  - creating app `browser-dev-flow`
+  - creating route `camera`
+  - attaching `session:1` into one durable app source
+  - stopping and restarting that source from the UI
+- a fresh live alias rerun on port `18311` confirmed that after renaming the
+  active webcam device to `front-camera-dev` and stream `29` to
+  `main-preview`, `GET /api/dev/runtime` now reports the updated canonical URI
+  in both the session and serving-runtime views instead of the stale pre-rename
+  in-memory alias
 - live `insightiod` smoke on this host returned four devices through
   `GET /api/devices`:
   - one V4L2 webcam
@@ -498,7 +557,8 @@ Relevant references:
 
 Applied to this project, the clean model is:
 
-- public copied handle: derived `insightos://<host>/<device>/<selector>`
+- public copied handle:
+  derived `insightos://<host>/<device-public-name>/<stream-public-name>`
 - durable relational uniqueness: `(device_id, selector)`
 - optional future opaque id: `stream_uid`
 
@@ -682,6 +742,9 @@ needing another surface split:
 - [browser-route-builder-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/browser-route-builder-sequence.md)
   documents the repo-native browser flow for catalog browse, app create,
   route declaration, source bind, source restart, and restart recovery
+- [developer-control-surface-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/developer-control-surface-sequence.md)
+  documents the thin `/api/dev/*` flow for catalog browse, alias update,
+  direct-session startup, session-backed injection, and runtime inspection
 - [grouped-route-delete-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/grouped-route-delete-sequence.md)
   documents grouped bind cleanup when one member route is deleted
 - [exact-session-attach-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-session-attach-sequence.md)

@@ -4,8 +4,17 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 24
+- version: 26
 - major changes:
+  - 2026-03-27 revalidated the task-10 developer control surface on the live
+    host, added `/api/dev/*` alternatives to the checked-in demo commands, and
+    corrected the remaining task-list and report overclaim that tasks 11 and
+    12 were already closed
+  - 2026-03-27 completed the task-10 developer control surface by extending
+    the thin `/api/dev/*` REST facade into the checked-in browser UI, adding
+    direct-session management plus device/stream alias actions, fixing stale
+    alias reporting in runtime snapshots, and live-verifying browser-driven
+    source injection on the current host
   - 2026-03-27 fixed the two actionable PR #8 review items by validating
     browser source-form payloads before submit and making `bind_from_cli()`
     propagate `argv[0]` for omitted app-name derivation, then reverified the
@@ -87,6 +96,245 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Revalidate Task-10 Developer Surface, Correct Overclaim, And Add Dev Demo Alternatives
+
+### What Changed
+
+- updated [demo_command.md](/home/yixin/Coding/insight-io/demo_command.md)
+  so the checked-in runtime transcript now includes thin `/api/dev/*`
+  alternatives for:
+  - minimal health, catalog, and URI browse
+  - direct-session create through `POST /api/dev/sessions`
+  - app create, route declare, and session-backed source injection through
+    `/api/dev/apps/{id}`
+  - live device and stream alias changes plus runtime inspection
+- corrected the task-status wording in
+  [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md),
+  [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md),
+  and [README.md](/home/yixin/Coding/insight-io/docs/README.md) so the docs
+  now keep the closeout scoped to task 10 instead of claiming tasks 11 and 12
+  are already finished
+- refreshed the file header in
+  [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  so its inline revision note matches the checked-in task-10 developer-facing
+  REST surface
+
+### Why
+
+- the current worktree already contained the task-10 implementation, but the
+  remaining closeout docs still mixed that state with a broader task-11 and
+  task-12 completion claim that was not the requested scope for this review
+- the checked-in demo transcript still emphasized the canonical `/api/*`
+  surface even though the new developer-facing `/api/dev/*` flow is now the
+  friendlier control surface for day-to-day work
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+node --check frontend/app.js
+ctest --test-dir build --output-on-failure
+```
+
+Live host validation on a fresh daemon:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18320 \
+  --db-path /tmp/insight-io-task10-followup.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18620
+
+curl -s http://127.0.0.1:18320/api/dev/health | jq
+curl -s http://127.0.0.1:18320/api/dev/catalog | jq
+curl -s http://127.0.0.1:18320/api/dev/uris | jq
+```
+
+Live alias-coherence rerun on the same daemon:
+
+```bash
+session_id=$(curl -s -X POST http://127.0.0.1:18320/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+app_id=$(curl -s -X POST http://127.0.0.1:18320/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"alias-runtime-check"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18320/api/dev/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"camera","media":"video"}'
+curl -s -X POST http://127.0.0.1:18320/api/dev/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"camera\"}"
+curl -s -X POST http://127.0.0.1:18320/api/dev/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"front-camera-dev"}'
+curl -s -X POST http://127.0.0.1:18320/api/dev/streams/29/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"main-preview"}'
+curl -s http://127.0.0.1:18320/api/dev/runtime | jq
+```
+
+Browser validation used Chrome DevTools Protocol directly because Chrome
+DevTools MCP was not available in this session:
+
+```bash
+google-chrome --headless=new --disable-gpu \
+  --remote-debugging-port=9224 \
+  --user-data-dir=/tmp/insight-io-chrome-task10 \
+  http://127.0.0.1:18320/
+
+node <<'NODE'
+// Attach to the page target over CDP and drive:
+// direct-session form -> app create -> route create ->
+// session-backed source bind -> source stop/start.
+NODE
+```
+
+Observed results:
+
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- live `GET /api/dev/health` reported `device_count = 4` on the current host:
+  one SDK-backed Orbbec device, one V4L2 webcam, and two PipeWire audio
+  devices
+- after renaming the live webcam device to `front-camera-dev` and stream `29`
+  to `main-preview`, `GET /api/dev/uris`, `GET /api/dev/sessions`,
+  `GET /api/dev/apps/{id}`, and `GET /api/dev/runtime` all reported
+  `insightos://localhost/front-camera-dev/main-preview` while preserving the
+  stable selector `720p_30`
+- the headless browser flow succeeded end to end against the checked-in UI:
+  - the page loaded and rendered the dev-surface catalog
+  - the direct-session form created `session_id = 2` from
+    `insightos://localhost/front-camera-dev/main-preview`
+  - the browser created app `browser-dev-flow-1774604433923`
+  - the browser created route `camera`
+  - the browser attached `session:2` into a durable app source
+  - the browser stop/start buttons returned that source to `active`
+
+## 2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence
+
+### What Changed
+
+- extended the thin developer-facing REST regression coverage in
+  [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+  so the checked-in suite now proves:
+  - `/api/dev/devices/{device}/alias`
+  - `/api/dev/streams/{stream_id}/alias`
+  - `/api/dev/sessions`
+  - session-backed `POST /api/dev/apps/{id}/sources`
+  - `GET /api/dev/runtime` stays coherent after alias changes
+- updated
+  [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+  so runtime snapshots rehydrate the current device and stream aliases from
+  SQLite instead of holding stale in-memory names after a live alias rename
+- adopted and extended the checked-in browser client in
+  [app.js](/home/yixin/Coding/insight-io/frontend/app.js),
+  [index.html](/home/yixin/Coding/insight-io/frontend/index.html), and
+  [style.css](/home/yixin/Coding/insight-io/frontend/style.css) so the UI now
+  supports:
+  - direct-session create from catalog-selected URIs
+  - session-backed source injection into one app-local target
+  - source stop/start from the browser
+  - device and stream alias actions from catalog cards
+  - correct rebind behavior for session-backed sources
+- added the new Mermaid sequence
+  [developer-control-surface-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/developer-control-surface-sequence.md)
+  and refreshed the task list, REST reference, guide, tech report, and
+  feature trackers around the developer surface
+
+### Why
+
+- the current worktree already had the backend half of the thin `/api/dev/*`
+  surface, but task 10 was still incomplete because the checked-in browser UI
+  did not expose direct-session management or alias actions, and the live host
+  validation uncovered one real inconsistency:
+  `/api/dev/runtime` still reported the pre-rename device/stream alias from
+  the in-memory serving-runtime snapshot after a live alias update
+- fixing that inconsistency was required before the developer-facing REST
+  surface could be called minimal and coherent
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+node --check frontend/app.js
+ctest --test-dir build --output-on-failure
+./build/bin/rest_server_test
+```
+
+Browser runtime validation used Chrome headless plus the Chrome DevTools
+Protocol directly because Chrome DevTools MCP was not available in this
+session:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18310 \
+  --db-path /tmp/insight-io-task10.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18610
+
+google-chrome --headless=new --disable-gpu \
+  --remote-debugging-port=9223 \
+  --user-data-dir=/tmp/insight-io-chrome \
+  http://127.0.0.1:18310/
+
+node <<'NODE'
+// Connect to the page target over the Chrome DevTools Protocol and drive:
+// catalog -> direct session -> app create -> route create ->
+// session-backed source inject -> source stop/start.
+NODE
+```
+
+Live alias-coherence validation on a fresh daemon:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18311 \
+  --db-path /tmp/insight-io-task10b.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18611
+
+session_id=$(curl -s -X POST http://127.0.0.1:18311/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+app_id=$(curl -s -X POST http://127.0.0.1:18311/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"alias-runtime-check"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18311/api/dev/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"camera","media":"video"}'
+curl -s -X POST http://127.0.0.1:18311/api/dev/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"camera\"}"
+curl -s -X POST http://127.0.0.1:18311/api/dev/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"front-camera-dev"}'
+curl -s -X POST http://127.0.0.1:18311/api/dev/streams/29/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"main-preview"}'
+curl -s http://127.0.0.1:18311/api/dev/runtime | jq
+```
+
+Observed results:
+
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- `./build/bin/rest_server_test` now reports `rest_server_test: 10 test(s) passed`
+- the headless-browser runtime flow succeeded end to end on the current host:
+  - catalog selection populated the direct-session form
+  - the browser created one direct session from `web-camera/720p_30`
+  - the browser created app `browser-dev-flow`
+  - the browser created route `camera`
+  - the browser attached `session:1` into a durable app source
+  - the browser stop/start buttons toggled the source state and runtime row
+- the live alias rerun on port `18311` confirmed the stale-alias bug is fixed:
+  `GET /api/dev/runtime` now reports
+  `insightos://localhost/front-camera-dev/main-preview` in both the session and
+  serving-runtime views after the live device and stream rename
 
 ## 2026-03-27 – Fix Actionable PR #8 Review Items
 

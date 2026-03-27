@@ -1,5 +1,5 @@
 {
-  "version": 16,
+  "version": 17,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -121,6 +121,19 @@
         "Call the device alias endpoint",
         "Verify GET /api/devices shows the aliased public name",
         "Verify later session or app-source requests can use the aliased name in the URI"
+      ],
+      "passes": true
+    },
+    {
+      "id": "stream-alias-produces-human-usable-uri-and-runtime-status-stays-coherent",
+      "category": "functional",
+      "description": "An operator can alias one stream, use the alias in the canonical URI, and still see the updated alias reflected in app, session, and runtime status views",
+      "steps": [
+        "Inspect the catalog for one discovered stream default name and stream_id",
+        "Call POST /api/dev/streams/{stream_id}/alias",
+        "Verify GET /api/dev/uris shows the new canonical URI while selector remains unchanged",
+        "Create or inspect a session and app-source bound to that stream",
+        "Verify GET /api/dev/sessions, GET /api/dev/apps/{id}, and GET /api/dev/runtime all report the updated stream alias"
       ],
       "passes": true
     },
@@ -452,13 +465,14 @@
     {
       "id": "browser-catalog-to-route-builder-flow",
       "category": "functional",
-      "description": "The browser UI lets a user move from exact stream catalog inspection to app creation, route declaration, and source connection",
+      "description": "The browser UI lets a user move from catalog inspection to direct-session startup, app creation, route declaration, and source connection through the thin developer facade",
       "steps": [
         "Open the browser UI",
         "Inspect the listed exact URIs",
+        "Start one direct session from the catalog-side session form",
         "Create an app",
         "Create one or more routes",
-        "Connect a listed URI to a selected route",
+        "Connect a listed URI or existing session to a selected route",
         "Verify the routed source appears in the app detail view"
       ],
       "passes": true

@@ -4,8 +4,11 @@
 
 - role: product contract for the DB-first intent-routing rebuild
 - status: active
-- version: 8
+- version: 9
 - major changes:
+  - 2026-03-27 updated the public copied-handle contract so the URI keeps the
+    same two path segments while allowing persisted stream aliases to replace
+    the default selector in the final canonical segment
   - 2026-03-27 documented the current Orbbec public-format rule: raw SDK
     depth-family profiles such as `Y10/Y11/Y12/Y14` stay normalized to public
     `y16`, and raw `ir` discovery remains outside the public v1 contract until
@@ -35,10 +38,11 @@
 URIs into app-defined routes and direct sessions.
 
 The public URI shape remains `insightos://`, and the URI contract is now
-selector-oriented:
+public-name-oriented while keeping `selector` as the stable internal catalog
+identity and default stream alias:
 
 ```text
-insightos://<host>/<device>/<selector>
+insightos://<host>/<device-public-name>/<stream-public-name>
 ```
 
 Examples:
@@ -57,8 +61,11 @@ The key product rules are:
 - RTSP publication is optional durable bind/session intent, not part of source
   identity
 - the catalog may expose queryable RTSP publication metadata for a source shape
-  using the same `/<device>/<selector>` path as the derived `insightos://` URI
-  with the configured RTSP host
+  using the same public
+  `/<device-public-name>/<stream-public-name>` path as the derived
+  `insightos://` URI with the configured RTSP host
+- `stream_public_name` defaults to `selector`, so the default copied URI still
+  looks selector-oriented until a developer persists a stream alias
 - route expectations validate compatibility; they do not choose hidden stream
   variants
 - exact-member URIs still map to one delivered stream
@@ -157,6 +164,9 @@ portion changes shape:
   device catalog inspection
 - device aliases still matter because they produce stable, human-usable base
   URIs
+- stream aliases now matter for the same reason because they control the final
+  canonical URI segment while leaving `selector` as the stable internal stream
+  identity
 - direct session flows still exist for `insightos-open`, RTSP, AAC, restart,
   and low-level debugging
 - discovery must list exact member choices up front, and may also list fixed
@@ -229,8 +239,10 @@ Current design boundary:
 4. User may optionally request RTSP publication with `rtsp_enabled = true`.
 5. Backend creates or reuses capture and serving runtime accordingly, and
    publishes `rtsp_url` when RTSP publication is enabled. The RTSP URL should
-   keep the same `/<device>/<selector>` path as the selected `insightos://`
-   URI while replacing `localhost` with the configured RTSP host.
+   keep the same public
+   `/<device-public-name>/<stream-public-name>` path as the selected
+   `insightos://` URI while replacing `localhost` with the configured RTSP
+   host.
 6. User monitors RTSP or local IPC output and later stops the session.
 
 ### 3. Create App And Routes
