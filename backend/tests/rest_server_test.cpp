@@ -1,9 +1,9 @@
 // role: focused REST tests for the standalone backend slices.
-// revision: 2026-03-27 task9-browser-surface
-// major changes: verifies catalog, direct-session, app/route/source,
-// grouped-route delete cleanup, runtime-status reuse, browser-facing frontend
-// asset serving, and AIP-style custom method aliases on the SQLite-backed
-// HTTP surface without relying on a fixed Orbbec serial.
+// revision: 2026-03-27 task10-developer-runtime-surface
+// major changes: verifies both the canonical and thin developer-facing REST
+// surfaces for catalog, alias, direct-session, session-backed app-source,
+// grouped-route delete cleanup, runtime-status reuse, and browser/static
+// serving without relying on a fixed Orbbec serial.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -335,6 +335,262 @@ TEST(alias_endpoint_updates_public_name_and_derived_uris) {
                   .at("url")
                   .get<std::string>(),
               "rtsp://127.0.0.1:8554/front-camera/1080p_30");
+
+    server.stop();
+}
+
+TEST(developer_endpoints_cover_minimal_catalog_app_runtime_and_stream_alias_flow) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1:8554");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    const auto catalog_response = client.Get("/api/dev/catalog");
+    EXPECT_TRUE(catalog_response);
+    EXPECT_EQ(catalog_response->status, 200);
+    const auto catalog_json = nlohmann::json::parse(catalog_response->body);
+    EXPECT_EQ(catalog_json.at("devices").size(), 1u);
+    const auto& streams = catalog_json.at("devices")[0].at("streams");
+    const auto stream = std::find_if(streams.begin(),
+                                     streams.end(),
+                                     [](const nlohmann::json& entry) {
+                                         return entry.at("selector") == "720p_30";
+                                     });
+    EXPECT_TRUE(stream != streams.end());
+    const auto stream_id = stream->at("stream_id").get<std::int64_t>();
+
+    const auto create_app = client.Post("/api/dev/apps",
+                                        R"({"name":"dev-runner"})",
+                                        "application/json");
+    EXPECT_TRUE(create_app);
+    EXPECT_EQ(create_app->status, 201);
+    const auto app_id =
+        nlohmann::json::parse(create_app->body).at("app_id").get<std::int64_t>();
+
+    const auto create_route = client.Post(
+        ("/api/dev/apps/" + std::to_string(app_id) + "/routes").c_str(),
+        R"({"name":"camera","media":"video"})",
+        "application/json");
+    EXPECT_TRUE(create_route);
+    EXPECT_EQ(create_route->status, 201);
+    EXPECT_EQ(nlohmann::json::parse(create_route->body).at("name").get<std::string>(),
+              "camera");
+
+    const auto create_source = client.Post(
+        ("/api/dev/apps/" + std::to_string(app_id) + "/sources").c_str(),
+        R"({"input":"insightos://localhost/web-camera/720p_30","target":"camera"})",
+        "application/json");
+    EXPECT_TRUE(create_source);
+    EXPECT_EQ(create_source->status, 201);
+    const auto source_json = nlohmann::json::parse(create_source->body);
+    EXPECT_EQ(source_json.at("target").get<std::string>(), "camera");
+    EXPECT_EQ(source_json.at("uri").get<std::string>(),
+              "insightos://localhost/web-camera/720p_30");
+
+    const auto app_detail =
+        client.Get(("/api/dev/apps/" + std::to_string(app_id)).c_str());
+    EXPECT_TRUE(app_detail);
+    EXPECT_EQ(app_detail->status, 200);
+    const auto app_detail_json = nlohmann::json::parse(app_detail->body);
+    EXPECT_EQ(app_detail_json.at("routes").size(), 1u);
+    EXPECT_EQ(app_detail_json.at("sources").size(), 1u);
+    EXPECT_EQ(app_detail_json.at("sources")[0].at("stream_id").get<std::int64_t>(),
+              stream_id);
+
+    const auto runtime = client.Get("/api/dev/runtime");
+    EXPECT_TRUE(runtime);
+    EXPECT_EQ(runtime->status, 200);
+    const auto runtime_json = nlohmann::json::parse(runtime->body);
+    EXPECT_EQ(runtime_json.at("total_sessions").get<int>(), 1);
+    EXPECT_EQ(runtime_json.at("serving_runtimes").size(), 1u);
+    EXPECT_EQ(runtime_json.at("serving_runtimes")[0].at("uri").get<std::string>(),
+              "insightos://localhost/web-camera/720p_30");
+
+    const auto rename_stream = client.Post(
+        ("/api/dev/streams/" + std::to_string(stream_id) + "/alias").c_str(),
+        R"({"name":"main-camera"})",
+        "application/json");
+    EXPECT_TRUE(rename_stream);
+    EXPECT_EQ(rename_stream->status, 200);
+    const auto renamed_json = nlohmann::json::parse(rename_stream->body);
+    EXPECT_EQ(renamed_json.at("name").get<std::string>(), "main-camera");
+    EXPECT_EQ(renamed_json.at("uri").get<std::string>(),
+              "insightos://localhost/web-camera/main-camera");
+
+    const auto uri_list = client.Get("/api/dev/uris");
+    EXPECT_TRUE(uri_list);
+    EXPECT_EQ(uri_list->status, 200);
+    const auto uri_json = nlohmann::json::parse(uri_list->body);
+    const auto renamed_uri = std::find_if(uri_json.at("uris").begin(),
+                                          uri_json.at("uris").end(),
+                                          [stream_id](const nlohmann::json& entry) {
+                                              return entry.at("stream_id").get<std::int64_t>() ==
+                                                     stream_id;
+                                          });
+    EXPECT_TRUE(renamed_uri != uri_json.at("uris").end());
+    EXPECT_EQ(renamed_uri->at("uri").get<std::string>(),
+              "insightos://localhost/web-camera/main-camera");
+
+    const auto app_after_rename =
+        client.Get(("/api/dev/apps/" + std::to_string(app_id)).c_str());
+    EXPECT_TRUE(app_after_rename);
+    EXPECT_EQ(app_after_rename->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(app_after_rename->body)
+                  .at("sources")[0]
+                  .at("uri")
+                  .get<std::string>(),
+              "insightos://localhost/web-camera/main-camera");
+
+    const auto runtime_after_rename = client.Get("/api/dev/runtime");
+    EXPECT_TRUE(runtime_after_rename);
+    EXPECT_EQ(runtime_after_rename->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(runtime_after_rename->body)
+                  .at("serving_runtimes")[0]
+                  .at("uri")
+                  .get<std::string>(),
+              "insightos://localhost/web-camera/main-camera");
+
+    server.stop();
+}
+
+TEST(developer_session_endpoints_cover_alias_direct_session_and_session_backed_bind_flow) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_v4l2_camera()};
+            return result;
+        },
+        "localhost",
+        "127.0.0.1:8554");
+    EXPECT_TRUE(catalog.initialize());
+
+    SessionService sessions(store, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(sessions.initialize());
+    AppService apps(store, sessions, "localhost", "127.0.0.1:8554");
+    EXPECT_TRUE(apps.initialize());
+
+    RestServer server(store, catalog, sessions, apps, "");
+    const auto port = start_test_server(server);
+    EXPECT_TRUE(port != 0);
+
+    httplib::Client client("127.0.0.1", port);
+
+    const auto rename_device = client.Post("/api/dev/devices/web-camera/alias",
+                                           R"({"name":"front-camera"})",
+                                           "application/json");
+    EXPECT_TRUE(rename_device);
+    EXPECT_EQ(rename_device->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(rename_device->body).at("name").get<std::string>(),
+              "front-camera");
+
+    const auto create_session = client.Post(
+        "/api/dev/sessions",
+        R"({"input":"insightos://localhost/front-camera/720p_30","rtsp_enabled":false})",
+        "application/json");
+    EXPECT_TRUE(create_session);
+    EXPECT_EQ(create_session->status, 201);
+    const auto session_json = nlohmann::json::parse(create_session->body);
+    const auto session_id = session_json.at("session_id").get<std::int64_t>();
+    EXPECT_EQ(session_json.at("kind").get<std::string>(), "direct");
+    EXPECT_EQ(session_json.at("uri").get<std::string>(),
+              "insightos://localhost/front-camera/720p_30");
+
+    const auto create_app = client.Post("/api/dev/apps",
+                                        R"({"name":"dev-session-injector"})",
+                                        "application/json");
+    EXPECT_TRUE(create_app);
+    EXPECT_EQ(create_app->status, 201);
+    const auto app_id =
+        nlohmann::json::parse(create_app->body).at("app_id").get<std::int64_t>();
+
+    const auto create_route = client.Post(
+        ("/api/dev/apps/" + std::to_string(app_id) + "/routes").c_str(),
+        R"({"name":"camera","media":"video"})",
+        "application/json");
+    EXPECT_TRUE(create_route);
+    EXPECT_EQ(create_route->status, 201);
+
+    const auto create_source = client.Post(
+        ("/api/dev/apps/" + std::to_string(app_id) + "/sources").c_str(),
+        ("{\"session_id\":" + std::to_string(session_id) + ",\"target\":\"camera\"}").c_str(),
+        "application/json");
+    EXPECT_TRUE(create_source);
+    EXPECT_EQ(create_source->status, 201);
+    const auto source_json = nlohmann::json::parse(create_source->body);
+    EXPECT_EQ(source_json.at("source_session_id").get<std::int64_t>(), session_id);
+    EXPECT_TRUE(source_json.at("active_session_id").get<std::int64_t>() > 0);
+    EXPECT_EQ(source_json.at("device").get<std::string>(), "front-camera");
+
+    const auto runtime = client.Get("/api/dev/runtime");
+    EXPECT_TRUE(runtime);
+    EXPECT_EQ(runtime->status, 200);
+    const auto runtime_json = nlohmann::json::parse(runtime->body);
+    EXPECT_TRUE(runtime_json.at("total_sessions").get<int>() >= 1);
+    EXPECT_EQ(runtime_json.at("serving_runtimes").size(), 1u);
+
+    const auto stop_session =
+        client.Post(("/api/dev/sessions/" + std::to_string(session_id) + ":stop").c_str(),
+                    "{}",
+                    "application/json");
+    EXPECT_TRUE(stop_session);
+    EXPECT_EQ(stop_session->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(stop_session->body).at("state").get<std::string>(),
+              "stopped");
+
+    const auto start_session =
+        client.Post(("/api/dev/sessions/" + std::to_string(session_id) + ":start").c_str(),
+                    "{}",
+                    "application/json");
+    EXPECT_TRUE(start_session);
+    EXPECT_EQ(start_session->status, 200);
+    EXPECT_EQ(nlohmann::json::parse(start_session->body).at("state").get<std::string>(),
+              "active");
+
+    const auto delete_referenced =
+        client.Delete(("/api/dev/sessions/" + std::to_string(session_id)).c_str());
+    EXPECT_TRUE(delete_referenced);
+    EXPECT_EQ(delete_referenced->status, 409);
+
+    const auto delete_app =
+        client.Delete(("/api/dev/apps/" + std::to_string(app_id)).c_str());
+    EXPECT_TRUE(delete_app);
+    EXPECT_EQ(delete_app->status, 204);
+
+    const auto stop_unreferenced =
+        client.Post(("/api/dev/sessions/" + std::to_string(session_id) + ":stop").c_str(),
+                    "{}",
+                    "application/json");
+    EXPECT_TRUE(stop_unreferenced);
+    EXPECT_EQ(stop_unreferenced->status, 200);
+
+    const auto delete_session =
+        client.Delete(("/api/dev/sessions/" + std::to_string(session_id)).c_str());
+    EXPECT_TRUE(delete_session);
+    EXPECT_EQ(delete_session->status, 204);
 
     server.stop();
 }

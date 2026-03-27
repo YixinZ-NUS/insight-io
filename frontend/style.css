@@ -1,8 +1,8 @@
 /*
-role: styling for the task-9 browser route-builder UI.
-revision: 2026-03-27 task9-browser-surface
-major changes: defines the single-page browser layout, responsive panels, and
-catalog/app/runtime card styling for the repo-native frontend.
+role: styling for the task-10 developer control surface UI.
+revision: 2026-03-27 task10-developer-runtime-surface
+major changes: keeps the existing control-room layout while accommodating the
+thin developer REST facade, direct-session form, and inline alias actions.
 See docs/past-tasks.md.
 */
 
@@ -156,6 +156,10 @@ h1 {
 }
 
 .catalog-device-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: flex-start;
   margin-bottom: 1rem;
 }
 
@@ -423,7 +427,8 @@ select:focus {
 
   .detail-row,
   .card-title-row,
-  .subform-header {
+  .subform-header,
+  .catalog-device-header {
     flex-direction: column;
   }
 }

@@ -1,10 +1,8 @@
 // role: persisted discovery catalog for the standalone backend.
-// revision: 2026-03-27 task9-grouped-720p-preset
-// major changes: restores donor-style depth-family format mapping in the
-// Orbbec 480p catalog probe, keeps the proven 480p publication rule for the
-// SV1301S_U3 family, adds the grouped 720p color-plus-800p-depth preset used
-// by the task-9 example app, intentionally leaves raw IR discovery out of the
-// public v1 catalog contract, and preserves per-device selector uniqueness.
+// revision: 2026-03-27 developer-rest-and-stream-aliases
+// major changes: preserves donor-grounded selector shaping while adding
+// durable per-stream public aliases for canonical URIs, thin developer-facing
+// REST responses, and alias-preserving refresh behavior.
 // See docs/past-tasks.md.
 
 #include "insightio/backend/catalog.hpp"
@@ -34,6 +32,36 @@ namespace insightio::backend {
 namespace {
 
 std::string rtsp_host_from_url(const std::string& url);
+
+std::string make_stream_identity_key(std::string_view device_key,
+                                     std::string_view selector) {
+    return std::string(device_key) + "\n" + std::string(selector);
+}
+
+std::string normalize_stream_public_name(std::string_view input) {
+    std::string normalized;
+    std::size_t start = 0;
+    while (start <= input.size()) {
+        const auto slash = input.find('/', start);
+        const auto segment =
+            input.substr(start, slash == std::string_view::npos
+                                    ? std::string_view::npos
+                                    : slash - start);
+        const auto slug = slugify(segment);
+        if (slug.empty()) {
+            return {};
+        }
+        if (!normalized.empty()) {
+            normalized += "/";
+        }
+        normalized += slug;
+        if (slash == std::string_view::npos) {
+            break;
+        }
+        start = slash + 1;
+    }
+    return normalized;
+}
 
 struct OrbbecCatalogProbe {
     bool probe_ran{false};
@@ -307,7 +335,8 @@ private:
 
 class CatalogRepository {
 public:
-    explicit CatalogRepository(sqlite3* db) : db_(db) {}
+    CatalogRepository(sqlite3* db, std::string uri_host, std::string rtsp_host)
+        : db_(db), uri_host_(std::move(uri_host)), rtsp_host_(std::move(rtsp_host)) {}
 
     std::map<std::string, std::string> existing_public_names_by_key() const {
         std::map<std::string, std::string> names;
@@ -319,6 +348,24 @@ public:
 
         while (query.step()) {
             names.emplace(query.col_text(0), query.col_text(1));
+        }
+        return names;
+    }
+
+    std::map<std::string, std::string> existing_source_public_names_by_key() const {
+        std::map<std::string, std::string> names;
+        Stmt query(
+            db_,
+            "SELECT d.device_key, s.selector, s.public_name "
+            "FROM streams s "
+            "JOIN devices d ON d.device_id = s.device_id");
+        if (!query) {
+            return names;
+        }
+
+        while (query.step()) {
+            names.emplace(make_stream_identity_key(query.col_text(0), query.col_text(1)),
+                          query.col_text(2));
         }
         return names;
     }
@@ -475,8 +522,84 @@ public:
         return true;
     }
 
+    bool update_source_alias(std::int64_t stream_id,
+                             const std::string& alias,
+                             int& error_status,
+                             std::string& error_code,
+                             std::string& error_message) const {
+        const auto normalized = normalize_stream_public_name(alias);
+        if (normalized.empty()) {
+            error_status = 422;
+            error_code = "invalid_alias";
+            error_message =
+                "Stream alias must contain at least one alphanumeric segment";
+            return false;
+        }
+
+        Stmt find(
+            db_,
+            "SELECT device_id FROM streams WHERE stream_id = ?");
+        if (!find) {
+            error_status = 500;
+            error_code = "internal";
+            error_message = "Failed to prepare stream alias lookup";
+            return false;
+        }
+        find.bind_int64(1, stream_id);
+        if (!find.step()) {
+            error_status = 404;
+            error_code = "not_found";
+            error_message = "Stream '" + std::to_string(stream_id) + "' not found";
+            return false;
+        }
+
+        const auto device_id = find.col_int64(0);
+
+        Stmt conflict(
+            db_,
+            "SELECT 1 FROM streams WHERE device_id = ? AND public_name = ? AND stream_id != ?");
+        if (!conflict) {
+            error_status = 500;
+            error_code = "internal";
+            error_message = "Failed to prepare stream alias conflict check";
+            return false;
+        }
+        conflict.bind_int64(1, device_id);
+        conflict.bind_text(2, normalized);
+        conflict.bind_int64(3, stream_id);
+        if (conflict.step()) {
+            error_status = 409;
+            error_code = "conflict";
+            error_message = "Stream alias '" + normalized + "' is already in use";
+            return false;
+        }
+
+        Stmt update(
+            db_,
+            "UPDATE streams SET public_name = ?, updated_at_ms = ? WHERE stream_id = ?");
+        if (!update) {
+            error_status = 500;
+            error_code = "internal";
+            error_message = "Failed to prepare stream alias update";
+            return false;
+        }
+        update.bind_text(1, normalized);
+        update.bind_int64(2, now_ms());
+        update.bind_int64(3, stream_id);
+        if (!update.exec()) {
+            error_status = 500;
+            error_code = "internal";
+            error_message = "Failed to update stream alias";
+            return false;
+        }
+
+        return true;
+    }
+
 private:
     sqlite3* db_;
+    std::string uri_host_;
+    std::string rtsp_host_;
 
     static std::int64_t now_ms() {
         return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -560,11 +683,12 @@ private:
                        std::int64_t timestamp) const {
         Stmt statement(
             db_,
-            "INSERT INTO streams (device_id, selector, media_kind, shape_kind, channel, "
-            "group_key, caps_json, capture_policy_json, members_json, publications_json, "
-            "is_present, created_at_ms, updated_at_ms) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) "
+            "INSERT INTO streams (device_id, selector, public_name, media_kind, shape_kind, "
+            "channel, group_key, caps_json, capture_policy_json, members_json, "
+            "publications_json, is_present, created_at_ms, updated_at_ms) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?) "
             "ON CONFLICT(device_id, selector) DO UPDATE SET "
+            "public_name = excluded.public_name, "
             "media_kind = excluded.media_kind, "
             "shape_kind = excluded.shape_kind, "
             "channel = excluded.channel, "
@@ -581,16 +705,17 @@ private:
 
         statement.bind_int64(1, device_id);
         statement.bind_text(2, source.selector);
-        statement.bind_text(3, source.media_kind);
-        statement.bind_text(4, source.shape_kind);
-        statement.bind_text_or_null(5, source.channel);
-        statement.bind_text_or_null(6, source.group_key);
-        statement.bind_text(7, source.caps_json.dump());
-        statement.bind_json_or_null(8, source.capture_policy_json);
-        statement.bind_json_or_null(9, source.members_json);
-        statement.bind_text(10, source.publications_json.dump());
-        statement.bind_int64(11, timestamp);
+        statement.bind_text(3, source.public_name);
+        statement.bind_text(4, source.media_kind);
+        statement.bind_text(5, source.shape_kind);
+        statement.bind_text_or_null(6, source.channel);
+        statement.bind_text_or_null(7, source.group_key);
+        statement.bind_text(8, source.caps_json.dump());
+        statement.bind_json_or_null(9, source.capture_policy_json);
+        statement.bind_json_or_null(10, source.members_json);
+        statement.bind_text(11, source.publications_json.dump());
         statement.bind_int64(12, timestamp);
+        statement.bind_int64(13, timestamp);
         return statement.exec();
     }
 
@@ -611,25 +736,29 @@ private:
         std::vector<CatalogSource> sources;
         Stmt query(
             db_,
-            "SELECT selector, media_kind, shape_kind, channel, group_key, "
+            "SELECT stream_id, selector, public_name, media_kind, shape_kind, channel, group_key, "
             "caps_json, capture_policy_json, members_json, publications_json "
-            "FROM streams WHERE device_id = ? AND is_present = 1 ORDER BY selector");
+            "FROM streams WHERE device_id = ? AND is_present = 1 ORDER BY public_name, selector");
         if (!query) {
             return sources;
         }
         query.bind_int64(1, device_id);
         while (query.step()) {
             CatalogSource source;
-            source.selector = query.col_text(0);
-            source.uri = "insightos://localhost/" + public_name + "/" + source.selector;
-            source.media_kind = query.col_text(1);
-            source.shape_kind = query.col_text(2);
-            source.channel = query.col_text(3);
-            source.group_key = query.col_text(4);
-            source.caps_json = parse_json(query.col_text(5));
-            source.capture_policy_json = parse_json(query.col_text(6));
-            source.members_json = parse_json(query.col_text(7));
-            source.publications_json = parse_json(query.col_text(8));
+            source.stream_id = query.col_int64(0);
+            source.selector = query.col_text(1);
+            source.public_name = query.col_text(2);
+            source.default_name = source.selector;
+            source.uri =
+                "insightos://" + uri_host_ + "/" + public_name + "/" + source.public_name;
+            source.media_kind = query.col_text(3);
+            source.shape_kind = query.col_text(4);
+            source.channel = query.col_text(5);
+            source.group_key = query.col_text(6);
+            source.caps_json = parse_json(query.col_text(7));
+            source.capture_policy_json = parse_json(query.col_text(8));
+            source.members_json = parse_json(query.col_text(9));
+            source.publications_json = parse_json(query.col_text(10));
             if (source.publications_json.contains("rtsp") &&
                 source.publications_json["rtsp"].contains("url") &&
                 source.publications_json["rtsp"]["url"].is_string()) {
@@ -637,7 +766,7 @@ private:
                     source.publications_json["rtsp"]["url"].get<std::string>());
                 if (!host.empty()) {
                     source.publications_json["rtsp"]["url"] =
-                        "rtsp://" + host + "/" + public_name + "/" + source.selector;
+                        "rtsp://" + host + "/" + public_name + "/" + source.public_name;
                 }
             }
             sources.push_back(std::move(source));
@@ -749,7 +878,9 @@ CatalogSource make_source(const std::string& public_name,
                           std::string group_key = {}) {
     CatalogSource source;
     source.selector = selector;
-    source.uri = "insightos://localhost/" + public_name + "/" + selector;
+    source.public_name = selector;
+    source.default_name = selector;
+    source.uri = "insightos://localhost/" + public_name + "/" + source.public_name;
     source.media_kind = media_kind;
     source.shape_kind = shape_kind;
     source.channel = std::move(channel);
@@ -760,7 +891,8 @@ CatalogSource make_source(const std::string& public_name,
     source.publications_json = {
         {"rtsp",
          {
-             {"url", "rtsp://" + rtsp_host + "/" + public_name + "/" + selector},
+             {"url",
+              "rtsp://" + rtsp_host + "/" + public_name + "/" + source.public_name},
              {"profile", "default"},
          }},
     };
@@ -1094,8 +1226,9 @@ bool CatalogService::initialize() {
 
 bool CatalogService::refresh() {
     auto discovery = discovery_fn_();
-    CatalogRepository repository(store_.db());
+    CatalogRepository repository(store_.db(), uri_host_, rtsp_host_);
     const auto existing_names = repository.existing_public_names_by_key();
+    const auto existing_source_names = repository.existing_source_public_names_by_key();
 
     std::vector<CatalogDevice> devices;
     std::set<std::string> used_defaults;
@@ -1130,9 +1263,37 @@ bool CatalogService::refresh() {
             {"usb_serial", raw.identity.usb_serial},
         };
         device.sources = build_sources_for_device(raw, device.public_name, rtsp_host_);
+        std::set<std::string> used_source_public_names;
+        for (auto& source : device.sources) {
+            source.default_name = source.selector;
+            const auto key = make_stream_identity_key(device.device_key, source.selector);
+            const auto existing_source = existing_source_names.find(key);
+            if (existing_source != existing_source_names.end()) {
+                source.public_name =
+                    unique_public_name(existing_source->second, used_source_public_names);
+            } else {
+                source.public_name =
+                    unique_public_name(source.default_name, used_source_public_names);
+            }
+            source.uri =
+                "insightos://" + uri_host_ + "/" + device.public_name + "/" + source.public_name;
+            if (!source.publications_json.is_object()) {
+                source.publications_json = nlohmann::json::object();
+            }
+            if (!source.publications_json.contains("rtsp") ||
+                !source.publications_json.at("rtsp").is_object()) {
+                source.publications_json["rtsp"] = nlohmann::json::object();
+            }
+            source.publications_json["rtsp"]["url"] =
+                "rtsp://" + rtsp_host_ + "/" + device.public_name + "/" + source.public_name;
+            if (!source.publications_json["rtsp"].contains("profile")) {
+                source.publications_json["rtsp"]["profile"] = "default";
+            }
+        }
         std::sort(device.sources.begin(), device.sources.end(),
                   [](const CatalogSource& lhs, const CatalogSource& rhs) {
-                      return lhs.selector < rhs.selector;
+                      return std::tie(lhs.public_name, lhs.selector) <
+                             std::tie(rhs.public_name, rhs.selector);
                   });
         devices.push_back(std::move(device));
     }
@@ -1173,7 +1334,7 @@ bool CatalogService::set_alias(std::string_view current_public_name,
                                int& error_status,
                                std::string& error_code,
                                std::string& error_message) {
-    CatalogRepository repository(store_.db());
+    CatalogRepository repository(store_.db(), uri_host_, rtsp_host_);
     if (!repository.update_alias(current_public_name, alias, error_status, error_code,
                                  error_message)) {
         return false;
@@ -1191,6 +1352,44 @@ bool CatalogService::set_alias(std::string_view current_public_name,
     std::lock_guard<std::mutex> lock(mutex_);
     devices_ = std::move(refreshed);
     updated_device = *updated;
+    return true;
+}
+
+bool CatalogService::set_source_alias(std::int64_t stream_id,
+                                      const std::string& alias,
+                                      CatalogSource& updated_source,
+                                      int& error_status,
+                                      std::string& error_code,
+                                      std::string& error_message) {
+    CatalogRepository repository(store_.db(), uri_host_, rtsp_host_);
+    if (!repository.update_source_alias(stream_id, alias, error_status, error_code,
+                                        error_message)) {
+        return false;
+    }
+
+    auto refreshed = repository.load_devices();
+    std::optional<CatalogSource> updated;
+    for (const auto& device : refreshed) {
+        const auto it = std::find_if(device.sources.begin(),
+                                     device.sources.end(),
+                                     [stream_id](const CatalogSource& source) {
+                                         return source.stream_id == stream_id;
+                                     });
+        if (it != device.sources.end()) {
+            updated = *it;
+            break;
+        }
+    }
+    if (!updated.has_value()) {
+        error_status = 500;
+        error_code = "internal";
+        error_message = "Stream alias updated but source could not be reloaded";
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    devices_ = std::move(refreshed);
+    updated_source = *updated;
     return true;
 }
 

@@ -1,9 +1,10 @@
 <!--
-role: repo-native browser UI for the task-9 app-route-source flow.
-revision: 2026-03-27 task9-browser-surface
-major changes: adds a single-page app builder for catalog browsing, app/route
-creation, source binding, source restart, and runtime inspection on top of the
-checked-in REST API. See docs/past-tasks.md.
+role: repo-native browser UI for the task-10 developer control surface.
+revision: 2026-03-27 task10-developer-runtime-surface
+major changes: adopts the existing route-builder UI for the thin `/api/dev/*`
+REST facade, adds direct-session management plus device/stream alias actions,
+and keeps the app/route/source runtime flow in one browser surface.
+See docs/past-tasks.md.
 -->
 <!DOCTYPE html>
 <html lang="en">
@@ -171,6 +172,31 @@ checked-in REST API. See docs/past-tasks.md.
         </div>
       </div>
       <div id="runtime-summary" class="metric-grid"></div>
+      <div class="card runtime-card">
+        <form id="session-form" class="subform">
+          <div class="subform-header">
+            <div>
+              <h3>Direct Session</h3>
+              <p class="muted">Start one runtime session from a selected exact or grouped URI.</p>
+            </div>
+          </div>
+          <div class="field-grid">
+            <label>
+              <span>Input URI</span>
+              <input id="session-input" name="input" placeholder="insightos://localhost/web-camera/720p_30" required>
+            </label>
+            <label class="checkbox-label">
+              <span>RTSP publication</span>
+              <input id="session-rtsp" name="rtsp_enabled" type="checkbox">
+            </label>
+          </div>
+          <p id="session-selected-uri" class="hint"></p>
+          <div class="form-actions">
+            <button type="submit" class="primary-button" id="session-submit">Start session</button>
+          </div>
+          <p id="session-form-error" class="inline-error" hidden></p>
+        </form>
+      </div>
       <div class="card runtime-card">
         <div class="card-title-row">
           <h3>Serving Runtimes</h3>

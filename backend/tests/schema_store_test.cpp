@@ -193,6 +193,7 @@ TEST(streams_table_uses_device_scoped_selector_uniqueness) {
 
     const auto columns = list_columns(store.db(), "streams");
     EXPECT_TRUE(columns.contains("selector"));
+    EXPECT_TRUE(columns.contains("public_name"));
     EXPECT_TRUE(!columns.contains("selector_key"));
 }
 

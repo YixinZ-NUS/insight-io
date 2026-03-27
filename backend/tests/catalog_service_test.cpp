@@ -251,6 +251,46 @@ TEST(alias_persists_across_refresh) {
     EXPECT_EQ(device->default_name, "web-camera");
 }
 
+TEST(stream_alias_persists_across_refresh) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_webcam()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto before = catalog.get_device("web-camera");
+    EXPECT_TRUE(before.has_value());
+    EXPECT_EQ(before->sources.size(), 1u);
+
+    CatalogSource updated;
+    int error_status = 0;
+    std::string error_code;
+    std::string error_message;
+    EXPECT_TRUE(catalog.set_source_alias(before->sources[0].stream_id,
+                                         "main-camera",
+                                         updated,
+                                         error_status,
+                                         error_code,
+                                         error_message));
+    EXPECT_EQ(updated.public_name, "main-camera");
+    EXPECT_EQ(updated.default_name, "720p_30");
+    EXPECT_EQ(updated.uri,
+              "insightos://localhost/web-camera/main-camera");
+
+    EXPECT_TRUE(catalog.refresh());
+    const auto device = catalog.get_device("web-camera");
+    EXPECT_TRUE(device.has_value());
+    EXPECT_EQ(device->sources.size(), 1u);
+    EXPECT_EQ(device->sources[0].public_name, "main-camera");
+    EXPECT_EQ(device->sources[0].selector, "720p_30");
+}
+
 TEST(v4l2_uses_plain_resolution_selectors) {
     SchemaStore store(make_temp_db_path());
     EXPECT_TRUE(store.initialize());

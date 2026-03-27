@@ -1,9 +1,10 @@
 #pragma once
 
 // role: persisted device/source catalog service for the standalone backend.
-// revision: 2026-03-27 task8-rtsp-runtime-validation
-// major changes: keeps the derived URI catalog shape while aligning default
-// RTSP publication addresses with the local mediamtx-backed runtime contract.
+// revision: 2026-03-27 developer-rest-and-stream-aliases
+// major changes: adds durable per-stream public aliases for canonical URI
+// generation and the developer-facing REST surface while keeping internal
+// selector identity stable across catalog refresh.
 
 #include "insightio/backend/discovery.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -11,6 +12,7 @@
 #include <nlohmann/json.hpp>
 
 #include <functional>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -20,7 +22,10 @@
 namespace insightio::backend {
 
 struct CatalogSource {
+    std::int64_t stream_id{0};
     std::string selector;
+    std::string public_name;
+    std::string default_name;
     std::string uri;
     std::string media_kind;
     std::string shape_kind;
@@ -65,6 +70,13 @@ public:
                    int& error_status,
                    std::string& error_code,
                    std::string& error_message);
+
+    bool set_source_alias(std::int64_t stream_id,
+                          const std::string& alias,
+                          CatalogSource& updated_source,
+                          int& error_status,
+                          std::string& error_code,
+                          std::string& error_message);
 
 private:
     SchemaStore& store_;

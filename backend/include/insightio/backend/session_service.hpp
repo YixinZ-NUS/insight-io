@@ -1,11 +1,10 @@
 #pragma once
 
 // role: persisted direct-session service for the standalone backend.
-// revision: 2026-03-27 task8-rtsp-runtime-validation
-// major changes: resolves catalog URIs into durable logical session records,
-// normalizes persisted runtime state on startup, and exposes session/status
-// read models plus serving-runtime reuse, IPC attach, and RTSP publication
-// topology for the REST layer.
+// revision: 2026-03-27 developer-rest-and-stream-aliases
+// major changes: keeps direct-session runtime handling while exposing stream
+// aliases as the canonical public URI segment for the thin developer-facing
+// REST surface.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/schema_store.hpp"
@@ -27,6 +26,8 @@ struct SessionResolvedSource {
     std::string device_key;
     std::string public_name;
     std::string selector;
+    std::string stream_public_name;
+    std::string stream_default_name;
     std::string uri;
     std::string media_kind;
     std::string shape_kind;
