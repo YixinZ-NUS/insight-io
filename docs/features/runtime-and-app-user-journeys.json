@@ -1,5 +1,5 @@
 {
-  "version": 12,
+  "version": 13,
   "features": [
     {
       "id": "runtime-build-and-test",
@@ -171,7 +171,7 @@
         "Verify RTSP publication is visible",
         "Verify shared capture or serving reuse is visible when applicable"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "status-shows-shared-serving-runtime-topology",
@@ -223,7 +223,7 @@
         "Find the running app record",
         "Verify the app id can be used for later route and source operations"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "idle-app-adds-frame-routes-later",
@@ -236,7 +236,7 @@
         "List app routes",
         "Verify both routes are present and distinct"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "idle-app-adds-related-routes-later",
@@ -249,7 +249,7 @@
         "List app routes",
         "Verify both routes are present and distinct"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "late-connect-frame-source-to-declared-route",
@@ -361,7 +361,7 @@
         "Verify RTSP publication is visible",
         "Verify shared capture or serving reuse is visible"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "single-uri-launch-still-works-for-single-route-apps",

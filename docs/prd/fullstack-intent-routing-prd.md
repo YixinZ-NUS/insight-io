@@ -4,8 +4,12 @@
 
 - role: product contract for the DB-first intent-routing rebuild
 - status: active
-- version: 7
+- version: 8
 - major changes:
+  - 2026-03-27 documented the current Orbbec public-format rule: raw SDK
+    depth-family profiles such as `Y10/Y11/Y12/Y14` stay normalized to public
+    `y16`, and raw `ir` discovery remains outside the public v1 contract until
+    a first-class IR consumer surface is documented
   - 2026-03-26 aligned selector examples and schema language with the reviewed
     contract: V4L2 selectors are plain `720p_30` style while grouped Orbbec
     selectors keep the `orbbec/...` namespace
@@ -70,6 +74,10 @@ The key product rules are:
 - if backend processing changes delivered caps, discovery must expose separate
   user-visible stream choices rather than hiding that difference behind route
   policy
+- for Orbbec depth-family sensor profiles, discovery may normalize raw SDK
+  names such as `Y10`, `Y11`, `Y12`, and `Y14` to public `y16` when the
+  runtime and supported SDK examples both consume one delivered 16-bit depth
+  contract
 - in normal use, grouped-device runtime behavior is fixed by the discovered
   catalog entry; users choose a different URI rather than overriding capture
   policy at bind time
@@ -205,6 +213,9 @@ Current design boundary:
 - discovery may additionally publish `orbbec/preset/480p_30` as the fixed
   bundled color + aligned-depth choice because that exact grouped behavior was
   proven end to end on the sibling `insightos` stack
+- raw Orbbec `ir` may still be discovered for diagnostics on the current host,
+  but the public v1 catalog intentionally omits `orbbec/ir/...` until the app,
+  route, and session contract grows an explicit IR consumer path
 - if extra explanation is useful, discovery may show a short operator-facing
   comment on unusual entries such as `orbbec/depth/480p_30` or
   `orbbec/preset/480p_30`; that note is informative only and does not

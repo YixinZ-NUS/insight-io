@@ -4,8 +4,22 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 14
+- version: 17
 - major changes:
+  - 2026-03-27 reverified live Orbbec persistence after a manual replug,
+    recorded that the same SQLite file reloads the same 21 `sv1301s-u3`
+    selectors after restart, documented the intentional public IR omission, and
+    documented why the public Orbbec depth contract stays normalized to `y16`
+  - 2026-03-27 rechecked live Orbbec publication against the donor daemon,
+    restored donor-style depth-family format mapping in Orbbec discovery plus
+    the 480p catalog probe, confirmed the current host now republishes exact
+    depth selectors plus `orbbec/preset/480p_30`, and recorded that raw IR
+    discovery remains intentionally outside the current public catalog
+  - 2026-03-27 closed task 7 by porting IPC attach into the shared serving
+    runtime, fixing idle-worker teardown so exact sessions release devices when
+    the last local consumer disconnects, closed the first task-8 slice with
+    exact single-channel RTSP publication on a configurable daemon RTSP port,
+    vendored mediamtx into this repo, and refreshed the donor-reuse status
   - 2026-03-26 closed task 6 by adding in-memory serving-runtime reuse keyed by
     `stream_id`, exposing serving-runtime topology in session responses plus
     `GET /api/status`, runtime-verifying shared exact-URI reuse on the current
@@ -43,6 +57,9 @@
   - 2026-03-25 added the first implementation-phase report and Mermaid diagram
     inventory for the bootstrap backend slice
 - past tasks:
+  - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
+  - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
+  - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
   - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
@@ -59,7 +76,7 @@
 ## Current Slice
 
 The current implementation slice now covers the full durable control-plane
-surface up through serving-runtime reuse:
+surface through task 8's first exact-source publication cut:
 
 - explicit seven-table SQLite schema checked into the repository
 - one standalone backend binary, `insightiod`
@@ -71,10 +88,15 @@ surface up through serving-runtime reuse:
   session-backed binds
 - in-memory serving-runtime reuse across matching active direct sessions and
   app-owned sessions
+- local IPC attach over the unix control socket using the donor-grounded
+  `memfd` + ring-buffer + `eventfd` transport
+- exact single-channel RTSP publication layered on top of the same shared
+  serving runtime
 - runtime-status inspection that surfaces serving-runtime ownership, consumer
-  session ids, resolved source metadata, and additive RTSP intent
+  session ids, resolved source metadata, additive RTSP intent, IPC channel
+  facts, and runtime RTSP publication details
 - focused tests that prove schema bootstrap, catalog shaping, REST lifecycle
-  paths, app-source behavior, and direct-session behavior
+  paths, app-source behavior, direct-session behavior, and IPC runtime teardown
 
 In concrete HTTP terms, the current backend serves only:
 
@@ -102,8 +124,7 @@ In concrete HTTP terms, the current backend serves only:
 - `POST /api/apps/{id}/sources/{source_id}/rebind`
 - `GET /api/status`
 
-IPC attach, active RTSP serving runtime, SDK callbacks, and frontend portions
-of the PRD remain future work.
+SDK callbacks and frontend portions of the PRD remain future work.
 
 ## Review Snapshot
 
@@ -120,18 +141,53 @@ Observed from the current audit:
   - `session_service_test`
   - `rest_server_test`
   - `app_service_test`
+  - `ipc_runtime_test`
 - live `insightiod` smoke on this host returned four devices through
   `GET /api/devices`:
   - one V4L2 webcam
-  - one Orbbec RGBD camera
+  - one SDK-backed Orbbec RGBD device
   - two PipeWire audio devices
 - the Orbbec duplicate-suppression fallback fix is now verified in two ways:
   - focused `discovery_test` proves V4L2 fallback stays visible when Orbbec
     SDK discovery is empty or throws, and proves suppression activates once a
     usable Orbbec device is discovered
-  - live `GET /api/devices` on this host still returns exactly one Orbbec
-    device plus one V4L2 webcam, with no duplicate V4L2 shadow entry for the
-    Orbbec camera
+  - live `GET /api/devices` on this host still returns exactly one SDK-backed
+    Orbbec device plus one V4L2 webcam, with no duplicate V4L2 shadow entry
+    for the Orbbec camera
+- a follow-up live rerun on 2026-03-27 confirmed the same `sv1301s-u3`
+  device now republishes:
+  - exact color selectors such as `orbbec/color/480p_30`
+  - exact depth selectors including `orbbec/depth/400p_30`,
+    `orbbec/depth/480p_30`, and native `320x200` and `800p` depth families
+  - grouped `orbbec/preset/480p_30`
+- a manual replug follow-up rerun against the same SQLite file then confirmed
+  that a restart still reloads the same 21 live `sv1301s-u3` selectors from
+  the catalog on this host
+- raw Orbbec SDK/config enumeration still contains depth-family formats such as
+  `Y10`, `Y11`, `Y12`, and `Y14`, but the checked-in public depth contract
+  stays normalized to `y16` because:
+  - the checked-in worker selects those profiles under one depth-like match and
+    reports live first frames as `format=y16`
+  - the bundled Orbbec SDK examples request or inspect `OB_FORMAT_Y16` for
+    depth in `Sample-DepthViewer`, `Sample-AlignFilterViewer`,
+    `Sample-PostProcessing`, and `Sample-DepthUnitControl`
+  - the donor `rgbd_proximity_capture` example also accepts only
+    `y16/gray16/z16` for depth consumption
+- raw Orbbec discovery now matches the donor daemon for `color`, `depth`, and
+  `ir` on this host, but the checked-in public catalog still intentionally
+  omits `ir` because the active v1 docs only define color/depth exact members
+  plus grouped preset publication and no first-class IR consumer path
+- exact IPC attach is now live-verified through the repo-native unix control
+  socket for:
+  - `insightos://localhost/web-camera/720p_30`
+  - `insightos://localhost/web-camera-mono/audio/mono`
+  - `insightos://localhost/sv1301s-u3/orbbec/color/480p_30`
+- idle IPC teardown is now live-verified:
+  - after the last local IPC consumer disconnects, the runtime returns to
+    `state = ready`
+  - `attached_consumer_count` returns to `0`
+  - `frames_published` resets to `0`
+  - the webcam becomes available again to `v4l2-ctl`
 - the live direct-session smoke flow succeeded for
   `insightos://localhost/web-camera/720p_30`:
   - `POST /api/sessions`
@@ -154,6 +210,12 @@ Observed from the current audit:
   - backend restart with the same SQLite file
   - `GET /api/apps`
   - `GET /api/apps/{id}/sources` showing persisted rows normalized to `stopped`
+- route rebind release is now live-verified:
+  - one app source can rebind from `web-camera/720p_30` to
+    `sv1301s-u3/orbbec/color/480p_30`
+  - `GET /api/status` then drops the webcam runtime and keeps only the Orbbec
+    runtime
+  - the webcam becomes available again to `v4l2-ctl`
 - serving-runtime reuse is now live-verified for one repeated exact URI:
   - one direct session for `insightos://localhost/web-camera/720p_30`
     reports one `serving_runtime` with `consumer_count = 1`
@@ -166,6 +228,19 @@ Observed from the current audit:
   - `GET /api/status` now returns one `serving_runtimes` entry for that exact
     URI with `owner_session_id`, `consumer_session_ids`, resolved source
     metadata, and additive RTSP intent
+- exact RTSP publication is now live-verified on a non-default daemon RTSP
+  port:
+  - the daemon was started with `--rtsp-host 127.0.0.1 --rtsp-port 18554`
+  - the vendored `third_party/mediamtx/mediamtx` server was started on
+    `:18554`
+  - a second direct session for `web-camera/720p_30` with
+    `rtsp_enabled = true` upgraded the shared runtime to
+    `rtsp_publication.state = active`
+  - strict FFmpeg validation against
+    `rtsp://127.0.0.1:18554/web-camera/720p_30` completed cleanly with an
+    empty `errors.log`
+  - stopping the RTSP-requiring session returned the still-shared runtime to
+    `state = ready` with `rtsp_publication = null`
 - session-backed bind verification also succeeded:
   - `POST /api/sessions`
   - `POST /api/apps/{id}/sources` with `session_id`
@@ -205,30 +280,28 @@ Important scope boundary:
   host for the checked-in slice
 - app, route, and source persistence are runtime-verified on the development
   host for the current worktree slice
-- serving-runtime reuse and status topology are now implemented in this
-  repository
-- IPC delivery, active RTSP runtime, SDK callbacks, and frontend flows are not
-  implemented in this repository yet
+- serving-runtime reuse, IPC attach, idle-worker teardown, and exact
+  single-channel RTSP publication are now implemented in this repository
+- SDK callbacks and frontend flows are not implemented in this repository yet
 
 This matches the current feature trackers:
 
 - `docs/features/fullstack-intent-routing-e2e.json` now records the verified
-  grouped-route delete cleanup, route-expectation rejection, and one status
-  inspection entry for shared serving-runtime topology as passing, while
+  grouped-route delete cleanup, route-expectation rejection, and the exact
+  shared-runtime RTSP publication journey as passing, while
   callback-dependent bind flows such as `inject-yolov5-source` remain `false`
-  until IPC delivery and SDK callbacks actually exist
+  until SDK callbacks actually exist
 - `docs/features/runtime-and-app-user-journeys.json` now marks direct-session
   create, persisted restart, referenced-session delete conflict, exact
-  source-response identity, app-source stop/start preservation, grouped-route
-  delete cleanup, and one shared-serving-runtime status journey as passing
-  where those flows were actually verified
-- frame-delivery fanout, IPC attach, active RTSP serving runtime, SDK
-  callbacks, and frontend flows remain `false`
+  source-response identity, app-source stop/start preservation, idle-app route
+  declaration, grouped-route delete cleanup, and the additive RTSP shared
+  runtime journey as passing where those flows were actually verified
+- frame-delivery fanout, SDK callbacks, and frontend flows remain `false`
 
 ## Donor Reuse Status
 
 This section was rechecked against the current `../insightos` tree while
-closing task 6.
+closing tasks 7 and 8.
 
 ### Already Reused
 
@@ -237,12 +310,24 @@ closing task 6.
   - V4L2 discovery
   - PipeWire discovery
   - Orbbec SDK discovery
+- the local IPC transport and unix control-socket pattern are now ported from
+  donor form into repo-native serving-runtime ownership:
+  - `backend/include/insightio/backend/ipc.hpp`
+  - `backend/src/ipc/ipc.cpp`
+  - `backend/include/insightio/backend/unix_socket.hpp`
+  - `backend/src/ipc/unix_socket.cpp`
+- donor RTSP publication planning and ffmpeg-publisher structure are now
+  reused in narrowed form for exact single-channel runtime publication:
+  - `backend/src/publication/rtsp_publisher.cpp`
+- the donor `mediamtx` payload is now vendored under
+  `third_party/mediamtx/`
 - the Orbbec SDK linkage itself is reused by building against the donor SDK
   tree under `../insightos/third_party/orbbec_sdk/SDK`
 - the `cpp-httplib` integration pattern is also reused
 - current `backend/CMakeLists.txt` still reflects that split correctly:
-  donor-backed discovery and SDK linkage are in the build graph, while donor
-  IPC and `session_manager.cpp` are not yet compiled into `insight-io`
+  donor-backed discovery, IPC transport, and SDK linkage are in the build
+  graph, while donor delivery tables and `session_manager.cpp` semantics are
+  still not compiled into `insight-io`
 
 Evidence:
 
@@ -288,11 +373,6 @@ Concrete comparison points:
 
 ### Not Yet Reused But Highly Relevant
 
-- local IPC transport:
-  donor `memfd` + ring-buffer + eventfd path is present in
-  `../insightos/backend/include/insightos/backend/ipc.hpp` and
-  `../insightos/backend/src/ipc/ipc.cpp`, but no equivalent code exists yet in
-  `insight-io`
 - worker/runtime graph:
   donor `session_manager.cpp` plus the V4L2, PipeWire, and Orbbec worker files
   remain reference material only
@@ -506,20 +586,18 @@ In short:
 
 ## Next Step
 
-Task 6 is now closed. Start task 7 from the checked-in serving-runtime reuse
-baseline:
+Tasks 7 and 8 are now closed for the first exact-source publication slice.
+Start task 9 from the checked-in runtime baseline:
 
-1. port the donor `memfd` + ring-buffer + `eventfd` transport plus control
-   server pieces from `../insightos` into repo-native runtime form
-2. keep attach lifecycle keyed by the new `sessions` and `app_sources`
-   contract rather than donor delivery tables or donor naming
-3. make one serving runtime expose local IPC attach on top of the current
-   reuse registry rather than reintroducing parallel runtime graphs
-4. preserve the new `/api/status` serving-runtime topology and extend it with
-   IPC attach visibility instead of replacing it
-5. add focused tests plus live hardware smoke that prove one repeated exact URI
-   can attach multiple local consumers through the shared runtime before task 8
-   adds active RTSP publication runtime
+1. keep the existing REST-backed app/route/source control plane unchanged
+2. attach SDK callbacks through the current IPC runtime instead of inventing a
+   parallel delivery layer
+3. preserve the current shared-runtime reuse and additive RTSP rules while
+   making route delivery observable to SDK consumers
+4. keep grouped preset callback delivery and grouped `session_id` attach behind
+   the same public `target` surface
+5. add focused tests plus live hardware smoke for callback fanout before the
+   frontend slice starts
 
 ## Mermaid Diagram Inventory
 
@@ -540,19 +618,20 @@ baseline:
 - [shared-serving-runtime-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/shared-serving-runtime-sequence.md)
   documents shared exact-URI runtime reuse plus additive RTSP intent in the
   current task-6 slice
+- [exact-rtsp-publication-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-rtsp-publication-sequence.md)
+  documents exact single-channel RTSP publication on top of the shared runtime
+- [ipc-idle-teardown-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/ipc-idle-teardown-sequence.md)
+  documents IPC attach, idle disconnect, worker stop, and clean restart
 
 ## Recommended Mermaid Backlog
 
 To keep the remaining implementation explainable, the next diagrams worth
 adding are:
 
-- grouped target bind sequence:
-  app-source bind using one grouped preset URI and one grouped `target`
 - existing-session attach sequence:
   attach `session_id` to one app-local target without recreating capture
-- runtime worker graph:
-  capture worker, publication phase, IPC publisher, RTSP publisher, and reuse
-  ownership boundaries
+- grouped target bind sequence:
+  app-source bind using one grouped preset URI and one grouped `target`
 - discovery versus runtime responsibility sequence:
   prove where catalog shaping ends and runtime realization begins
 - Orbbec fallback and duplicate-suppression sequence:
@@ -566,11 +645,15 @@ adding are:
 - the bootstrap server deliberately keeps the runtime surface small so later
   feature slices can add discovery and session logic without first undoing a
   mismatched baseline
-- the connected Orbbec device currently exposes incomplete raw SDK discovery in
-  this environment, so the catalog synthesizes `orbbec/depth/400p_30`,
-  `orbbec/depth/480p_30`, and `orbbec/preset/480p_30` for the proven
-  `sv1301s-u3` family (`2bc5:0614`) from the documented 2026-03-23 probe
-  evidence rather than regressing the public contract
+- the connected Orbbec device now exposes raw `color`, `depth`, and `ir`
+  streams in the current backend and in the donor daemon on this host, and the
+  checked-in catalog again republishes the documented exact depth selectors and
+  grouped `orbbec/preset/480p_30` for the proven `sv1301s-u3` family
+  (`2bc5:0614`)
+- even though the underlying SDK config also lists raw depth-family names such
+  as `Y10`, `Y11`, `Y12`, and `Y14`, the checked-in public contract continues
+  to publish Orbbec depth as `y16` because that matches the delivered worker
+  type and the supported SDK/example consumer surface
 - serial-specific gating is gone, but pure SDK D2C capability gating is not yet
   the authoritative publication rule:
   the current catalog still accepts the proven family/hardcoded 480p path, and

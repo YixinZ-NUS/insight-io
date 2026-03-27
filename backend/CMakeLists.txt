@@ -1,9 +1,9 @@
 # role: bootstrap the standalone insight-io backend build.
-# revision: 2026-03-26 orbbec-v4l2-fallback-fix
+# revision: 2026-03-27 task8-rtsp-runtime-validation
 # major changes: vendors the Orbbec SDK under this repository, keeps the
 # durable app/route/source build graph, aligns SQLite access with the threaded
-# REST server, and adds focused aggregate-discovery regression coverage. See
-# docs/past-tasks.md.
+# REST server, adds focused aggregate-discovery regression coverage, and builds
+# the task-7 IPC probe alongside the backend/test targets. See docs/past-tasks.md.
 
 include(FetchContent)
 include(FindPkgConfig)
@@ -70,16 +70,27 @@ set(INSIGHTIO_BACKEND_SOURCES
     src/session_service.cpp
     src/app_service.cpp
     src/api/rest_server.cpp
+    src/ipc/ipc.cpp
+    src/ipc/unix_socket.cpp
+    src/publication/rtsp_publisher.cpp
+    src/workers/synthetic_worker.cpp
+    src/workers/v4l2_worker.cpp
     src/discovery/discovery.cpp
     src/discovery/v4l2_discovery.cpp
 )
 
 if (INSIGHTIO_HAS_ORBBEC)
-    list(APPEND INSIGHTIO_BACKEND_SOURCES src/discovery/orbbec_discovery.cpp)
+    list(APPEND INSIGHTIO_BACKEND_SOURCES
+        src/discovery/orbbec_discovery.cpp
+        src/workers/orbbec_worker.cpp
+    )
 endif()
 
 if (INSIGHTIO_HAS_PIPEWIRE)
-    list(APPEND INSIGHTIO_BACKEND_SOURCES src/discovery/pipewire_discovery.cpp)
+    list(APPEND INSIGHTIO_BACKEND_SOURCES
+        src/discovery/pipewire_discovery.cpp
+        src/workers/pipewire_worker.cpp
+    )
 endif()
 
 add_library(insightio_backend_support STATIC
@@ -217,9 +228,36 @@ if (INSIGHTIO_HAS_ORBBEC)
     set_target_properties(app_service_test PROPERTIES BUILD_RPATH "${INSIGHTIO_ORBBEC_SDK_LIB}")
 endif()
 
+add_executable(ipc_runtime_test
+    tests/ipc_runtime_test.cpp
+)
+
+target_include_directories(ipc_runtime_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(ipc_runtime_test PRIVATE cxx_std_20)
+target_compile_options(ipc_runtime_test PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(ipc_runtime_test PRIVATE insightio_backend_support SQLite::SQLite3)
+
+if (INSIGHTIO_HAS_ORBBEC)
+    set_target_properties(ipc_runtime_test PROPERTIES BUILD_RPATH "${INSIGHTIO_ORBBEC_SDK_LIB}")
+endif()
+
+add_executable(insightio_ipc_probe
+    tools/ipc_probe.cpp
+)
+
+target_include_directories(insightio_ipc_probe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_compile_features(insightio_ipc_probe PRIVATE cxx_std_20)
+target_compile_options(insightio_ipc_probe PRIVATE -Wall -Wextra -Wpedantic)
+target_link_libraries(insightio_ipc_probe PRIVATE insightio_backend_support)
+
+if (INSIGHTIO_HAS_ORBBEC)
+    set_target_properties(insightio_ipc_probe PROPERTIES BUILD_RPATH "${INSIGHTIO_ORBBEC_SDK_LIB}")
+endif()
+
 add_test(NAME schema_store_test COMMAND schema_store_test)
 add_test(NAME catalog_service_test COMMAND catalog_service_test)
 add_test(NAME discovery_test COMMAND discovery_test)
 add_test(NAME session_service_test COMMAND session_service_test)
 add_test(NAME rest_server_test COMMAND rest_server_test)
 add_test(NAME app_service_test COMMAND app_service_test)
+add_test(NAME ipc_runtime_test COMMAND ipc_runtime_test)

@@ -4,8 +4,27 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 15
+- version: 19
 - major changes:
+  - 2026-03-27 added a dedicated runtime-wait writeup that records the current
+    RTSP and worker startup-grace sleeps, the live evidence that they work on
+    the development host today, and the empirical optimization plan for
+    replacing them later
+  - 2026-03-27 reverified live Orbbec persistence after a manual replug,
+    confirmed the same SQLite file reloads the same 21 `sv1301s-u3`
+    selectors after restart, and recorded why the public Orbbec depth contract
+    stays normalized to `y16` while raw `ir` remains outside the v1 catalog
+  - 2026-03-27 restored live Orbbec depth and grouped catalog publication by
+    rechecking the donor daemon on the same host, restoring donor-style
+    depth-family format mapping in Orbbec discovery plus the 480p catalog
+    probe, confirming the current host again publishes exact depth selectors
+    plus `orbbec/preset/480p_30`, and recording the intentional IR omission in
+    the public v1 catalog
+  - 2026-03-27 completed the task-7 IPC hardening and first task-8 RTSP slice
+    by fixing idle IPC teardown, adding configurable RTSP daemon ports,
+    vendoring mediamtx, live-verifying webcam/audio/Orbbec color IPC attach,
+    live-verifying exact shared-runtime RTSP publication with strict FFmpeg
+    checks, and adding exact RTSP plus idle-teardown sequence diagrams
   - 2026-03-26 added in-memory serving-runtime reuse for identical exact
     `stream_id` requests, exposed serving-runtime topology in session and
     status responses, runtime-verified shared reuse on the current host, and
@@ -47,6 +66,429 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Document Runtime Wait And Startup Sleep Behavior
+
+### What Changed
+
+- added
+  [RUNTIME_WAIT_BEHAVIOR_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/RUNTIME_WAIT_BEHAVIOR_WRITEUP.md)
+  to record the current startup-grace waits in:
+  - [rtsp_publisher.cpp](/home/yixin/Coding/insight-io/backend/src/publication/rtsp_publisher.cpp)
+  - [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+- documented which waits are in scope for later optimization, what they are
+  protecting today, and the preferred readiness-based replacement direction
+- linked the new writeup from the docs hub so later performance work can use it
+  as the starting note instead of rediscovering the same code paths
+
+### Why
+
+- PR #7 review comments correctly identified the fixed startup sleeps as
+  cleanup and performance-optimization targets, but they were not yet written
+  down as one focused investigation note
+- a separate writeup is useful because later optimization work will need both:
+  - the current intent behind those waits
+  - the current live evidence that they are not presently blocking defects
+
+### Verification
+
+```bash
+curl -s -X POST http://127.0.0.1:18284/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}'
+
+ffmpeg -rtsp_transport tcp -loglevel warning \
+  -err_detect +crccheck+bitstream+buffer+careful \
+  -i rtsp://127.0.0.1:18584/web-camera/720p_30 \
+  -an -f null /dev/null 2>errors.log
+
+socket_path=$(curl -s http://127.0.0.1:18284/api/health | jq -r '.ipc_socket_path')
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+```
+
+Observed results:
+
+- exact RTSP publication reached `state = active`
+- strict FFmpeg validation produced no warnings
+- exact IPC attach on the same runtime returned a real frame immediately
+- the new writeup now records these waits as working startup-grace behavior
+  today and as explicit targets for a later empirical optimization pass
+
+## 2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract
+
+### What Changed
+
+- extended
+  [catalog_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/catalog_service_test.cpp)
+  so the persisted Orbbec rows now assert the public depth-format contract as
+  `y16` in addition to the existing selector, grouped-flag, and
+  missing/recovered-discovery persistence checks
+- updated the active contract docs and operator notes to explain two current
+  Orbbec boundaries explicitly:
+  - raw `ir` discovery remains intentionally outside the public v1 catalog
+    because the documented app/session contract still defines only
+    color/depth exact members plus grouped RGBD preset consumers
+  - raw SDK depth-family names such as `Y10`, `Y11`, `Y12`, and `Y14` remain
+    normalized to public `y16` because the delivered runtime and supported SDK
+    examples consume one 16-bit depth-buffer contract
+
+### Why
+
+- the earlier follow-up fixed the missing depth/grouped Orbbec catalog entries,
+  but the next review question was whether those entries were really durable
+  across restart and whether the public format should expose raw SDK names or
+  one normalized `y16` contract
+- a clean answer needed both live host evidence and local SDK-example evidence
+  rather than only code inspection
+
+### Verification
+
+```bash
+ctest --test-dir build --output-on-failure -R 'catalog_service_test'
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18276 \
+  --db-path /tmp/insight-io-live-persist.sqlite3 \
+  --frontend /tmp/insight-io-live-persist-frontend \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18576
+
+curl -s http://127.0.0.1:18276/api/devices | jq \
+  '.devices[] | select(.driver=="orbbec") | {name: .public_name, source_count: (.sources|length), depth_formats: ([.sources[] | select(.media_kind=="depth") | .caps_json.format] | unique)}'
+
+sqlite3 /tmp/insight-io-live-persist.sqlite3 \
+  "select d.public_name, d.status, s.selector, s.media_kind, json_extract(s.caps_json, '$.format') as format, case when s.members_json is null then 0 else 1 end as grouped, s.is_present \
+   from streams s join devices d on d.device_id=s.device_id \
+   where d.driver='orbbec' order by s.selector;"
+
+# stop the daemon, restart with the same SQLite file, then rerun:
+curl -s http://127.0.0.1:18276/api/devices | jq \
+  '.devices[] | select(.driver=="orbbec") | {name: .public_name, source_count: (.sources|length), depth_formats: ([.sources[] | select(.media_kind=="depth") | .caps_json.format] | unique)}'
+
+curl -s -X POST http://127.0.0.1:18276/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/depth/400p_30","rtsp_enabled":false}'
+
+socket_path=$(curl -s http://127.0.0.1:18276/api/health | jq -r '.ipc_socket_path')
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+
+sed -n '1,140p' ../insightos/third_party/orbbec_sdk/Example/cpp/Sample-DepthViewer/DepthViewer.cpp
+sed -n '1,240p' ../insightos/examples/rgbd_proximity_capture.cpp
+```
+
+Observed results:
+
+- after a manual replug, a fresh daemon start on this host again published one
+  Orbbec `sv1301s-u3` device with 21 selectors, including exact depth entries
+  and grouped `orbbec/preset/480p_30`
+- the persisted SQLite rows for that device used `format = y16` for every
+  exact depth selector
+- after stopping and restarting the daemon against the same SQLite file, the
+  same host again loaded the same 21 live Orbbec selectors and the same public
+  `y16` depth contract
+- a live exact direct session plus `insightio_ipc_probe` attach on
+  `orbbec/depth/400p_30` produced `frame_size = 512000`, exactly matching
+  `640x400x2`, and the daemon log printed
+  `depth first frame: 640x400 format=y16 bytes=512000`
+- the bundled Orbbec SDK examples and donor consumer example continue to treat
+  depth as a 16-bit delivered type:
+  - `Sample-DepthViewer` inspects `OB_FORMAT_Y16`
+  - `Sample-AlignFilterViewer`, `Sample-PostProcessing`, and
+    `Sample-DepthUnitControl` request `OB_FORMAT_Y16`
+  - donor `rgbd_proximity_capture` accepts only `y16/gray16/z16` for depth
+- raw `ir` discovery is still visible internally on this host, but remains out
+  of the public catalog because the documented v1 app/session contract does
+  not yet define IR consumers
+
+## 2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication
+
+### What Changed
+
+- updated
+  [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp)
+  so donor-style depth-family sensor formats `Y10`, `Y11`, `Y12`, and `Y14`
+  map to public `y16` caps instead of being dropped during raw Orbbec
+  discovery
+- restored donor-style raw IR sensor enumeration in
+  [orbbec_discovery.cpp](/home/yixin/Coding/insight-io/backend/src/discovery/orbbec_discovery.cpp)
+  so the current backend now sees the same `color`, `depth`, and `ir` streams
+  as the donor daemon on this host
+- updated the Orbbec 480p catalog probe in
+  [catalog.cpp](/home/yixin/Coding/insight-io/backend/src/catalog.cpp) to use
+  the same depth-family format mapping, which lets the checked-in catalog
+  re-publish exact depth selectors and grouped `orbbec/preset/480p_30` when
+  the live device supports them
+- added focused contract coverage in
+  [catalog_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/catalog_service_test.cpp)
+  proving that even when raw discovery includes `ir`, the current public v1
+  catalog still publishes only the documented color/depth exact-member and
+  grouped-preset selectors
+- refreshed the repo guidance and live host notes in:
+  - [AGENTS.md](/home/yixin/Coding/insight-io/AGENTS.md)
+  - [README.md](/home/yixin/Coding/insight-io/docs/README.md)
+  - [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  - [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md)
+  - [task-7-runtime-hardening-plan.md](/home/yixin/Coding/insight-io/docs/tasks/task-7-runtime-hardening-plan.md)
+
+### Why
+
+- the donor daemon on the same host still exposed raw Orbbec `color`, `depth`,
+  and `ir`, while the checked-in `insight-io` daemon had regressed to a
+  color-only public catalog
+- the missing grouped and exact depth selectors were not a design decision:
+  they were caused by the current repo dropping donor-style depth-family sensor
+  formats during raw discovery and during the 480p D2C probe
+- the donor's raw `ir` stream remains intentionally out of the public v1
+  catalog because the current docs and trackers only define color/depth exact
+  members plus grouped preset publication for Orbbec
+
+### Verification
+
+```bash
+cmake --build build -j4 --target \
+  insightiod \
+  discovery_test \
+  catalog_service_test \
+  rest_server_test
+
+ctest --test-dir build --output-on-failure -R \
+  'discovery_test|catalog_service_test|rest_server_test'
+
+../insightos/build/bin/insightosd \
+  --host 127.0.0.1 \
+  --port 18271 \
+  --db-path /tmp/insightos-orbbec-check.sqlite3 \
+  --frontend /tmp/insightos-frontend
+
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18270 \
+  --db-path /tmp/insight-io-orbbec-check.sqlite3 \
+  --frontend /tmp/insight-io-frontend \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18570
+
+curl -s http://127.0.0.1:18270/api/devices | jq \
+  '.devices[] | select(.name=="sv1301s-u3") | {name, sources: [.sources[].selector]}'
+
+sqlite3 /tmp/insight-io-orbbec-check.sqlite3 \
+  "select d.public_name, s.selector, s.media_kind, case when s.members_json is null then 0 else 1 end as grouped \
+   from streams s join devices d on d.device_id=s.device_id \
+   where d.driver='orbbec' order by s.selector;"
+```
+
+Observed results:
+
+- the donor daemon printed raw `color`, `depth`, and `ir` streams for the same
+  `SV1301S_U3` device on this host
+- the current backend's live `GET /api/devices` response now includes:
+  - exact color selectors such as `orbbec/color/480p_30`
+  - exact depth selectors including `orbbec/depth/400p_30`,
+    `orbbec/depth/480p_30`, `orbbec/depth/320x200_30`, and
+    `orbbec/depth/800p_30`
+  - grouped `orbbec/preset/480p_30`
+- the persisted `streams` rows for the Orbbec device now match that live
+  public catalog shape
+- the new focused `catalog_service_test` passes and confirms that raw `ir`
+  discovery still does not become a public `orbbec/ir/...` catalog selector in
+  the current v1 contract
+
+## 2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication
+
+### What Changed
+
+- fixed idle IPC teardown in
+  [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+  so exact serving runtimes now stop the capture worker, reset IPC counters,
+  and return to `state = ready` when the last local IPC consumer disconnects
+  and no RTSP publication remains active
+- added IPC ring reset support in
+  [ipc.hpp](/home/yixin/Coding/insight-io/backend/include/insightio/backend/ipc.hpp)
+  and [ipc.cpp](/home/yixin/Coding/insight-io/backend/src/ipc/ipc.cpp) so an
+  idled runtime restarts with fresh first-frame signaling instead of reusing
+  stale ring state
+- added a dedicated daemon `--rtsp-port` flag in
+  [main.cpp](/home/yixin/Coding/insight-io/backend/src/main.cpp) while keeping
+  backward-compatible parsing of `--rtsp-host` values that already include a
+  port
+- kept RTSP publication runtime repo-native in
+  [rtsp_publisher.cpp](/home/yixin/Coding/insight-io/backend/src/publication/rtsp_publisher.cpp)
+  and verified that exact single-channel runtimes expose one additive RTSP
+  publisher above the existing shared worker path
+- vendored the donor mediamtx payload into:
+  - [insightio.yml](/home/yixin/Coding/insight-io/third_party/mediamtx/insightio.yml)
+  - [LICENSE](/home/yixin/Coding/insight-io/third_party/mediamtx/LICENSE)
+  - [mediamtx](/home/yixin/Coding/insight-io/third_party/mediamtx/mediamtx)
+- removed the local ignore rule that previously hid the vendored mediamtx
+  binary from commits in
+  [/.gitignore](/home/yixin/Coding/insight-io/.gitignore)
+- extended focused runtime coverage in
+  [ipc_runtime_test.cpp](/home/yixin/Coding/insight-io/backend/tests/ipc_runtime_test.cpp)
+  so the test suite now proves:
+  - exact IPC attach publishes frames
+  - idle disconnect returns the runtime to `ready`
+  - the same logical session can attach again after going idle
+- refreshed the active docs, trackers, and Mermaid inventory, and added:
+  - [exact-rtsp-publication-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/exact-rtsp-publication-sequence.md)
+  - [ipc-idle-teardown-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/ipc-idle-teardown-sequence.md)
+
+### Why
+
+- task 7 required the shared serving runtime to be actually attachable and to
+  release devices cleanly when no local consumer remained, not just when the
+  logical session was deleted
+- the pre-fix runtime would keep capture active after an IPC probe detached,
+  which held the device open idly and violated the lazy exact-session model
+- task 8 required one honest exact-source RTSP path that reused the same
+  worker stream as IPC and surfaced explicit status/error facts instead of
+  silently failing
+- the daemon-side RTSP address needed to stop assuming `8554` so live
+  validation could prove the path on an alternate port and the catalog could
+  reflect that port correctly
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4 --target \
+  insightiod \
+  discovery_test \
+  catalog_service_test \
+  session_service_test \
+  app_service_test \
+  rest_server_test \
+  ipc_runtime_test \
+  insightio_ipc_probe
+
+ctest --test-dir build --output-on-failure -R \
+  'discovery_test|catalog_service_test|session_service_test|app_service_test|rest_server_test|ipc_runtime_test'
+
+v4l2-ctl --list-devices
+
+for i in $(seq 1 8); do
+  db=/tmp/insight-io-orbbec-repro.sqlite3
+  rm -f "${db}"
+  ./build/bin/insightiod \
+    --host 127.0.0.1 \
+    --port $((18200 + i)) \
+    --db-path "${db}" \
+    --frontend /tmp/insight-io-repro-frontend \
+    --rtsp-host 127.0.0.1 \
+    --rtsp-port 8554 >/tmp/insight-io-repro-${i}.log 2>&1 &
+  pid=$!
+  for t in $(seq 1 30); do
+    curl -sf http://127.0.0.1:$((18200 + i))/api/health >/dev/null && break
+    sleep 0.2
+  done
+  echo "=== run ${i} ==="
+  curl -s http://127.0.0.1:$((18200 + i))/api/devices | jq -r \
+    '.devices[] | [.public_name, .driver, (.sources | map(.selector) | join(","))] | @tsv'
+  kill ${pid}
+  wait ${pid} 2>/dev/null || true
+  sleep 0.5
+done
+
+db=/tmp/insight-io-live2.sqlite3
+rm -f "${db}"
+mkdir -p /tmp/insight-io-live2-frontend Log/mediamtx
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18260 \
+  --db-path "${db}" \
+  --frontend /tmp/insight-io-live2-frontend \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18554 &
+daemon_pid=$!
+
+cfg=/tmp/insightio-mediamtx-18554.yml
+sed -e 's/apiAddress: :9997/apiAddress: :19997/' \
+    -e 's/rtspAddress: :8554/rtspAddress: :18554/' \
+    third_party/mediamtx/insightio.yml > "${cfg}"
+./third_party/mediamtx/mediamtx "${cfg}" &
+mediamtx_pid=$!
+
+for t in $(seq 1 30); do
+  curl -sf http://127.0.0.1:18260/api/health >/dev/null && break
+  sleep 0.2
+done
+
+curl -s http://127.0.0.1:18260/api/devices | jq \
+  '{devices: [.devices[] | {public_name, driver, sources: [.sources[].selector]}]}'
+
+web=$(curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}')
+audio=$(curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera-mono/audio/mono","rtsp_enabled":false}')
+orbbec=$(curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/color/480p_30","rtsp_enabled":false}')
+
+socket_path=$(curl -s http://127.0.0.1:18260/api/health | jq -r '.ipc_socket_path')
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+./build/bin/insightio_ipc_probe "${socket_path}" 2
+./build/bin/insightio_ipc_probe "${socket_path}" 3
+
+sleep 1
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{serving_runtimes: [.serving_runtimes[] | {runtime_key, state, ipc_channels: [.ipc_channels[] | {stream_name, attached_consumer_count, frames_published}]}]}'
+
+for id in 1 2 3; do
+  curl -s -X POST http://127.0.0.1:18260/api/sessions/${id}/stop \
+    -H 'Content-Type: application/json' -d '{}' >/dev/null
+  curl -s -X DELETE http://127.0.0.1:18260/api/sessions/${id} >/dev/null
+done
+
+timeout 5 v4l2-ctl --device /dev/video0 --stream-mmap=1 --stream-count=1 \
+  --stream-to=/tmp/insight-io-webcam-frame.mjpg
+
+app_id=$(curl -s -X POST http://127.0.0.1:18260/api/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"reroute-check"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18260/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"cam","expect":{"media":"video"}}' >/dev/null
+curl -s -X POST http://127.0.0.1:18260/api/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","target":"cam","rtsp_enabled":false}' >/dev/null
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+sleep 2
+curl -s -X POST http://127.0.0.1:18260/api/apps/${app_id}/sources/1/rebind \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/color/480p_30","rtsp_enabled":false}' | jq
+sleep 1
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{after_rebind: [.serving_runtimes[] | {runtime_key, state, source: .resolved_source.selector}]}'
+timeout 5 v4l2-ctl --device /dev/video0 --stream-mmap=1 --stream-count=1 \
+  --stream-to=/tmp/insight-io-webcam-after-rebind.mjpg
+
+curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' >/dev/null
+curl -s -X POST http://127.0.0.1:18260/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}' | jq
+sleep 2
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{rtsp_runtime: [.serving_runtimes[] | select(.resolved_source.selector=="720p_30") | {runtime_key, state, consumer_count, rtsp_enabled, rtsp_publication}]}'
+
+ffmpeg -rtsp_transport tcp -loglevel warning \
+  -err_detect +crccheck+bitstream+buffer+careful \
+  -i rtsp://127.0.0.1:18554/web-camera/720p_30 \
+  -t 3 -an -f null /dev/null 2>/tmp/insight-io-rtsp-errors.log
+test ! -s /tmp/insight-io-rtsp-errors.log
+
+curl -s -X POST http://127.0.0.1:18260/api/sessions/4/stop \
+  -H 'Content-Type: application/json' -d '{}' | jq
+sleep 1
+curl -s http://127.0.0.1:18260/api/status | jq \
+  '{after_rtsp_stop: [.serving_runtimes[] | select(.resolved_source.selector=="720p_30") | {runtime_key, state, consumer_count, rtsp_enabled, rtsp_publication}]}'
+
+kill ${daemon_pid} ${mediamtx_pid}
+wait ${daemon_pid} ${mediamtx_pid} 2>/dev/null || true
+```
 
 ## 2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology
 

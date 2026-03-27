@@ -1,9 +1,11 @@
 // role: standalone backend entrypoint for the current insight-io slices.
-// revision: 2026-03-26 orbbec-v4l2-fallback-fix
+// revision: 2026-03-27 task8-rtsp-runtime-validation
 // major changes: starts the SQLite-backed catalog, session, and durable
 // app/route/source services while keeping media-runtime realization
 // intentionally lightweight, and binds the aggregate discovery entrypoint
-// through an overload-safe callback. See docs/past-tasks.md.
+// through an overload-safe callback while surfacing the local IPC attach
+// socket plus the mediamtx-compatible RTSP host contract. See
+// docs/past-tasks.md.
 
 #include "insightio/backend/app_service.hpp"
 #include "insightio/backend/catalog.hpp"
@@ -21,6 +23,7 @@
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -40,6 +43,8 @@ int main(int argc, char* argv[]) {
     std::string frontend_dir;
     std::string db_path = default_database_path();
     std::string rtsp_host = "127.0.0.1";
+    uint16_t rtsp_port = 8554;
+    bool rtsp_port_overridden = false;
 
     for (int index = 1; index < argc; ++index) {
         const std::string arg = argv[index];
@@ -53,8 +58,23 @@ int main(int argc, char* argv[]) {
             db_path = argv[++index];
         } else if (arg == "--rtsp-host" && index + 1 < argc) {
             rtsp_host = argv[++index];
+            if (!rtsp_port_overridden) {
+                const auto delimiter = rtsp_host.rfind(':');
+                if (delimiter != std::string::npos && delimiter + 1 < rtsp_host.size()) {
+                    try {
+                        rtsp_port = static_cast<uint16_t>(
+                            std::stoi(rtsp_host.substr(delimiter + 1)));
+                        rtsp_host = rtsp_host.substr(0, delimiter);
+                    } catch (...) {
+                    }
+                }
+            }
+        } else if (arg == "--rtsp-port" && index + 1 < argc) {
+            rtsp_port = static_cast<uint16_t>(std::stoi(argv[++index]));
+            rtsp_port_overridden = true;
         }
     }
+    const std::string rtsp_endpoint = rtsp_host + ":" + std::to_string(rtsp_port);
 
     std::cout << "insightiod " << kVersion << "\n";
 
@@ -69,19 +89,19 @@ int main(int argc, char* argv[]) {
             store,
             []() { return discover_all(); },
             "localhost",
-            rtsp_host);
+            rtsp_endpoint);
         if (!catalog.initialize()) {
             std::cerr << "Failed to initialize discovery catalog\n";
             return 1;
         }
 
-        SessionService sessions(store, "localhost", rtsp_host);
+        SessionService sessions(store, "localhost", rtsp_endpoint);
         if (!sessions.initialize()) {
             std::cerr << "Failed to initialize direct session service\n";
             return 1;
         }
 
-        AppService apps(store, sessions, "localhost", rtsp_host);
+        AppService apps(store, sessions, "localhost", rtsp_endpoint);
         if (!apps.initialize()) {
             std::cerr << "Failed to initialize durable app service\n";
             return 1;
@@ -98,6 +118,7 @@ int main(int argc, char* argv[]) {
 
         std::cout << "REST API listening on " << host << ":" << port << "\n";
         std::cout << "Device store: " << db_path << "\n";
+        std::cout << "IPC attach socket: " << sessions.ipc_socket_path() << "\n";
 
         while (g_running.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(100));

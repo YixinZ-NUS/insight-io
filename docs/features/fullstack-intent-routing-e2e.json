@@ -1,5 +1,5 @@
 {
-  "version": 14,
+  "version": 15,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -289,7 +289,7 @@
         "Verify RTSP publication is visible",
         "Verify shared capture or serving reuse is visible when applicable"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "reject-incompatible-route-expectation",

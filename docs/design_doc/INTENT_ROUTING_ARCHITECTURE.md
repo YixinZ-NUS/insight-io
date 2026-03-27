@@ -4,8 +4,12 @@
 
 - role: control-plane and runtime-responsibility split for `insight-io`
 - status: active
-- version: 7
+- version: 8
 - major changes:
+  - 2026-03-27 documented the Orbbec public-format boundary: raw SDK
+    depth-family profiles may exist internally, but the public depth contract
+    stays normalized to `y16`, and raw `ir` discovery stays out of the public
+    v1 catalog until an IR consumer surface is designed
   - 2026-03-25 removed stale source variant/group response fields, made RTSP
     publication metadata queryable from the catalog, and fixed session-delete
     conflict semantics
@@ -184,6 +188,8 @@ metadata such as:
 - capture policy requirements
 - publication metadata, including queryable RTSP URL when applicable
 - grouped preset members when applicable
+- any documented format normalization that reflects the delivered runtime
+  contract rather than raw SDK profile naming
 
 The RTSP publication URL should keep the same `/<device>/<selector>` path as
 the derived `insightos://` URI while replacing `localhost` with the configured
@@ -204,6 +210,13 @@ For RGBD depth this means:
 - `orbbec/depth/400p_30` is the native depth output
 - `orbbec/depth/480p_30` is the aligned depth output
 - `orbbec/preset/480p_30` is the fixed bundled color + aligned-depth output
+- raw SDK profile names such as `Y10`, `Y11`, `Y12`, and `Y14` may still exist
+  underneath those entries, but the checked-in public contract publishes them
+  as `y16` because the worker and supported SDK examples consume 16-bit depth
+  buffers as the delivered type
+- raw `ir` may still be discovered for diagnostics or future work, but it does
+  not become a public `orbbec/ir/...` catalog selector until the app/session
+  contract explicitly supports IR consumers
 
 The user chooses between them at discovery time.
 

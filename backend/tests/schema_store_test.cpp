@@ -253,6 +253,7 @@ TEST(app_routes_schema_installs_ambiguity_guards) {
 
 int main() {
     for (const auto& test : tests()) {
+        std::cout << "running " << test.name << "\n";
         test.fn();
     }
     std::cout << "schema_store_test: " << tests().size() << " test(s) passed\n";

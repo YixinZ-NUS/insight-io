@@ -4,8 +4,27 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 22
+- version: 26
 - major changes:
+  - 2026-03-27 added a dedicated runtime-wait writeup that records the current
+    worker-start and RTSP-start sleep behavior, the live evidence that it is
+    currently working, and the empirical optimization plan for replacing those
+    waits later
+  - 2026-03-27 reverified live Orbbec persistence after a manual replug,
+    confirmed the catalog reloads the same 21 `sv1301s-u3` selectors from the
+    same SQLite file after restart, documented the intentional public IR
+    omission as a v1 contract boundary, and documented why the public Orbbec
+    depth format stays normalized to `y16`
+  - 2026-03-27 rechecked live Orbbec discovery against the donor daemon,
+    restored donor-style depth-family format mapping in Orbbec discovery plus
+    the 480p catalog probe, confirmed the current host now republishes exact
+    depth selectors plus `orbbec/preset/480p_30`, and kept raw IR discovery
+    out of the public v1 catalog contract
+  - 2026-03-27 closed task 7 with live-verified IPC attach plus idle-worker
+    teardown, closed the first task-8 slice with exact single-channel RTSP
+    publication on a configurable daemon RTSP port, vendored mediamtx into the
+    repo, and refreshed the docs around the current host's verified Orbbec
+    runtime boundary
   - 2026-03-26 added in-memory serving-runtime reuse for identical
     `stream_id` requests across direct sessions and app-owned sources,
     surfaced serving-runtime topology in session responses plus
@@ -73,6 +92,10 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Document Runtime Wait And Startup Sleep Behavior`
+  - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
+  - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
+  - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
   - `2026-03-26 – Add Serving Runtime Reuse And Runtime-Status Topology`
   - `2026-03-26 – Fix Orbbec Duplicate Suppression Fallback And Add Discovery Regression Coverage`
   - `2026-03-26 – Recheck Task-5 State, Correct Tracker Underclaims, And Detail Task-6 Start Order`
@@ -121,10 +144,11 @@
 - exact-member URIs still mean one delivered stream
 - grouped preset URIs may mean one fixed related stream bundle
 - the current worktree now serves health, device catalog, alias, direct
-  session lifecycle, app/route/source lifecycle, and runtime-status endpoints
+  session lifecycle, app/route/source lifecycle, runtime-status endpoints,
+  local IPC attach, and exact single-channel RTSP publication
 - `GET /api/status` now exposes `serving_runtimes` with owner session id,
-  consumer session ids, resolved source metadata, and additive RTSP intent for
-  shared serving paths
+  consumer session ids, resolved source metadata, additive RTSP intent, IPC
+  channel facts, and runtime RTSP publication facts for shared serving paths
 - the current worktree rejects `insightos://` inputs whose host does not match
   the configured local catalog host on both direct-session and app-source
   creation paths
@@ -140,10 +164,26 @@
   configured RTSP host
 - same `uri` plus the same publication requirements may share one serving path;
   RTSP publication may be additive on shared runtime when lifecycle rules allow
-- runtime still needs a post-capture publication phase for output profile,
-  codec, and protocol-description work, but that phase stays runtime-only in v1
+- the runtime now includes the first runtime-only post-capture publication
+  phase for exact single-channel RTSP publication, and that phase stays
+  runtime-only in v1
 - local SDK attach always uses IPC, but that is implicit and not a posted
   field
+- when the last local IPC consumer disconnects and no RTSP publication is
+  active, the serving runtime now returns to `ready` and releases the capture
+  worker instead of holding the device open idly
+- on the 2026-03-27 follow-up verification pass, the current host exposed one
+  SDK-backed `sv1301s-u3` Orbbec device with exact color selectors, exact
+  depth selectors including `orbbec/depth/400p_30` and
+  `orbbec/depth/480p_30`, and grouped `orbbec/preset/480p_30`
+- raw Orbbec SDK/config profiles may enumerate `Y10`, `Y11`, `Y12`, or `Y14`,
+  but the public Orbbec depth contract stays normalized to `y16` because the
+  checked-in worker, live IPC attach, donor app examples, and bundled SDK
+  samples all consume 16-bit depth buffers under that unified contract
+- donor-style raw Orbbec discovery also sees `ir` on this host, but the
+  current public catalog intentionally omits `orbbec/ir/...` until the v1
+  route/app/session contract defines an IR consumer surface rather than only
+  the current color/depth exact-member and grouped-preset contract
 - `DELETE /api/sessions/{id}` must return `409 Conflict` while any app source
   still references that session
 - direct sessions are standalone session-first runtime intent; declaring a
@@ -189,6 +229,7 @@
 | `docs/design_doc/INTENT_ROUTING_DATA_MODEL.md` | minimal durable schema, PK/FK plan, and runtime boundary | active |
 | `docs/design_doc/POST_CAPTURE_PUBLICATION_PHASE_WRITEUP.md` | why capture and publication planning stay separate at runtime | active |
 | `docs/design_doc/RTSP_PUBLICATION_REUSE_WRITEUP.md` | why the active contract treats RTSP as additive publication state | active |
+| `docs/design_doc/RUNTIME_WAIT_BEHAVIOR_WRITEUP.md` | current startup sleeps and the later perf-optimization plan for replacing them | active |
 | `docs/REST.md` | public HTTP contract | active |
 | `docs/tasks/fullstack-intent-routing-task-list.md` | next implementation round | active |
 | `docs/features/fullstack-intent-routing-e2e.json` | narrow implementation scoreboard | active |
@@ -204,6 +245,8 @@
 | `docs/diagram/direct-session-sequence.md` | sequence diagram for direct-session create, restart, and delete flow | active |
 | `docs/diagram/app-route-source-sequence.md` | sequence diagram for app create, route declaration, bind, stop/start, and rebind flow | active |
 | `docs/diagram/grouped-route-delete-sequence.md` | sequence diagram for grouped bind cleanup when one member route is deleted | active |
+| `docs/diagram/exact-rtsp-publication-sequence.md` | sequence diagram for exact-source shared-runtime RTSP publication | active |
+| `docs/diagram/ipc-idle-teardown-sequence.md` | sequence diagram for local IPC attach, idle disconnect, and worker release | active |
 | `docs/past-tasks.md` | change log and verification index | active |
 
 ## Status Rules

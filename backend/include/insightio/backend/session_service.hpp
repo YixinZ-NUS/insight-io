@@ -1,10 +1,11 @@
 #pragma once
 
 // role: persisted direct-session service for the standalone backend.
-// revision: 2026-03-26 task6-serving-runtime-reuse
+// revision: 2026-03-27 task8-rtsp-runtime-validation
 // major changes: resolves catalog URIs into durable logical session records,
 // normalizes persisted runtime state on startup, and exposes session/status
-// read models plus serving-runtime reuse topology for the REST layer.
+// read models plus serving-runtime reuse, IPC attach, and RTSP publication
+// topology for the REST layer.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/schema_store.hpp"
@@ -37,6 +38,31 @@ struct SessionResolvedSource {
     nlohmann::json publications_json;
 };
 
+struct IpcChannelRuntimeView {
+    std::string channel_id;
+    std::string stream_name;
+    std::string route_name;
+    std::string selector;
+    std::string media_kind;
+    nlohmann::json delivered_caps_json;
+    int attached_consumer_count{0};
+    std::uint64_t frames_published{0};
+};
+
+struct RtspPublicationRuntimeView {
+    std::string publication_id;
+    std::string stream_name;
+    std::string selector;
+    std::string url;
+    std::string state;
+    std::string publication_profile;
+    std::string transport;
+    std::string promised_format;
+    std::string actual_format;
+    std::string last_error;
+    std::uint64_t frames_forwarded{0};
+};
+
 struct SessionRecord {
     std::int64_t session_id{0};
     std::string session_kind;
@@ -54,9 +80,14 @@ struct SessionRecord {
     struct ServingRuntimeView {
         std::string runtime_key;
         std::int64_t owner_session_id{0};
+        std::string state;
+        std::string last_error;
         bool rtsp_enabled{false};
         bool shared{false};
         int consumer_count{0};
+        std::string ipc_socket_path;
+        std::vector<IpcChannelRuntimeView> ipc_channels;
+        std::optional<RtspPublicationRuntimeView> rtsp_publication;
         std::vector<std::int64_t> consumer_session_ids;
     };
     std::optional<ServingRuntimeView> serving_runtime;
@@ -66,8 +97,13 @@ struct ServingRuntimeSnapshot {
     std::string runtime_key;
     std::int64_t stream_id{0};
     std::int64_t owner_session_id{0};
+    std::string state;
+    std::string last_error;
     bool rtsp_enabled{false};
     int consumer_count{0};
+    std::string ipc_socket_path;
+    std::vector<IpcChannelRuntimeView> ipc_channels;
+    std::optional<RtspPublicationRuntimeView> rtsp_publication;
     std::vector<std::int64_t> consumer_session_ids;
     SessionResolvedSource source;
     nlohmann::json resolved_members_json;
@@ -86,7 +122,7 @@ class SessionService {
 public:
     SessionService(SchemaStore& store,
                    std::string uri_host = "localhost",
-                   std::string rtsp_host = "127.0.0.1");
+                   std::string rtsp_host = "127.0.0.1:8554");
     ~SessionService();
 
     bool initialize();
@@ -94,6 +130,7 @@ public:
     [[nodiscard]] std::vector<SessionRecord> list_sessions() const;
     [[nodiscard]] std::optional<SessionRecord> get_session(std::int64_t session_id) const;
     [[nodiscard]] RuntimeStatusSnapshot runtime_status() const;
+    [[nodiscard]] const std::string& ipc_socket_path() const;
 
     bool create_direct_session(const std::string& input,
                                bool rtsp_enabled,

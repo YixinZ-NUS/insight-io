@@ -1,9 +1,9 @@
 #pragma once
 
 // role: persisted device/source catalog service for the standalone backend.
-// revision: 2026-03-26 selector-schema-review
-// major changes: defines derived URI catalog entries using per-device selector
-// uniqueness and the reviewed selector naming contract.
+// revision: 2026-03-27 task8-rtsp-runtime-validation
+// major changes: keeps the derived URI catalog shape while aligning default
+// RTSP publication addresses with the local mediamtx-backed runtime contract.
 
 #include "insightio/backend/discovery.hpp"
 #include "insightio/backend/schema_store.hpp"
@@ -49,7 +49,7 @@ public:
     CatalogService(SchemaStore& store,
                    DiscoveryFn discovery_fn,
                    std::string uri_host = "localhost",
-                   std::string rtsp_host = "127.0.0.1");
+                   std::string rtsp_host = "127.0.0.1:8554");
 
     bool initialize();
     bool refresh();

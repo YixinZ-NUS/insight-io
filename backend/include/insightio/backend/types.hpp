@@ -63,5 +63,9 @@ struct DeviceInfo {
                                                 int fallback_index = 0);
 [[nodiscard]] std::string default_stream_name(DeviceKind kind,
                                               std::string_view stream_id);
+[[nodiscard]] bool is_audio_format(std::string_view format);
+[[nodiscard]] bool is_compressed_audio(std::string_view format);
+[[nodiscard]] bool is_compressed_video(std::string_view format);
+[[nodiscard]] bool is_depth_format(std::string_view format);
 
 }  // namespace insightio::backend

@@ -1,14 +1,18 @@
 // role: Orbbec SDK discovery for the standalone backend.
-// revision: 2026-03-26 vendored-orbbec-sdk-and-sqlite-serialization
-// major changes: discovers Orbbec color and depth capabilities, falls back to
-// pipeline profile enumeration when the sensor list is incomplete, and emits
-// USB vendor metadata so aggregate discovery can suppress duplicate V4L2 nodes
-// only after usable SDK-backed Orbbec devices were found.
+// revision: 2026-03-27 donor-orbbec-depth-format-parity
+// major changes: keeps donor-style depth-family format mapping for
+// Y10/Y11/Y12/Y14 profiles, restores raw IR sensor enumeration alongside
+// color/depth discovery, falls back to pipeline profile enumeration when the
+// sensor list is incomplete, and emits USB vendor metadata so aggregate
+// discovery can suppress duplicate V4L2 nodes only after usable SDK-backed
+// Orbbec devices were found. See docs/past-tasks.md.
 
 #ifdef INSIGHTIO_HAS_ORBBEC
 
 #include "insightio/backend/discovery.hpp"
 
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <iomanip>
@@ -16,6 +20,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <libobsensor/ObSensor.hpp>
@@ -55,6 +60,10 @@ std::string ob_format_to_string(OBFormat format) {
         case OB_FORMAT_Y8:
         case OB_FORMAT_GRAY:
             return "gray8";
+        case OB_FORMAT_Y10:
+        case OB_FORMAT_Y11:
+        case OB_FORMAT_Y12:
+        case OB_FORMAT_Y14:
         case OB_FORMAT_Y16:
             return "y16";
         case OB_FORMAT_Z16:
@@ -176,6 +185,77 @@ std::shared_ptr<ob::StreamProfileList> get_pipeline_profiles(
     }
 }
 
+std::shared_ptr<ob::VideoStreamProfile> first_video_profile(
+    const std::shared_ptr<ob::StreamProfileList>& profiles) {
+    if (!profiles) {
+        return nullptr;
+    }
+    for (std::uint32_t index = 0; index < profiles->count(); ++index) {
+        auto profile = profiles->getProfile(index);
+        if (!profile || !profile->is<ob::VideoStreamProfile>()) {
+            continue;
+        }
+        return profile->as<ob::VideoStreamProfile>();
+    }
+    return nullptr;
+}
+
+bool stop_pipeline_quietly(ob::Pipeline& pipeline) {
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        try {
+            pipeline.stop();
+            return true;
+        } catch (...) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+    return false;
+}
+
+bool probe_runtime_capture(const std::shared_ptr<ob::Device>& handle) {
+    if (!handle) {
+        return false;
+    }
+
+    try {
+        const auto sensors = handle->getSensorList();
+        auto color_profiles = get_pipeline_profiles(handle, OB_SENSOR_COLOR);
+        if (!color_profiles) {
+            if (auto sensor = get_sensor(sensors, OB_SENSOR_COLOR)) {
+                color_profiles = sensor->getStreamProfileList();
+            }
+        }
+
+        auto depth_profiles = get_pipeline_profiles(handle, OB_SENSOR_DEPTH);
+        if (!depth_profiles) {
+            if (auto sensor = get_sensor(sensors, OB_SENSOR_DEPTH)) {
+                try {
+                    depth_profiles = sensor->getStreamProfileList();
+                } catch (...) {
+                    depth_profiles = nullptr;
+                }
+            }
+        }
+
+        auto profile = first_video_profile(color_profiles);
+        if (!profile) {
+            profile = first_video_profile(depth_profiles);
+        }
+        if (!profile) {
+            return false;
+        }
+
+        ob::Pipeline pipeline(handle);
+        auto config = std::make_shared<ob::Config>();
+        config->enableStream(profile);
+        pipeline.start(config);
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        return stop_pipeline_quietly(pipeline);
+    } catch (...) {
+        return false;
+    }
+}
+
 }  // namespace
 
 std::vector<DeviceInfo> discover_orbbec() {
@@ -234,6 +314,18 @@ std::vector<DeviceInfo> discover_orbbec() {
                 }
             } catch (...) {
             }
+            for (const auto sensor_type :
+                 {OB_SENSOR_IR, OB_SENSOR_IR_LEFT, OB_SENSOR_IR_RIGHT}) {
+                if (has_stream(device, "ir")) {
+                    break;
+                }
+                try {
+                    if (auto sensor = get_sensor(sensors, sensor_type)) {
+                        add_stream(device, "ir", sensor->getStreamProfileList());
+                    }
+                } catch (...) {
+                }
+            }
 
             if (!has_stream(device, "color")) {
                 add_stream(device,
@@ -247,6 +339,14 @@ std::vector<DeviceInfo> discover_orbbec() {
             }
 
             if (device.streams.empty()) {
+                continue;
+            }
+
+            if (!probe_runtime_capture(handle)) {
+                std::fprintf(stderr,
+                             "Orbbec discovery skipped unusable SDK-backed device '%s' (%s)\n",
+                             device.name.c_str(),
+                             device.uri.c_str());
                 continue;
             }
             devices.push_back(std::move(device));

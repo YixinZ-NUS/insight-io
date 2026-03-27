@@ -1,9 +1,10 @@
 // role: persisted discovery catalog for the standalone backend.
-// revision: 2026-03-26 post-task5-review-followups
-// major changes: removes serial-specific Orbbec catalog shaping, keeps the
-// current proven 480p publication rule for the SV1301S_U3 family, and leaves a
-// pure SDK D2C capability gate as a follow-up TODO while keeping per-device
-// selector uniqueness.
+// revision: 2026-03-27 live-orbbec-depth-catalog-followup
+// major changes: restores donor-style depth-family format mapping in the
+// Orbbec 480p catalog probe, keeps the proven 480p publication rule for the
+// SV1301S_U3 family, intentionally leaves raw IR discovery out of the public
+// v1 catalog contract, and preserves per-device selector uniqueness.
+// See docs/past-tasks.md.
 
 #include "insightio/backend/catalog.hpp"
 
@@ -66,6 +67,10 @@ std::string ob_format_to_string(OBFormat format) {
         case OB_FORMAT_Y8:
         case OB_FORMAT_GRAY:
             return "gray8";
+        case OB_FORMAT_Y10:
+        case OB_FORMAT_Y11:
+        case OB_FORMAT_Y12:
+        case OB_FORMAT_Y14:
         case OB_FORMAT_Y16:
             return "y16";
         case OB_FORMAT_Z16:
@@ -872,34 +877,17 @@ const ResolvedCaps* find_cap(const StreamInfo& stream,
     return nullptr;
 }
 
-bool is_probe_grounded_orbbec_family(const DeviceInfo& device) {
-    return device.kind == DeviceKind::kOrbbec &&
-           slugify(device.name) == "sv1301s-u3" &&
-           device.identity.usb_vendor_id == "2bc5" &&
-           device.identity.usb_product_id == "0614";
-}
-
 std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
                                                 const std::string& public_name,
                                                 const std::string& rtsp_host) {
     std::vector<CatalogSource> sources;
     const auto* color = find_stream(device, "color");
     const auto* depth = find_stream(device, "depth");
-    StreamInfo synthetic_depth;
 #ifdef INSIGHTIO_HAS_ORBBEC
     const auto probe = probe_orbbec_catalog_480p(device);
 #else
     const OrbbecCatalogProbe probe;
 #endif
-    const bool has_probe_grounded_family =
-        is_probe_grounded_orbbec_family(device);
-    if (depth == nullptr && has_probe_grounded_family) {
-        synthetic_depth.stream_id = "depth";
-        synthetic_depth.name = "depth";
-        synthetic_depth.supported_caps.push_back(
-            ResolvedCaps{0, "y16", 640, 400, 30});
-        depth = &synthetic_depth;
-    }
     if (color != nullptr) {
         for (const auto& caps : color->supported_caps) {
             const auto selector = "orbbec/color/" + resolution_label(caps.width, caps.height) +
@@ -924,13 +912,12 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
     }
 
     const auto* color_480 = color == nullptr ? nullptr : find_cap(*color, 640, 480, 30);
-    // TODO: replace this family-gated 480p publication rule with a pure SDK
-    // D2C capability gate once that behavior is verified on the target Orbbec
-    // family. For now the proven SV1301S_U3 480p entries remain hardcoded.
+    // Publish aligned 480p and grouped RGBD entries only when one real depth
+    // stream is present and the SDK probe either proved the D2C path or could
+    // not run for this synthetic/non-live test device.
     const bool supports_480_family =
-        color_480 != nullptr &&
-        (probe.supports_hw_d2c_480 || has_probe_grounded_family ||
-         !probe.probe_ran);
+        color_480 != nullptr && depth != nullptr &&
+        (probe.supports_hw_d2c_480 || !probe.probe_ran);
     if (depth != nullptr) {
         for (const auto& caps : depth->supported_caps) {
             const auto selector = "orbbec/depth/" + resolution_label(caps.width, caps.height) +

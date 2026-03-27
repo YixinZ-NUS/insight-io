@@ -169,7 +169,7 @@ TEST(direct_session_persists_and_normalizes_to_stopped_after_restart) {
                                                error_message));
     EXPECT_EQ(created.state, "active");
     EXPECT_EQ(created.source.selector, "720p_30");
-    EXPECT_EQ(created.rtsp_url, "rtsp://127.0.0.1/web-camera/720p_30");
+    EXPECT_EQ(created.rtsp_url, "rtsp://127.0.0.1:8554/web-camera/720p_30");
 
     SessionService restarted(store);
     EXPECT_TRUE(restarted.initialize());
@@ -310,18 +310,29 @@ TEST(direct_sessions_share_serving_runtime_and_upgrade_rtsp_additively) {
     EXPECT_EQ(second.serving_runtime->consumer_count, 2);
     EXPECT_TRUE(second.serving_runtime->shared);
     EXPECT_TRUE(second.serving_runtime->rtsp_enabled);
+    EXPECT_TRUE(second.serving_runtime->rtsp_publication.has_value());
+    EXPECT_EQ(second.serving_runtime->rtsp_publication->url,
+              "rtsp://127.0.0.1:8554/web-camera/720p_30");
+    EXPECT_EQ(second.serving_runtime->rtsp_publication->publication_profile, "default");
+    EXPECT_EQ(second.serving_runtime->rtsp_publication->transport, "rtsp");
+    EXPECT_EQ(second.serving_runtime->rtsp_publication->promised_format, "h264");
+    EXPECT_EQ(second.serving_runtime->rtsp_publication->actual_format, "mjpeg");
 
     const auto reloaded_first = sessions.get_session(first.session_id);
     EXPECT_TRUE(reloaded_first.has_value());
     EXPECT_TRUE(reloaded_first->serving_runtime.has_value());
     EXPECT_EQ(reloaded_first->serving_runtime->consumer_count, 2);
     EXPECT_TRUE(reloaded_first->serving_runtime->rtsp_enabled);
+    EXPECT_TRUE(reloaded_first->serving_runtime->rtsp_publication.has_value());
 
     auto status = sessions.runtime_status();
     EXPECT_EQ(status.total_serving_runtimes, 1);
     EXPECT_EQ(status.serving_runtimes.size(), 1u);
     EXPECT_EQ(status.serving_runtimes[0].consumer_count, 2);
     EXPECT_TRUE(status.serving_runtimes[0].rtsp_enabled);
+    EXPECT_TRUE(status.serving_runtimes[0].rtsp_publication.has_value());
+    EXPECT_EQ(status.serving_runtimes[0].rtsp_publication->url,
+              "rtsp://127.0.0.1:8554/web-camera/720p_30");
     EXPECT_TRUE(std::find(status.serving_runtimes[0].consumer_session_ids.begin(),
                           status.serving_runtimes[0].consumer_session_ids.end(),
                           first.session_id) !=

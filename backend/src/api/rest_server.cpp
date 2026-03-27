@@ -131,14 +131,60 @@ nlohmann::json route_to_json(const RouteRecord& route) {
 
 nlohmann::json serving_runtime_view_to_json(
     const SessionRecord::ServingRuntimeView& runtime) {
-    return nlohmann::json{
+    nlohmann::json json = {
         {"runtime_key", runtime.runtime_key},
         {"owner_session_id", runtime.owner_session_id},
+        {"state", runtime.state},
         {"rtsp_enabled", runtime.rtsp_enabled},
         {"shared", runtime.shared},
         {"consumer_count", runtime.consumer_count},
         {"consumer_session_ids", runtime.consumer_session_ids},
     };
+    if (!runtime.last_error.empty()) {
+        json["last_error"] = runtime.last_error;
+    }
+    if (!runtime.ipc_socket_path.empty()) {
+        json["ipc_socket_path"] = runtime.ipc_socket_path;
+    }
+    if (!runtime.ipc_channels.empty()) {
+        json["ipc_channels"] = nlohmann::json::array();
+        for (const auto& channel : runtime.ipc_channels) {
+            nlohmann::json channel_json = {
+                {"channel_id", channel.channel_id},
+                {"stream_name", channel.stream_name},
+                {"media_kind", channel.media_kind},
+                {"delivered_caps_json", channel.delivered_caps_json},
+                {"attached_consumer_count", channel.attached_consumer_count},
+                {"frames_published", channel.frames_published},
+            };
+            if (!channel.route_name.empty()) {
+                channel_json["route_name"] = channel.route_name;
+            }
+            if (!channel.selector.empty()) {
+                channel_json["selector"] = channel.selector;
+            }
+            json["ipc_channels"].push_back(std::move(channel_json));
+        }
+    }
+    if (runtime.rtsp_publication.has_value()) {
+        json["rtsp_publication"] = {
+            {"publication_id", runtime.rtsp_publication->publication_id},
+            {"stream_name", runtime.rtsp_publication->stream_name},
+            {"selector", runtime.rtsp_publication->selector},
+            {"url", runtime.rtsp_publication->url},
+            {"state", runtime.rtsp_publication->state},
+            {"publication_profile", runtime.rtsp_publication->publication_profile},
+            {"transport", runtime.rtsp_publication->transport},
+            {"promised_format", runtime.rtsp_publication->promised_format},
+            {"actual_format", runtime.rtsp_publication->actual_format},
+            {"frames_forwarded", runtime.rtsp_publication->frames_forwarded},
+        };
+        if (!runtime.rtsp_publication->last_error.empty()) {
+            json["rtsp_publication"]["last_error"] =
+                runtime.rtsp_publication->last_error;
+        }
+    }
+    return json;
 }
 
 nlohmann::json serving_runtime_snapshot_to_json(
@@ -147,11 +193,56 @@ nlohmann::json serving_runtime_snapshot_to_json(
         {"runtime_key", runtime.runtime_key},
         {"stream_id", runtime.stream_id},
         {"owner_session_id", runtime.owner_session_id},
+        {"state", runtime.state},
         {"rtsp_enabled", runtime.rtsp_enabled},
         {"consumer_count", runtime.consumer_count},
         {"consumer_session_ids", runtime.consumer_session_ids},
         {"resolved_source", resolved_source_to_json(runtime.source)},
     };
+    if (!runtime.last_error.empty()) {
+        json["last_error"] = runtime.last_error;
+    }
+    if (!runtime.ipc_socket_path.empty()) {
+        json["ipc_socket_path"] = runtime.ipc_socket_path;
+    }
+    if (!runtime.ipc_channels.empty()) {
+        json["ipc_channels"] = nlohmann::json::array();
+        for (const auto& channel : runtime.ipc_channels) {
+            nlohmann::json channel_json = {
+                {"channel_id", channel.channel_id},
+                {"stream_name", channel.stream_name},
+                {"media_kind", channel.media_kind},
+                {"delivered_caps_json", channel.delivered_caps_json},
+                {"attached_consumer_count", channel.attached_consumer_count},
+                {"frames_published", channel.frames_published},
+            };
+            if (!channel.route_name.empty()) {
+                channel_json["route_name"] = channel.route_name;
+            }
+            if (!channel.selector.empty()) {
+                channel_json["selector"] = channel.selector;
+            }
+            json["ipc_channels"].push_back(std::move(channel_json));
+        }
+    }
+    if (runtime.rtsp_publication.has_value()) {
+        json["rtsp_publication"] = {
+            {"publication_id", runtime.rtsp_publication->publication_id},
+            {"stream_name", runtime.rtsp_publication->stream_name},
+            {"selector", runtime.rtsp_publication->selector},
+            {"url", runtime.rtsp_publication->url},
+            {"state", runtime.rtsp_publication->state},
+            {"publication_profile", runtime.rtsp_publication->publication_profile},
+            {"transport", runtime.rtsp_publication->transport},
+            {"promised_format", runtime.rtsp_publication->promised_format},
+            {"actual_format", runtime.rtsp_publication->actual_format},
+            {"frames_forwarded", runtime.rtsp_publication->frames_forwarded},
+        };
+        if (!runtime.rtsp_publication->last_error.empty()) {
+            json["rtsp_publication"]["last_error"] =
+                runtime.rtsp_publication->last_error;
+        }
+    }
     if (!runtime.resolved_members_json.is_null() &&
         !runtime.resolved_members_json.empty()) {
         json["resolved_members_json"] = runtime.resolved_members_json;
@@ -340,6 +431,7 @@ void RestServer::setup_routes() {
             {"status", "ok"},
             {"version", kVersion},
             {"db_path", store_.database_path()},
+            {"ipc_socket_path", sessions_.ipc_socket_path()},
             {"frontend_path", frontend_dir_},
             {"catalog_device_count", devices.size()},
             {"session_count", status.total_sessions},
@@ -958,6 +1050,7 @@ void RestServer::setup_routes() {
     server_->Get("/api/status", [this](const httplib::Request&, httplib::Response& response) {
         const auto snapshot = sessions_.runtime_status();
         nlohmann::json body = {
+            {"ipc_socket_path", sessions_.ipc_socket_path()},
             {"total_sessions", snapshot.total_sessions},
             {"active_sessions", snapshot.active_sessions},
             {"stopped_sessions", snapshot.stopped_sessions},

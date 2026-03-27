@@ -1,7 +1,7 @@
 # role: local ignore rules for build outputs and vendored sample artifacts.
-# revision: 2026-03-26 vendored-orbbec-sdk
-# major changes: keeps the vendored Orbbec SDK payload trackable while ignoring
-# generated example binaries and build outputs.
+# revision: 2026-03-27 vendored-mediamtx-runtime
+# major changes: keeps the vendored Orbbec SDK and mediamtx payloads trackable
+# while ignoring generated example binaries and build outputs.
 
 /.DS_Store
 /build/
@@ -11,6 +11,5 @@
 CMakeFiles/
 
 Log/
-third_party/mediamtx/mediamtx
 third_party/orbbec_sdk/Example/bin/
 third_party/orbbec_sdk/Example/build/
