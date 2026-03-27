@@ -4,8 +4,12 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 25
+- version: 26
 - major changes:
+  - 2026-03-27 added a dedicated runtime-wait writeup that records the current
+    worker-start and RTSP-start sleep behavior, the live evidence that it is
+    currently working, and the empirical optimization plan for replacing those
+    waits later
   - 2026-03-27 reverified live Orbbec persistence after a manual replug,
     confirmed the catalog reloads the same 21 `sv1301s-u3` selectors from the
     same SQLite file after restart, documented the intentional public IR
@@ -88,6 +92,7 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Document Runtime Wait And Startup Sleep Behavior`
   - `2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract`
   - `2026-03-27 – Restore Live Orbbec Depth And Grouped Catalog Publication`
   - `2026-03-27 – Complete Task-7 IPC Hardening And Task-8 Exact RTSP Publication`
@@ -224,6 +229,7 @@
 | `docs/design_doc/INTENT_ROUTING_DATA_MODEL.md` | minimal durable schema, PK/FK plan, and runtime boundary | active |
 | `docs/design_doc/POST_CAPTURE_PUBLICATION_PHASE_WRITEUP.md` | why capture and publication planning stay separate at runtime | active |
 | `docs/design_doc/RTSP_PUBLICATION_REUSE_WRITEUP.md` | why the active contract treats RTSP as additive publication state | active |
+| `docs/design_doc/RUNTIME_WAIT_BEHAVIOR_WRITEUP.md` | current startup sleeps and the later perf-optimization plan for replacing them | active |
 | `docs/REST.md` | public HTTP contract | active |
 | `docs/tasks/fullstack-intent-routing-task-list.md` | next implementation round | active |
 | `docs/features/fullstack-intent-routing-e2e.json` | narrow implementation scoreboard | active |

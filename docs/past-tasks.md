@@ -4,8 +4,12 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 18
+- version: 19
 - major changes:
+  - 2026-03-27 added a dedicated runtime-wait writeup that records the current
+    RTSP and worker startup-grace sleeps, the live evidence that they work on
+    the development host today, and the empirical optimization plan for
+    replacing them later
   - 2026-03-27 reverified live Orbbec persistence after a manual replug,
     confirmed the same SQLite file reloads the same 21 `sv1301s-u3`
     selectors after restart, and recorded why the public Orbbec depth contract
@@ -62,6 +66,53 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-27 – Document Runtime Wait And Startup Sleep Behavior
+
+### What Changed
+
+- added
+  [RUNTIME_WAIT_BEHAVIOR_WRITEUP.md](/home/yixin/Coding/insight-io/docs/design_doc/RUNTIME_WAIT_BEHAVIOR_WRITEUP.md)
+  to record the current startup-grace waits in:
+  - [rtsp_publisher.cpp](/home/yixin/Coding/insight-io/backend/src/publication/rtsp_publisher.cpp)
+  - [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+- documented which waits are in scope for later optimization, what they are
+  protecting today, and the preferred readiness-based replacement direction
+- linked the new writeup from the docs hub so later performance work can use it
+  as the starting note instead of rediscovering the same code paths
+
+### Why
+
+- PR #7 review comments correctly identified the fixed startup sleeps as
+  cleanup and performance-optimization targets, but they were not yet written
+  down as one focused investigation note
+- a separate writeup is useful because later optimization work will need both:
+  - the current intent behind those waits
+  - the current live evidence that they are not presently blocking defects
+
+### Verification
+
+```bash
+curl -s -X POST http://127.0.0.1:18284/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}'
+
+ffmpeg -rtsp_transport tcp -loglevel warning \
+  -err_detect +crccheck+bitstream+buffer+careful \
+  -i rtsp://127.0.0.1:18584/web-camera/720p_30 \
+  -an -f null /dev/null 2>errors.log
+
+socket_path=$(curl -s http://127.0.0.1:18284/api/health | jq -r '.ipc_socket_path')
+./build/bin/insightio_ipc_probe "${socket_path}" 1
+```
+
+Observed results:
+
+- exact RTSP publication reached `state = active`
+- strict FFmpeg validation produced no warnings
+- exact IPC attach on the same runtime returned a real frame immediately
+- the new writeup now records these waits as working startup-grace behavior
+  today and as explicit targets for a later empirical optimization pass
 
 ## 2026-03-27 – Reverify Live Orbbec Persistence And Document Public Y16 Depth Contract
 
