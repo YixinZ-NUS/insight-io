@@ -1,9 +1,9 @@
 // role: persisted direct-session implementation for the standalone backend.
-// revision: 2026-03-27 task8-rtsp-runtime-validation
-// major changes: resolves catalog URIs into durable sessions, normalizes
-// persisted runtime state on startup, and provides session/status plus
-// runtime-owned worker + IPC attach inspection while hardening RTSP runtime
-// error handling and control-socket request intake.
+// revision: 2026-03-27 task10-developer-runtime-surface
+// major changes: resolves catalog URIs into durable sessions, keeps alias-led
+// canonical URIs in session and runtime status snapshots, and provides
+// session/status plus runtime-owned worker + IPC attach inspection while
+// hardening RTSP runtime error handling and control-socket request intake.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/session_service.hpp"
@@ -319,7 +319,7 @@ private:
     std::string rtsp_url_for_channel_locked(const Entry& entry,
                                             const ChannelState& channel) const {
         return "rtsp://" + rtsp_host_ + "/" + entry.source.public_name + "/" +
-               channel.selector;
+               entry.source.stream_public_name;
     }
 
     std::optional<RtspPublicationRuntimeView> rtsp_view_for_locked(
@@ -1543,20 +1543,20 @@ nlohmann::json parse_json(const std::string& text) {
 
 std::string derive_uri(const std::string& uri_host,
                        const std::string& public_name,
-                       const std::string& selector) {
-    if (public_name.empty() || selector.empty()) {
+                       const std::string& stream_public_name) {
+    if (public_name.empty() || stream_public_name.empty()) {
         return {};
     }
-    return "insightos://" + uri_host + "/" + public_name + "/" + selector;
+    return "insightos://" + uri_host + "/" + public_name + "/" + stream_public_name;
 }
 
 std::string derive_rtsp_url(const std::string& rtsp_host,
                             const std::string& public_name,
-                            const std::string& selector) {
-    if (public_name.empty() || selector.empty()) {
+                            const std::string& stream_public_name) {
+    if (public_name.empty() || stream_public_name.empty()) {
         return {};
     }
-    return "rtsp://" + rtsp_host + "/" + public_name + "/" + selector;
+    return "rtsp://" + rtsp_host + "/" + public_name + "/" + stream_public_name;
 }
 
 bool parse_insight_uri(std::string_view input,
@@ -1625,12 +1625,13 @@ std::optional<StreamLookupResult> lookup_stream(sqlite3* db,
                                                 std::string& error_message) {
     Stmt query(
         db,
-        "SELECT s.stream_id, d.device_key, d.public_name, s.selector, s.media_kind, "
-        "s.shape_kind, s.channel, s.group_key, s.caps_json, s.capture_policy_json, "
-        "s.members_json, s.publications_json "
+        "SELECT s.stream_id, d.device_key, d.public_name, s.selector, s.public_name, "
+        "s.media_kind, s.shape_kind, s.channel, s.group_key, s.caps_json, "
+        "s.capture_policy_json, s.members_json, s.publications_json "
         "FROM streams s "
         "JOIN devices d ON d.device_id = s.device_id "
-        "WHERE d.public_name = ? AND s.selector = ? AND s.is_present = 1 "
+        "WHERE d.public_name = ? AND (s.public_name = ? OR s.selector = ?) "
+        "AND s.is_present = 1 "
         "AND d.status != 'offline'");
     if (!query) {
         error_status = 500;
@@ -1641,6 +1642,7 @@ std::optional<StreamLookupResult> lookup_stream(sqlite3* db,
 
     query.bind_text(1, parsed.device);
     query.bind_text(2, parsed.selector);
+    query.bind_text(3, parsed.selector);
     if (!query.step()) {
         error_status = 404;
         error_code = "unknown_input";
@@ -1653,18 +1655,63 @@ std::optional<StreamLookupResult> lookup_stream(sqlite3* db,
     result.source.device_key = query.col_text(1);
     result.source.public_name = query.col_text(2);
     result.source.selector = query.col_text(3);
-    result.source.media_kind = query.col_text(4);
-    result.source.shape_kind = query.col_text(5);
-    result.source.channel = query.col_text(6);
-    result.source.group_key = query.col_text(7);
-    result.source.delivered_caps_json = parse_json(query.col_text(8));
-    result.source.capture_policy_json = parse_json(query.col_text(9));
-    result.source.members_json = parse_json(query.col_text(10));
-    result.source.publications_json = parse_json(query.col_text(11));
+    result.source.stream_public_name = query.col_text(4);
+    result.source.stream_default_name = result.source.selector;
+    result.source.media_kind = query.col_text(5);
+    result.source.shape_kind = query.col_text(6);
+    result.source.channel = query.col_text(7);
+    result.source.group_key = query.col_text(8);
+    result.source.delivered_caps_json = parse_json(query.col_text(9));
+    result.source.capture_policy_json = parse_json(query.col_text(10));
+    result.source.members_json = parse_json(query.col_text(11));
+    result.source.publications_json = parse_json(query.col_text(12));
     result.source.uri = derive_uri(uri_host,
                                    result.source.public_name,
-                                   result.source.selector);
+                                   result.source.stream_public_name);
     return result;
+}
+
+std::optional<SessionResolvedSource> lookup_stream_by_id(sqlite3* db,
+                                                         std::int64_t stream_id,
+                                                         const std::string& uri_host) {
+    if (stream_id <= 0) {
+        return std::nullopt;
+    }
+
+    Stmt query(
+        db,
+        "SELECT s.stream_id, d.device_key, d.public_name, s.selector, s.public_name, "
+        "s.media_kind, s.shape_kind, s.channel, s.group_key, s.caps_json, "
+        "s.capture_policy_json, s.members_json, s.publications_json "
+        "FROM streams s "
+        "JOIN devices d ON d.device_id = s.device_id "
+        "WHERE s.stream_id = ?");
+    if (!query) {
+        return std::nullopt;
+    }
+
+    query.bind_int64(1, stream_id);
+    if (!query.step()) {
+        return std::nullopt;
+    }
+
+    SessionResolvedSource source;
+    source.stream_id = query.col_int64(0);
+    source.device_key = query.col_text(1);
+    source.public_name = query.col_text(2);
+    source.selector = query.col_text(3);
+    source.stream_public_name = query.col_text(4);
+    source.stream_default_name = source.selector;
+    source.media_kind = query.col_text(5);
+    source.shape_kind = query.col_text(6);
+    source.channel = query.col_text(7);
+    source.group_key = query.col_text(8);
+    source.delivered_caps_json = parse_json(query.col_text(9));
+    source.capture_policy_json = parse_json(query.col_text(10));
+    source.members_json = parse_json(query.col_text(11));
+    source.publications_json = parse_json(query.col_text(12));
+    source.uri = derive_uri(uri_host, source.public_name, source.stream_public_name);
+    return source;
 }
 
 SessionRecord hydrate_session(const Stmt& query,
@@ -1686,21 +1733,23 @@ SessionRecord hydrate_session(const Stmt& query,
     session.source.device_key = query.col_text(12);
     session.source.public_name = query.col_text(13);
     session.source.selector = query.col_text(14);
-    session.source.media_kind = query.col_text(15);
-    session.source.shape_kind = query.col_text(16);
-    session.source.channel = query.col_text(17);
-    session.source.group_key = query.col_text(18);
-    session.source.delivered_caps_json = parse_json(query.col_text(19));
-    session.source.capture_policy_json = parse_json(query.col_text(20));
-    session.source.members_json = parse_json(query.col_text(21));
-    session.source.publications_json = parse_json(query.col_text(22));
+    session.source.stream_public_name = query.col_text(15);
+    session.source.stream_default_name = session.source.selector;
+    session.source.media_kind = query.col_text(16);
+    session.source.shape_kind = query.col_text(17);
+    session.source.channel = query.col_text(18);
+    session.source.group_key = query.col_text(19);
+    session.source.delivered_caps_json = parse_json(query.col_text(20));
+    session.source.capture_policy_json = parse_json(query.col_text(21));
+    session.source.members_json = parse_json(query.col_text(22));
+    session.source.publications_json = parse_json(query.col_text(23));
     session.source.uri = derive_uri(uri_host,
                                     session.source.public_name,
-                                    session.source.selector);
+                                    session.source.stream_public_name);
     if (session.rtsp_enabled) {
         session.rtsp_url = derive_rtsp_url(rtsp_host,
                                            session.source.public_name,
-                                           session.source.selector);
+                                           session.source.stream_public_name);
     }
     return session;
 }
@@ -1807,7 +1856,8 @@ std::vector<SessionRecord> SessionService::list_sessions() const {
         "COALESCE(sess.started_at_ms, 0), COALESCE(sess.stopped_at_ms, 0), "
         "sess.created_at_ms, sess.updated_at_ms, "
         "COALESCE(s.stream_id, 0), COALESCE(d.device_key, ''), COALESCE(d.public_name, ''), "
-        "COALESCE(s.selector, ''), COALESCE(s.media_kind, ''), COALESCE(s.shape_kind, ''), "
+        "COALESCE(s.selector, ''), COALESCE(s.public_name, ''), "
+        "COALESCE(s.media_kind, ''), COALESCE(s.shape_kind, ''), "
         "COALESCE(s.channel, ''), COALESCE(s.group_key, ''), "
         "COALESCE(s.caps_json, '{}'), COALESCE(s.capture_policy_json, '{}'), "
         "COALESCE(s.members_json, '{}'), COALESCE(s.publications_json, '{}') "
@@ -1833,7 +1883,8 @@ std::optional<SessionRecord> SessionService::get_session(std::int64_t session_id
         "COALESCE(sess.started_at_ms, 0), COALESCE(sess.stopped_at_ms, 0), "
         "sess.created_at_ms, sess.updated_at_ms, "
         "COALESCE(s.stream_id, 0), COALESCE(d.device_key, ''), COALESCE(d.public_name, ''), "
-        "COALESCE(s.selector, ''), COALESCE(s.media_kind, ''), COALESCE(s.shape_kind, ''), "
+        "COALESCE(s.selector, ''), COALESCE(s.public_name, ''), "
+        "COALESCE(s.media_kind, ''), COALESCE(s.shape_kind, ''), "
         "COALESCE(s.channel, ''), COALESCE(s.group_key, ''), "
         "COALESCE(s.caps_json, '{}'), COALESCE(s.capture_policy_json, '{}'), "
         "COALESCE(s.members_json, '{}'), COALESCE(s.publications_json, '{}') "
@@ -1863,6 +1914,20 @@ RuntimeStatusSnapshot SessionService::runtime_status() const {
         }
     }
     snapshot.serving_runtimes = runtime_registry_->snapshot();
+    for (auto& runtime : snapshot.serving_runtimes) {
+        const auto current_source =
+            lookup_stream_by_id(store_.db(), runtime.stream_id, uri_host_);
+        if (!current_source.has_value()) {
+            continue;
+        }
+        runtime.source = *current_source;
+        if ((runtime.resolved_members_json.is_null() ||
+             runtime.resolved_members_json.empty()) &&
+            !runtime.source.members_json.is_null() &&
+            !runtime.source.members_json.empty()) {
+            runtime.resolved_members_json = runtime.source.members_json;
+        }
+    }
     snapshot.total_serving_runtimes =
         static_cast<int>(snapshot.serving_runtimes.size());
     return snapshot;

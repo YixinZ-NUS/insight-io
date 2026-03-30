@@ -133,20 +133,20 @@ nlohmann::json parse_json(const std::string& text) {
 
 std::string derive_uri(const std::string& uri_host,
                        const std::string& public_name,
-                       const std::string& selector) {
-    if (public_name.empty() || selector.empty()) {
+                       const std::string& stream_public_name) {
+    if (public_name.empty() || stream_public_name.empty()) {
         return {};
     }
-    return "insightos://" + uri_host + "/" + public_name + "/" + selector;
+    return "insightos://" + uri_host + "/" + public_name + "/" + stream_public_name;
 }
 
 std::string derive_rtsp_url(const std::string& rtsp_host,
                             const std::string& public_name,
-                            const std::string& selector) {
-    if (public_name.empty() || selector.empty()) {
+                            const std::string& stream_public_name) {
+    if (public_name.empty() || stream_public_name.empty()) {
         return {};
     }
-    return "rtsp://" + rtsp_host + "/" + public_name + "/" + selector;
+    return "rtsp://" + rtsp_host + "/" + public_name + "/" + stream_public_name;
 }
 
 bool starts_with_descendant(std::string_view value, std::string_view prefix) {
@@ -333,19 +333,21 @@ std::optional<SessionResolvedSource> lookup_stream_by_selector(sqlite3* db,
                                                                const std::string& uri_host) {
     Stmt query(
         db,
-        "SELECT s.stream_id, d.device_key, d.public_name, s.selector, s.media_kind, "
-        "s.shape_kind, COALESCE(s.channel, ''), COALESCE(s.group_key, ''), "
+        "SELECT s.stream_id, d.device_key, d.public_name, s.selector, s.public_name, "
+        "s.media_kind, s.shape_kind, COALESCE(s.channel, ''), COALESCE(s.group_key, ''), "
         "COALESCE(s.caps_json, '{}'), COALESCE(s.capture_policy_json, '{}'), "
         "COALESCE(s.members_json, '{}'), COALESCE(s.publications_json, '{}') "
         "FROM streams s "
         "JOIN devices d ON d.device_id = s.device_id "
-        "WHERE d.public_name = ? AND s.selector = ? AND s.is_present = 1 "
+        "WHERE d.public_name = ? AND (s.public_name = ? OR s.selector = ?) "
+        "AND s.is_present = 1 "
         "AND d.status != 'offline'");
     if (!query) {
         return std::nullopt;
     }
     query.bind_text(1, public_name);
     query.bind_text(2, selector);
+    query.bind_text(3, selector);
     if (!query.step()) {
         return std::nullopt;
     }
@@ -355,15 +357,17 @@ std::optional<SessionResolvedSource> lookup_stream_by_selector(sqlite3* db,
     source.device_key = query.col_text(1);
     source.public_name = query.col_text(2);
     source.selector = query.col_text(3);
-    source.media_kind = query.col_text(4);
-    source.shape_kind = query.col_text(5);
-    source.channel = query.col_text(6);
-    source.group_key = query.col_text(7);
-    source.delivered_caps_json = parse_json(query.col_text(8));
-    source.capture_policy_json = parse_json(query.col_text(9));
-    source.members_json = parse_json(query.col_text(10));
-    source.publications_json = parse_json(query.col_text(11));
-    source.uri = derive_uri(uri_host, source.public_name, source.selector);
+    source.stream_public_name = query.col_text(4);
+    source.stream_default_name = source.selector;
+    source.media_kind = query.col_text(5);
+    source.shape_kind = query.col_text(6);
+    source.channel = query.col_text(7);
+    source.group_key = query.col_text(8);
+    source.delivered_caps_json = parse_json(query.col_text(9));
+    source.capture_policy_json = parse_json(query.col_text(10));
+    source.members_json = parse_json(query.col_text(11));
+    source.publications_json = parse_json(query.col_text(12));
+    source.uri = derive_uri(uri_host, source.public_name, source.stream_public_name);
     return source;
 }
 
@@ -776,8 +780,8 @@ bool load_source_row(sqlite3* db,
         "src.target_name, src.rtsp_enabled, src.state, "
         "COALESCE(src.resolved_routes_json, '{}'), COALESCE(src.last_error, ''), "
         "src.created_at_ms, src.updated_at_ms, COALESCE(r.route_name, ''), "
-        "d.device_key, d.public_name, s.selector, s.media_kind, s.shape_kind, "
-        "COALESCE(s.channel, ''), COALESCE(s.group_key, ''), "
+        "d.device_key, d.public_name, s.selector, COALESCE(s.public_name, ''), "
+        "s.media_kind, s.shape_kind, COALESCE(s.channel, ''), COALESCE(s.group_key, ''), "
         "COALESCE(s.caps_json, '{}'), COALESCE(s.capture_policy_json, '{}'), "
         "COALESCE(s.members_json, '{}'), COALESCE(s.publications_json, '{}') "
         "FROM app_sources src "
@@ -817,16 +821,18 @@ bool load_source_row(sqlite3* db,
     record.source.device_key = query.col_text(14);
     record.source.public_name = query.col_text(15);
     record.source.selector = query.col_text(16);
-    record.source.media_kind = query.col_text(17);
-    record.source.shape_kind = query.col_text(18);
-    record.source.channel = query.col_text(19);
-    record.source.group_key = query.col_text(20);
-    record.source.delivered_caps_json = parse_json(query.col_text(21));
-    record.source.capture_policy_json = parse_json(query.col_text(22));
-    record.source.members_json = parse_json(query.col_text(23));
-    record.source.publications_json = parse_json(query.col_text(24));
+    record.source.stream_public_name = query.col_text(17);
+    record.source.stream_default_name = record.source.selector;
+    record.source.media_kind = query.col_text(18);
+    record.source.shape_kind = query.col_text(19);
+    record.source.channel = query.col_text(20);
+    record.source.group_key = query.col_text(21);
+    record.source.delivered_caps_json = parse_json(query.col_text(22));
+    record.source.capture_policy_json = parse_json(query.col_text(23));
+    record.source.members_json = parse_json(query.col_text(24));
+    record.source.publications_json = parse_json(query.col_text(25));
     record.source.uri =
-        derive_uri(uri_host, record.source.public_name, record.source.selector);
+        derive_uri(uri_host, record.source.public_name, record.source.stream_public_name);
 
     if (record.source_session_id > 0) {
         record.source_session = sessions.get_session(record.source_session_id);
@@ -837,7 +843,7 @@ bool load_source_row(sqlite3* db,
     if (record.rtsp_enabled && record.state == "active") {
         record.rtsp_url = derive_rtsp_url(rtsp_host,
                                           record.source.public_name,
-                                          record.source.selector);
+                                          record.source.stream_public_name);
     }
     return true;
 }

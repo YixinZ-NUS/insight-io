@@ -1,11 +1,12 @@
 // role: focused catalog service tests for the standalone backend.
-// revision: 2026-03-27 task9-grouped-720p-preset
+// revision: 2026-03-30 orbbec-exact-cap-dedupe
 // major changes: verifies alias persistence, reviewed V4L2 selector naming,
 // Orbbec selector shaping without a serial-specific allowlist, the public
 // `y16` depth-format contract for Orbbec selectors, persistence semantics
-// across missing/recovered discovery, the grouped 720p preset contract, and
-// the intentional omission of raw IR streams from the public v1 catalog
-// contract.
+// across missing/recovered discovery, the grouped 720p preset contract, the
+// intentional omission of raw IR streams from the public v1 catalog contract,
+// and exact-selector dedupe when Orbbec discovery reports duplicate color
+// formats for one width-height-fps profile.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/catalog.hpp"
@@ -117,6 +118,37 @@ DeviceInfo make_orbbec() {
     return device;
 }
 
+DeviceInfo make_orbbec_with_duplicate_color_formats() {
+    DeviceInfo device;
+    device.uri = "orbbec://ORB001";
+    device.kind = DeviceKind::kOrbbec;
+    device.name = "Desk RGBD";
+    device.identity.device_uri = device.uri;
+    device.identity.device_id = "ORB001";
+    device.identity.kind_str = "orbbec";
+    device.identity.hardware_name = device.name;
+    device.identity.usb_vendor_id = "2bc5";
+    device.identity.usb_serial = "ORB001";
+
+    StreamInfo color;
+    color.stream_id = "color";
+    color.name = "color";
+    color.supported_caps.push_back(ResolvedCaps{0, "bgra", 640, 480, 30});
+    color.supported_caps.push_back(ResolvedCaps{1, "mjpeg", 640, 480, 30});
+    color.supported_caps.push_back(ResolvedCaps{2, "bgra", 1280, 720, 30});
+    color.supported_caps.push_back(ResolvedCaps{3, "mjpeg", 1280, 720, 30});
+
+    StreamInfo depth;
+    depth.stream_id = "depth";
+    depth.name = "depth";
+    depth.supported_caps.push_back(ResolvedCaps{0, "y16", 640, 400, 30});
+    depth.supported_caps.push_back(ResolvedCaps{1, "y16", 1280, 800, 30});
+
+    device.streams.push_back(std::move(color));
+    device.streams.push_back(std::move(depth));
+    return device;
+}
+
 DeviceInfo make_color_only_orbbec() {
     DeviceInfo device;
     device.uri = "orbbec://COLOR001";
@@ -151,6 +183,7 @@ DeviceInfo make_orbbec_with_ir() {
 }
 
 struct PersistedSourceRow {
+    std::string public_name;
     std::string format;
     std::string media_kind;
     bool grouped{false};
@@ -163,7 +196,8 @@ std::map<std::string, PersistedSourceRow> persisted_sources_for_device(
     std::map<std::string, PersistedSourceRow> sources;
     sqlite3_stmt* statement = nullptr;
     const char* sql =
-        "SELECT s.selector, json_extract(s.caps_json, '$.format'), s.media_kind, "
+        "SELECT s.selector, s.public_name, json_extract(s.caps_json, '$.format'), "
+        "s.media_kind, "
         "s.members_json IS NOT NULL, s.is_present "
         "FROM streams s "
         "JOIN devices d ON d.device_id = s.device_id "
@@ -181,14 +215,16 @@ std::map<std::string, PersistedSourceRow> persisted_sources_for_device(
     while (sqlite3_step(statement) == SQLITE_ROW) {
         const auto* selector =
             reinterpret_cast<const char*>(sqlite3_column_text(statement, 0));
-        const auto* format =
+        const auto* public_name =
             reinterpret_cast<const char*>(sqlite3_column_text(statement, 1));
-        const auto* media_kind =
+        const auto* format =
             reinterpret_cast<const char*>(sqlite3_column_text(statement, 2));
-        const bool grouped = sqlite3_column_int(statement, 3) != 0;
-        const bool present = sqlite3_column_int(statement, 4) != 0;
-        if (selector && format && media_kind) {
-            sources[selector] = {format, media_kind, grouped, present};
+        const auto* media_kind =
+            reinterpret_cast<const char*>(sqlite3_column_text(statement, 3));
+        const bool grouped = sqlite3_column_int(statement, 4) != 0;
+        const bool present = sqlite3_column_int(statement, 5) != 0;
+        if (selector && public_name && format && media_kind) {
+            sources[selector] = {public_name, format, media_kind, grouped, present};
         }
     }
     sqlite3_finalize(statement);
@@ -249,6 +285,46 @@ TEST(alias_persists_across_refresh) {
     const auto device = catalog.get_device("front-camera");
     EXPECT_TRUE(device.has_value());
     EXPECT_EQ(device->default_name, "web-camera");
+}
+
+TEST(stream_alias_persists_across_refresh) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_webcam()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto before = catalog.get_device("web-camera");
+    EXPECT_TRUE(before.has_value());
+    EXPECT_EQ(before->sources.size(), 1u);
+
+    CatalogSource updated;
+    int error_status = 0;
+    std::string error_code;
+    std::string error_message;
+    EXPECT_TRUE(catalog.set_source_alias(before->sources[0].stream_id,
+                                         "main-camera",
+                                         updated,
+                                         error_status,
+                                         error_code,
+                                         error_message));
+    EXPECT_EQ(updated.public_name, "main-camera");
+    EXPECT_EQ(updated.default_name, "720p_30");
+    EXPECT_EQ(updated.uri,
+              "insightos://localhost/web-camera/main-camera");
+
+    EXPECT_TRUE(catalog.refresh());
+    const auto device = catalog.get_device("web-camera");
+    EXPECT_TRUE(device.has_value());
+    EXPECT_EQ(device->sources.size(), 1u);
+    EXPECT_EQ(device->sources[0].public_name, "main-camera");
+    EXPECT_EQ(device->sources[0].selector, "720p_30");
 }
 
 TEST(v4l2_uses_plain_resolution_selectors) {
@@ -378,6 +454,62 @@ TEST(orbbec_depth_and_grouped_entries_persist_to_streams_table) {
     EXPECT_TRUE(!persisted.at("orbbec/depth/400p_30").grouped);
     EXPECT_TRUE(persisted.at("orbbec/preset/480p_30").grouped);
     EXPECT_TRUE(persisted.at("orbbec/preset/720p_30").grouped);
+}
+
+TEST(orbbec_duplicate_color_formats_collapse_to_stable_exact_selectors) {
+    SchemaStore store(make_temp_db_path());
+    EXPECT_TRUE(store.initialize());
+
+    CatalogService catalog(
+        store,
+        []() {
+            DiscoveryResult result;
+            result.devices = {make_orbbec_with_duplicate_color_formats()};
+            return result;
+        });
+    EXPECT_TRUE(catalog.initialize());
+
+    const auto device = catalog.get_device("desk-rgbd");
+    EXPECT_TRUE(device.has_value());
+
+    std::map<std::string, CatalogSource> sources_by_selector;
+    for (const auto& source : device->sources) {
+        sources_by_selector.emplace(source.selector, source);
+    }
+    EXPECT_TRUE(
+        sources_by_selector.contains("orbbec/color/480p_30"));
+    EXPECT_TRUE(
+        sources_by_selector.contains("orbbec/color/720p_30"));
+    EXPECT_EQ(
+        sources_by_selector.at("orbbec/color/480p_30").public_name,
+        "orbbec/color/480p_30");
+    EXPECT_EQ(
+        sources_by_selector.at("orbbec/color/720p_30").public_name,
+        "orbbec/color/720p_30");
+    EXPECT_EQ(
+        sources_by_selector.at("orbbec/color/480p_30")
+            .caps_json.value("format", std::string{}),
+        "mjpeg");
+    EXPECT_EQ(
+        sources_by_selector.at("orbbec/color/720p_30")
+            .caps_json.value("format", std::string{}),
+        "mjpeg");
+    EXPECT_EQ(
+        sources_by_selector.at("orbbec/preset/480p_30")
+            .caps_json.value("format", std::string{}),
+        "mjpeg");
+    EXPECT_EQ(
+        sources_by_selector.at("orbbec/preset/720p_30")
+            .caps_json.value("format", std::string{}),
+        "mjpeg");
+
+    const auto persisted = persisted_sources_for_device(store.db(), "desk-rgbd");
+    EXPECT_EQ(persisted.at("orbbec/color/480p_30").public_name,
+              "orbbec/color/480p_30");
+    EXPECT_EQ(persisted.at("orbbec/color/720p_30").public_name,
+              "orbbec/color/720p_30");
+    EXPECT_EQ(persisted.at("orbbec/color/480p_30").format, "mjpeg");
+    EXPECT_EQ(persisted.at("orbbec/color/720p_30").format, "mjpeg");
 }
 
 TEST(orbbec_rows_persist_across_missing_and_recovered_discovery) {

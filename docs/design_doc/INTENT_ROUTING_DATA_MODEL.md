@@ -4,8 +4,12 @@
 
 - role: define the minimal durable schema for `insight-io`
 - status: active
-- version: 14
+- version: 15
 - major changes:
+  - 2026-03-27 added durable `streams.public_name`, clarified that the copied
+    URI uses current device and stream public names while `selector` remains
+    the stable internal catalog identity, and aligned the RTSP mirror-path
+    wording with that alias-aware contract
   - 2026-03-26 removed redundant `app_sources.target_kind` and
     `app_sources.source_kind`, made `stream_id` required on both sessions and
     app sources, made app-source uniqueness explicit in the canonical SQL, and
@@ -99,8 +103,8 @@ See the dedicated Mermaid ER diagram at
 - RTSP publication intent is durable bind/session state, not its own durable
   worker graph
 - catalog publication metadata may expose a queryable RTSP URL that keeps the
-  same `/<device>/<selector>` path as the derived `insightos://` URI while
-  using the configured RTSP host
+  same public `/<device-public-name>/<stream-public-name>` path as the derived
+  `insightos://` URI while using the configured RTSP host
 - local SDK attach uses IPC in v1 even when future remote or LAN RTSP
   consumption is added later
 - sessions record client-visible session history
@@ -216,6 +220,7 @@ Foreign keys:
 Important columns:
 
 - `selector TEXT NOT NULL`
+- `public_name TEXT NOT NULL`
 - `media_kind TEXT NOT NULL`
 - `shape_kind TEXT NOT NULL`
 - `channel TEXT`
@@ -237,15 +242,19 @@ Checks:
 
 Notes:
 
-- `uri` is derived from the current device alias plus `selector`; it is not the
-  durable DB key for this row
+- `uri` is derived from the current device alias plus the current stream
+  `public_name`; it is not the durable DB key for this row
+- `selector` stays the stable internal catalog identity and the default value
+  for `public_name`
 - selector uniqueness is durable only within one device row, so the schema
   should enforce `UNIQUE(device_id, selector)` rather than store a duplicated
   concatenated identifier
+- stream public-name uniqueness must also stay device-scoped, so the checked-in
+  schema enforces `UNIQUE(device_id, public_name)`
 - publication is not encoded in the stored source identity; discovery can
   publish one derived `uri` plus `publications_json` describing optional
   published forms such as RTSP. A minimal shape is
-  `{\"rtsp\":{\"url\":\"rtsp://<rtsp-host>/<device>/<selector>\",\"profile\":\"default\"}}`;
+  `{\"rtsp\":{\"url\":\"rtsp://<rtsp-host>/<device-public-name>/<stream-public-name>\",\"profile\":\"default\"}}`;
   the RTSP URL should mirror the `insightos://` path after swapping the scheme
   and host
 - `group_key` is an internal grouping hint for runtime planning; it should not
@@ -379,7 +388,8 @@ Notes:
   durable rule instead of an application-side convention
 - `rtsp_enabled` is the durable request to publish the serving session over
   RTSP; when true the runtime should expose `rtsp_url` using the backend
-  default RTSP profile and the same `/<device>/<selector>` path as the bound
+  default RTSP profile and the same public
+  `/<device-public-name>/<stream-public-name>` path as the bound
   `insightos://` URI, with the configured RTSP host replacing `localhost`
 - local IPC attach is implicit for local app consumers and is not stored here
 - `resolved_routes_json` records grouped member-to-route resolution for grouped

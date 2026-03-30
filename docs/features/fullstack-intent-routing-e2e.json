@@ -1,5 +1,5 @@
 {
-  "version": 18,
+  "version": 19,
   "features": [
     {
       "id": "docs-prd-grounding",
@@ -157,6 +157,18 @@
       "passes": true
     },
     {
+      "id": "developer-thin-rest-surface",
+      "category": "functional",
+      "description": "The thin `/api/dev/*` facade exposes the minimal health, catalog, URI, app, session, and runtime fields needed by internal developers",
+      "steps": [
+        "Call GET /api/dev/health, GET /api/dev/catalog, and GET /api/dev/uris",
+        "Verify the responses expose only the current developer-facing fields such as name, default_name, selector, uri, media, shape, and caps",
+        "Create an app, route, and source through /api/dev/apps and inspect GET /api/dev/apps/{id}",
+        "Inspect GET /api/dev/runtime and verify the minimal session plus serving-runtime views are present"
+      ],
+      "passes": true
+    },
+    {
       "id": "browse-rgbd-depth-400-and-480",
       "category": "functional",
       "description": "RGBD discovery exposes separate depth outputs when D2C changes delivered caps",
@@ -203,6 +215,18 @@
         "Create one URI-backed app source for the same exact URI",
         "Inspect session responses and GET /api/status",
         "Verify one shared serving-runtime entry reports owner session id, consumer session ids, resolved source metadata, and additive RTSP intent"
+      ],
+      "passes": true
+    },
+    {
+      "id": "stream-alias-updates-developer-runtime-views",
+      "category": "functional",
+      "description": "Renaming one stream updates the canonical URI across the thin developer catalog, app, session, and runtime views while keeping selector identity stable",
+      "steps": [
+        "Create a direct session and, optionally, one session-backed app source for a listed URI",
+        "Call POST /api/dev/streams/{stream_id}/alias",
+        "Verify GET /api/dev/uris returns the new canonical URI while selector remains unchanged",
+        "Verify GET /api/dev/sessions, GET /api/dev/apps/{id}, and GET /api/dev/runtime all report the updated device/stream alias"
       ],
       "passes": true
     },

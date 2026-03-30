@@ -4,8 +4,12 @@
 
 - role: control-plane and runtime-responsibility split for `insight-io`
 - status: active
-- version: 8
+- version: 9
 - major changes:
+  - 2026-03-27 aligned the copied-handle description with the checked-in
+    stream-alias support so runtime and publication paths now mirror the
+    current device and stream public names rather than always using the raw
+    selector in the final URI segment
   - 2026-03-27 documented the Orbbec public-format boundary: raw SDK
     depth-family profiles may exist internally, but the public depth contract
     stays normalized to `y16`, and raw `ir` discovery stays out of the public
@@ -191,9 +195,9 @@ metadata such as:
 - any documented format normalization that reflects the delivered runtime
   contract rather than raw SDK profile naming
 
-The RTSP publication URL should keep the same `/<device>/<selector>` path as
-the derived `insightos://` URI while replacing `localhost` with the configured
-RTSP host.
+The RTSP publication URL should keep the same public
+`/<device-public-name>/<stream-public-name>` path as the derived
+`insightos://` URI while replacing `localhost` with the configured RTSP host.
 
 Examples:
 

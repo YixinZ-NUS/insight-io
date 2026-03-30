@@ -2,22 +2,48 @@
 
 ## Role
 
-- role: exact bash transcript for the task-9 runtime verification flow
+- role: exact fresh-DB transcript for the current host, with `/api/dev/*` or
+  CLI shown as the recommended path and canonical `/api/*` shown inline as the
+  alternative
 - status: active
-- revision: 2026-03-27 task9-runtime-verification-and-pipewire-audio
+- revision: 2026-03-30 canonical-route-declare-only
 - major changes:
-  - 2026-03-27 added the PipeWire audio example verification commands,
-    including direct stereo startup, idle mono late bind, and the current
-    selector query that shows why `audio/mono` and `audio/stereo` stay
-    distinct exact selectors
-  - 2026-03-27 added an explicit CLI-versus-REST equivalence summary for the
-    checked-in example apps
-  - 2026-03-27 captured the bare verification command list and observed outputs
-    for the current task-9 SDK, browser, and example-app slice
+  - 2026-03-30 removed route mutation from the recommended thin `/api/dev/*`
+    path, kept route declaration on canonical `/api/apps/{id}/routes`, and
+    rewrote the mixed dev/demo transcript so sources still use the friendlier
+    thin surface while routes stay low-level
+  - 2026-03-30 reorganized the demo around one fresh default-port daemon run
+    so `/api/dev/*`, CLI, and canonical `/api/*` appear side by side by
+    workflow instead of in separate sections
+  - 2026-03-30 replaced the old large response dumps with short result
+    docstrings that were rechecked on the live host against a fresh SQLite file
+  - 2026-03-30 made `POST /routes` versus `POST /sources` explicit, added the
+    current request JSON shapes and meanings, and moved CLI defaults ahead of
+    optional flags such as `--app-name`, `--max-frames`, and startup
+    `insightos://...` binds
 - past tasks:
+  - `2026-03-30 – Reorganize Demo Commands Around Integrated Dev, CLI, And Canonical Flows`
+  - `2026-03-30 – Refresh Demo Commands For Fresh Thin Developer Surface Verification`
+  - `2026-03-27 – Revalidate Task-10 Developer Surface, Correct Overclaim, And Add Dev Demo Alternatives`
   - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
+
+Use `/api/dev/*` or CLI for day-to-day demo work. Route declaration is the one
+intentional exception: keep `POST /api/apps/{id}/routes` as the low-level
+canonical contract because it mirrors SDK `app.route(...).expect(...)`. Use
+canonical `/api/*` elsewhere when you want the fuller payload shape from
+[REST.md](/home/yixin/Coding/insight-io/docs/REST.md).
+
+All commands below are self-contained. When an `app_id`, `route_id`,
+`source_id`, or `session_id` appears, it is the ID returned by the earlier
+command in this same fresh-DB transcript.
+
+This rerun used one fresh SQLite file on the current host. If the live
+inventory differs, rerun `POST /api/dev/catalog:refresh` before trusting the
+hard-coded IDs below. On this host, if the expected Orbbec device is missing,
+retry discovery once and check the USB connection before treating that as a
+software regression.
 
 ## Build
 
@@ -27,22 +53,8 @@ cmake --build build -j4
 
 ```text
 """
-[ 37%] Built target insightio_backend_support
-[ 45%] Built target discovery_test
-[ 45%] Built target schema_store_test
-[ 50%] Built target insightiod
-[ 54%] Built target catalog_service_test
-[ 62%] Built target session_service_test
-[ 62%] Built target app_service_test
-[ 66%] Built target ipc_runtime_test
-[ 70%] Built target rest_server_test
-[ 75%] Built target insightos_sdk
-[ 79%] Built target insightio_ipc_probe
-[ 87%] Built target pipewire_audio_monitor
-[ 87%] Built target v4l2_latency_monitor
-[ 93%] Built target mixed_device_consumer
-[ 95%] Built target app_sdk_test
-[100%] Built target orbbec_depth_overlay
+Build is up to date on this rerun.
+The daemon, tests, and example apps are all present in `build/bin/`.
 """
 ```
 
@@ -52,656 +64,485 @@ ctest --test-dir build --output-on-failure
 
 ```text
 """
-Internal ctest changing into directory: /home/yixin/Coding/insight-io/build
-Test project /home/yixin/Coding/insight-io/build
-1/8 Test #1: schema_store_test ................   Passed    0.05 sec
-2/8 Test #2: catalog_service_test .............   Passed    2.22 sec
-3/8 Test #3: discovery_test ...................   Passed    0.01 sec
-4/8 Test #4: session_service_test .............   Passed    4.32 sec
-5/8 Test #5: rest_server_test .................   Passed    4.91 sec
-6/8 Test #6: app_service_test .................   Passed    5.17 sec
-7/8 Test #7: ipc_runtime_test .................   Passed    1.89 sec
-8/8 Test #8: app_sdk_test .....................   Passed    9.17 sec
-
-100% tests passed, 0 tests failed out of 8
-
-Total Test time (real) =  27.75 sec
+All focused tests pass on this rerun: 8 out of 8 green in about 30 seconds.
 """
 ```
 
-## CLI And REST Equivalence
-
-- `./build/bin/pipewire_audio_monitor ... insightos://localhost/.../audio/stereo`
-  is equivalent to starting `pipewire_audio_monitor` without a startup bind and
-  later posting one source bind with `target = audio` and the same exact audio
-  URI; `audio/mono` follows the same rule
-- `./build/bin/v4l2_latency_monitor ... insightos://localhost/web-camera/720p_30`
-  is equivalent to starting `v4l2_latency_monitor` without a startup bind and
-  later posting one source bind with `target = camera` and the same URI
-- `./build/bin/orbbec_depth_overlay ... insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
-  is equivalent to starting `orbbec_depth_overlay` without a startup bind and
-  later posting one source bind with `target = orbbec` and the same grouped
-  preset URI
-- `./build/bin/mixed_device_consumer ... camera=... orbbec=...`
-  is equivalent to starting `mixed_device_consumer` without startup binds and
-  later posting two source binds: one for `camera`, then one for `orbbec`
-
-## Daemon
+## Fresh Demo Daemon
 
 ```bash
-./build/bin/insightiod --host 127.0.0.1 --port 18291 --db-path /tmp/insight-io-examples-18291.sqlite3 --rtsp-host 127.0.0.1 --rtsp-port 18591
+rm -f /tmp/insight-io-demo-18180.sqlite3
 ```
 
 ```text
 """
-insightiod 0.1.0
-REST API listening on 127.0.0.1:18291
-Device store: /tmp/insight-io-examples-18291.sqlite3
-IPC attach socket: /tmp/insight-io-ipc-56513-3490146721213240067-0.sock
-V4L2 worker 'stream:29' started: /dev/video0 1280x720 fps=30 buffers=4
-V4L2 worker 'stream:29' started: /dev/video0 1280x720 fps=30 buffers=4
-Orbbec worker 'stream:21' enabling color: 640x480@30fps format=mjpeg
-Orbbec worker 'stream:21' enabling depth: 640x400@30fps format=y16
-Orbbec worker 'stream:21': D2C hardware enabled (10 compatible depth profiles)
-Orbbec worker 'stream:21' active (2 streams): orbbec://AY27552002M
-Orbbec worker 'stream:21' depth first frame: 640x480 format=y16 bytes=614400
-Orbbec worker 'stream:21' color first frame: 640x480 format=mjpeg bytes=19560
-Orbbec worker 'stream:21' stopping
-Orbbec worker 'stream:21' cleanup complete
-Orbbec worker 'stream:22' enabling color: 1280x720@30fps format=mjpeg
-Orbbec worker 'stream:22' enabling depth: 1280x800@30fps format=y16
-Orbbec worker 'stream:22' active (2 streams): orbbec://AY27552002M
-Orbbec worker 'stream:22' depth first frame: 1280x800 format=y16 bytes=2048000
-Orbbec worker 'stream:22' color first frame: 1280x720 format=mjpeg bytes=44696
-Orbbec worker 'stream:22' stopping
-Orbbec worker 'stream:22' cleanup complete
-V4L2 worker 'stream:29' started: /dev/video0 1280x720 fps=30 buffers=4
-Orbbec worker 'stream:21' enabling color: 640x480@30fps format=mjpeg
-Orbbec worker 'stream:21' enabling depth: 640x400@30fps format=y16
-Orbbec worker 'stream:21': D2C hardware enabled (10 compatible depth profiles)
-Orbbec worker 'stream:21' active (2 streams): orbbec://AY27552002M
-Orbbec worker 'stream:21' depth first frame: 640x480 format=y16 bytes=614400
-Orbbec worker 'stream:21' color first frame: 640x480 format=mjpeg bytes=21048
-Orbbec worker 'stream:21' stopping
-Orbbec worker 'stream:21' cleanup complete
-^C
+Removes the old demo DB so the IDs and names below come from one clean run.
 """
 ```
 
 ```bash
-curl -s http://127.0.0.1:18291/api/devices
-```
-
-## Webcam Late Bind
-
-```bash
-./build/bin/v4l2_latency_monitor --backend-host=127.0.0.1 --backend-port=18291 --max-frames=10
-```
-
-```bash
-curl -s http://127.0.0.1:18291/api/apps
+./build/bin/insightiod --db-path /tmp/insight-io-demo-18180.sqlite3 --rtsp-port 18640
 ```
 
 ```text
 """
-{
-  "apps": [
-    {
-      "app_id": 1,
-      "created_at_ms": 1774592926766,
-      "name": "v4l2-latency-monitor",
-      "updated_at_ms": 1774592926766
-    }
-  ]
-}
+Starts the daemon on the default backend address `127.0.0.1:18180`.
+CLI examples below therefore need no `--backend-host` or `--backend-port`.
+RTSP URLs on this run use port `18640`.
 """
 ```
 
+## Browse The Catalog
+
+Recommended thin refresh:
+
 ```bash
-curl -s -X POST http://127.0.0.1:18291/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/catalog:refresh | jq '.devices[] | {name, driver, stream_count: (.streams | length)}'
 ```
 
 ```text
 """
-{
-  "active_session": {
-    "capture_policy_json": {
-      "device_uri": "v4l2:/dev/video0",
-      "driver": "v4l2",
-      "selected_caps": {
-        "format": "mjpeg",
-        "fps": 30,
-        "height": 720,
-        "named": "mjpeg_1280x720_30",
-        "width": 1280
-      },
-      "stream_id": "image",
-      "stream_name": "frame"
-    },
-    "created_at_ms": 1774592938266,
-    "delivered_caps_json": {
-      "format": "mjpeg",
-      "fps": 30,
-      "height": 720,
-      "named": "mjpeg_1280x720_30",
-      "width": 1280
-    },
-    "request_json": {
-      "app_id": 1,
-      "input": "insightos://localhost/web-camera/720p_30",
-      "rtsp_enabled": false,
-      "target": "camera"
-    },
-    "resolved_exact_stream_id": 29,
-    "resolved_source": {
-      "capture_policy_json": {
-        "device_uri": "v4l2:/dev/video0",
-        "driver": "v4l2",
-        "selected_caps": {
-          "format": "mjpeg",
-          "fps": 30,
-          "height": 720,
-          "named": "mjpeg_1280x720_30",
-          "width": 1280
-        },
-        "stream_id": "image",
-        "stream_name": "frame"
-      },
-      "delivered_caps_json": {
-        "format": "mjpeg",
-        "fps": 30,
-        "height": 720,
-        "named": "mjpeg_1280x720_30",
-        "width": 1280
-      },
-      "device_key": "dev_9558a6c24ec3337b524810ac08adc1a5",
-      "media_kind": "video",
-      "public_name": "web-camera",
-      "publications_json": {
-        "rtsp": {
-          "profile": "default",
-          "url": "rtsp://127.0.0.1:18591/web-camera/720p_30"
-        }
-      },
-      "selector": "720p_30",
-      "shape_kind": "exact",
-      "stream_id": 29,
-      "uri": "insightos://localhost/web-camera/720p_30"
-    },
-    "rtsp_enabled": false,
-    "serving_runtime": {
-      "consumer_count": 1,
-      "consumer_session_ids": [
-        7
-      ],
-      "ipc_channels": [
-        {
-          "attached_consumer_count": 0,
-          "channel_id": "stream:29:image",
-          "delivered_caps_json": {
-            "format": "mjpeg",
-            "fps": 30,
-            "height": 720,
-            "named": "mjpeg_1280x720_30",
-            "width": 1280
-          },
-          "frames_published": 0,
-          "media_kind": "video",
-          "route_name": "image",
-          "selector": "720p_30",
-          "stream_name": "image"
-        }
-      ],
-      "ipc_socket_path": "/tmp/insight-io-ipc-56513-3490146721213240067-0.sock",
-      "owner_session_id": 7,
-      "rtsp_enabled": false,
-      "runtime_key": "stream:29",
-      "shared": false,
-      "state": "ready"
-    },
-    "session_id": 7,
-    "session_kind": "app",
-    "started_at_ms": 1774592938266,
-    "state": "active",
-    "updated_at_ms": 1774592938266
-  },
-  "active_session_id": 7,
-  "capture_policy_json": {
-    "device_uri": "v4l2:/dev/video0",
-    "driver": "v4l2",
-    "selected_caps": {
-      "format": "mjpeg",
-      "fps": 30,
-      "height": 720,
-      "named": "mjpeg_1280x720_30",
-      "width": 1280
-    },
-    "stream_id": "image",
-    "stream_name": "frame"
-  },
-  "created_at_ms": 1774592938266,
-  "delivered_caps_json": {
-    "format": "mjpeg",
-    "fps": 30,
-    "height": 720,
-    "named": "mjpeg_1280x720_30",
-    "width": 1280
-  },
-  "resolved_exact_stream_id": 29,
-  "rtsp_enabled": false,
-  "source_id": 1,
-  "state": "active",
-  "target": "camera",
-  "target_resource_name": "apps/1/routes/camera",
-  "updated_at_ms": 1774592938266,
-  "uri": "insightos://localhost/web-camera/720p_30"
-}
+Refresh returns four devices on this host:
+- one SDK-backed Orbbec device `sv1301s-u3`
+- one V4L2 webcam `web-camera`
+- two PipeWire audio devices
+The fresh stream counts on this rerun are 22, 9, 2, and 2 respectively.
 """
+```
+
+Recommended thin health:
+
+```bash
+curl -s http://127.0.0.1:18180/api/dev/health | jq
 ```
 
 ```text
 """
-camera caps: format=mjpeg size=1280x720 fps=30
-camera caps: format=mjpeg size=1280x720 fps=30
-frame=1 pts_ms=124.614 dts_ms=124.614 avg_pts_ms=124.614 avg_dts_ms=124.614 min_pts_ms=124.614 max_pts_ms=124.614 recv_wall_ms=1774592939325
+Thin health reports `status = ok`, `device_count = 4`, `session_count = 0`,
+and `active_sessions = 0` before any demo session is created.
 """
 ```
 
-## Webcam Startup URI
+Recommended thin URI browse:
 
 ```bash
-./build/bin/v4l2_latency_monitor --backend-host=127.0.0.1 --backend-port=18291 --max-frames=5 insightos://localhost/web-camera/720p_30
+curl -s http://127.0.0.1:18180/api/dev/uris | jq '.uris[] | select(.stream_id == 21 or .stream_id == 29 or .stream_id == 34 or .stream_id == 35) | {stream_id, device, name, driver, media, uri}'
 ```
 
 ```text
 """
-camera caps: format=mjpeg size=1280x720 fps=30
-camera caps: format=mjpeg size=1280x720 fps=30
-frame=1 pts_ms=90.1021 dts_ms=90.1021 avg_pts_ms=90.1021 avg_dts_ms=90.1021 min_pts_ms=90.1021 max_pts_ms=90.1021 recv_wall_ms=1774592949849
+These are the four main demo IDs from the fresh run:
+- `21`: `insightos://localhost/sv1301s-u3/orbbec/preset/480p_30`
+- `29`: `insightos://localhost/web-camera/720p_30`
+- `34`: `insightos://localhost/web-camera-mono/audio/mono`
+- `35`: `insightos://localhost/web-camera-mono/audio/stereo`
 """
 ```
 
-## Orbbec 480 Preset
+Alternative canonical browse:
 
 ```bash
-./build/bin/orbbec_depth_overlay --backend-host=127.0.0.1 --backend-port=18291 --max-pairs=2 --output=/tmp/insight-io-overlay-480-runtime.png
-```
-
-```bash
-curl -s http://127.0.0.1:18291/api/apps
+curl -s http://127.0.0.1:18180/api/devices | jq '.devices[] | {public_name, driver, source_count: (.sources | length)}'
 ```
 
 ```text
 """
-{
-  "apps": [
-    {
-      "app_id": 1,
-      "created_at_ms": 1774592959248,
-      "name": "orbbec-depth-overlay",
-      "updated_at_ms": 1774592959248
-    }
-  ]
-}
+Canonical `/api/devices` returns the fuller device-source records.
+Later in this transcript, after alias changes, the same command shows
+`front-camera` and `desk-rgbd` instead of the original public names.
 """
 ```
 
+## `POST /routes` Versus `POST /sources`
+
+`POST /routes` declares app-local logical targets. It does not start a session,
+open a device, or attach callbacks by itself. Route declaration stays on the
+canonical `/api/apps/{id}/routes` contract even in developer demos because it
+is the REST form of SDK `app.route(...).expect(...)`.
+
+Most developers will not call `POST /routes` manually in normal SDK app flows.
+Use it only when the app row itself was created over REST and still needs its
+input contract declared before a later source bind.
+
+Canonical route JSON:
+
+```json
+{ "route_name": "camera", "expect": { "media": "video" } }
+```
+
+Meaning:
+
+- `camera` is the app-local target name
+- `expect.media` is the route expectation only
+- route creation leaves the target idle until a source is bound
+
+`POST /sources` binds one real upstream source to one previously declared
+target and is what actually creates or reuses runtime state.
+
+URI-backed source JSON:
+
+```json
+{ "input": "insightos://localhost/web-camera/720p_30", "target": "camera" }
+```
+
+Session-backed source JSON:
+
+```json
+{ "session_id": 1, "target": "camera" }
+```
+
+Meaning:
+
+- `target` is always the app-local route or grouped target root
+- `input` binds directly from one catalog-published `insightos://` URI
+- `session_id` reuses one previously created direct session instead
+- grouped sources still use `POST /sources`; the grouped example below binds
+  preset `480p_30` to grouped target root `orbbec`
+
+## Direct Session: Recommended `/api/dev/*`, Alternative `/api/*`
+
+Recommended thin direct session create:
+
 ```bash
-curl -s -X POST http://127.0.0.1:18291/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/sessions -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq '{session_id, device, stream, media, state, requested_uri}'
 ```
 
 ```text
 """
-"orbbec"
-"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"
-{
-  "format": "mjpeg",
-  "fps": 30,
-  "height": 480,
-  "named": "mjpeg_640x480_30",
-  "width": 640
-}
+Creates direct session `1`.
+Thin response shows the human-facing device and stream names directly:
+`web-camera`, `720p_30`, `media = video`, `state = active`.
 """
+```
+
+Alternative canonical direct session create:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/sessions -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq '{session_id, state, input_uri, resolved_exact_stream_id, selector: .resolved_source.selector, runtime_key: .serving_runtime.runtime_key, consumer_count: .serving_runtime.consumer_count}'
 ```
 
 ```text
 """
-color caps: format=mjpeg size=640x480 fps=30
-depth caps: format=y16 size=640x480 fps=30
-depth caps: format=y16 size=640x480 fps=30
-color caps: format=mjpeg size=640x480 fps=30
-rendered_pairs=1 output=/tmp/insight-io-overlay-480-runtime.png
+Creates direct session `2` on the same exact webcam stream.
+Canonical response exposes the richer runtime fields:
+`resolved_exact_stream_id = 29`, `selector = 720p_30`, `runtime_key = stream:29`.
+Because session `1` already exists, this second direct session lands on the
+same runtime with `consumer_count = 2`.
 """
 ```
 
+## App, Route, And Source
+
+Recommended thin app create:
+
 ```bash
-file /tmp/insight-io-overlay-480-runtime.png
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps -H 'Content-Type: application/json' -d '{"name":"dev-runner"}' | jq '{app_id, name}'
 ```
 
 ```text
 """
-/tmp/insight-io-overlay-480-runtime.png: PNG image data, 640 x 480, 8-bit/color RGB, non-interlaced
+Creates app `1` named `dev-runner`.
+Use this thin path for small manual demos and browser-like control.
 """
 ```
 
-## Orbbec 720 Preset
+Low-level route declare for thin app `1`:
 
 ```bash
-./build/bin/orbbec_depth_overlay --app-name=orbbec-depth-overlay-720 --backend-host=127.0.0.1 --backend-port=18291 --max-pairs=2 --output=/tmp/insight-io-overlay-720-runtime.png
-```
-
-```bash
-curl -s http://127.0.0.1:18291/api/apps
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes -H 'Content-Type: application/json' -d '{"route_name":"camera","expect":{"media":"video"}}' | jq '{route_name, expect}'
 ```
 
 ```text
 """
-{
-  "apps": [
-    {
-      "app_id": 1,
-      "created_at_ms": 1774592972249,
-      "name": "orbbec-depth-overlay-720",
-      "updated_at_ms": 1774592972249
-    }
-  ]
-}
+Declares one logical target `camera` on app `1`.
+This low-level step is only needed here because the app was created over REST.
+It still does not start any callback or runtime yet.
 """
 ```
 
+Recommended thin session-backed source bind:
+
 ```bash
-curl -s -X POST http://127.0.0.1:18291/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30"}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/1/sources -H 'Content-Type: application/json' -d '{"session_id":1,"target":"camera"}' | jq '{source_id, target, source_session_id, active_session_id, device, stream, media, state}'
 ```
 
 ```text
 """
-"orbbec"
-"insightos://localhost/sv1301s-u3/orbbec/preset/720p_30"
+Creates source `1` on app `1`.
+Because this bind points at `session_id = 1`, both `source_session_id` and
+`active_session_id` are `1`, and the thin response resolves to
+`web-camera / 720p_30`.
 """
+```
+
+## Grouped Orbbec Bind
+
+Recommended thin grouped app create:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps -H 'Content-Type: application/json' -d '{"name":"rgbd-dev-runner"}' | jq '{app_id, name}'
 ```
 
 ```text
 """
-color caps: format=mjpeg size=1280x720 fps=30
-depth caps: format=y16 size=1280x800 fps=30
-depth caps: format=y16 size=1280x800 fps=30
-color caps: format=mjpeg size=1280x720 fps=30
-rendered_pairs=1 output=/tmp/insight-io-overlay-720-runtime.png
+Creates app `3` named `rgbd-dev-runner`.
+This app will declare grouped RGBD routes and then bind one grouped preset.
 """
 ```
 
+Low-level grouped route declare for thin app `3`:
+
 ```bash
-file /tmp/insight-io-overlay-720-runtime.png
+curl -s -X POST http://127.0.0.1:18180/api/apps/3/routes -H 'Content-Type: application/json' -d '{"route_name":"orbbec/color","expect":{"media":"video"}}' | jq '{route_name, expect}'
 ```
 
 ```text
 """
-/tmp/insight-io-overlay-720-runtime.png: PNG image data, 1280 x 720, 8-bit/color RGB, non-interlaced
+Declares grouped member route `orbbec/color` with `expect.media = video`.
 """
 ```
 
-## Mixed Webcam Plus Orbbec
-
 ```bash
-./build/bin/mixed_device_consumer --backend-host=127.0.0.1 --backend-port=18291 --max-frames=30
-```
-
-```bash
-curl -s http://127.0.0.1:18291/api/apps
+curl -s -X POST http://127.0.0.1:18180/api/apps/3/routes -H 'Content-Type: application/json' -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}' | jq '{route_name, expect}'
 ```
 
 ```text
 """
-{
-  "apps": [
-    {
-      "app_id": 1,
-      "created_at_ms": 1774592984336,
-      "name": "mixed-device-consumer",
-      "updated_at_ms": 1774592984336
-    }
-  ]
-}
+Declares grouped member route `orbbec/depth` with `expect.media = depth`.
+Together these routes make grouped target root `orbbec` valid for `/sources`.
 """
 ```
 
+Recommended thin grouped source bind:
+
 ```bash
-curl -s -X POST http://127.0.0.1:18291/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"camera","input":"insightos://localhost/web-camera/720p_30"}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/3/sources -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30","target":"orbbec"}' | jq '{source_id, target, device, stream, media, state}'
 ```
 
 ```text
 """
-"camera"
-"insightos://localhost/web-camera/720p_30"
+Creates grouped source `3` on app `3`.
+The bound upstream stream is `orbbec/preset/480p_30`, `media = grouped`,
+and the bind becomes active immediately.
 """
 ```
 
+Recommended thin grouped source inspect:
+
 ```bash
-curl -s -X POST http://127.0.0.1:18291/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"orbbec","input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"}'
+curl -s http://127.0.0.1:18180/api/dev/apps/3 | jq '.sources[0] | {target, selector, media, members: [.members[] | {route, selector, media}]}'
 ```
 
 ```text
 """
-"orbbec"
-"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30"
+The grouped bind fans out exactly as expected on this rerun:
+- `orbbec/color` gets `orbbec/color/480p_30`
+- `orbbec/depth` gets `orbbec/depth/480p_30`
+This is the clearest place to see why grouped routes are declared first and
+the grouped source is posted later.
 """
+```
+
+## Alias Changes: Recommended `/api/dev/*`, Alternative `/api/*`
+
+Recommended thin webcam alias:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/dev/devices/web-camera/alias -H 'Content-Type: application/json' -d '{"name":"front-camera"}' | jq '{name, default_name, driver}'
 ```
 
 ```text
 """
-camera first frame format=mjpeg size=1280x720
-camera=1 color=0 depth=0
-orbbec depth first frame format=y16 size=640x480
-orbbec color first frame format=mjpeg size=640x480
-camera=22 color=1 depth=7
+Renames the webcam device from `web-camera` to `front-camera`.
+The default name remains `web-camera`.
 """
 ```
 
-## PipeWire Audio
+Recommended thin webcam stream alias:
 
 ```bash
-curl -s http://127.0.0.1:18294/api/health
+curl -s -X POST http://127.0.0.1:18180/api/dev/streams/29/alias -H 'Content-Type: application/json' -d '{"name":"main-preview"}' | jq '{stream_id, name, default_name, selector, uri}'
 ```
 
 ```text
 """
-{
-  "catalog_device_count": 4,
-  "db_path": "/tmp/insight-io-audio-18294.sqlite3",
-  "frontend_path": "/home/yixin/Coding/insight-io/frontend",
-  "ipc_socket_path": "/tmp/insight-io-ipc-129958-6872020206810212583-0.sock",
-  "session_count": 0,
-  "status": "ok",
-  "version": "0.1.0"
-}
+Renames stream `29` from `720p_30` to `main-preview`.
+The selector stays `720p_30`, but the current canonical URI becomes
+`insightos://localhost/front-camera/main-preview`.
 """
 ```
 
-```bash
-curl -s http://127.0.0.1:18294/api/devices
-```
+Alternative canonical Orbbec alias:
 
 ```bash
-./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18294 --max-frames=6 --report-every=3 insightos://localhost/web-camera-mono/audio/stereo
+curl -s -X POST http://127.0.0.1:18180/api/devices/sv1301s-u3/alias -H 'Content-Type: application/json' -d '{"public_name":"desk-rgbd"}' | jq '{public_name, default_name, driver}'
 ```
 
 ```text
 """
-audio caps: selector=audio/stereo format=s16le sample_rate=48000 channels=2
-audio caps: selector=audio/stereo format=s16le sample_rate=48000 channels=2
-frame=1 selector=audio/stereo format=s16le sample_rate=48000 channels=2 samples=2048 rms=0 peak=0 max_peak=0 recv_wall_ms=1774596378136 total_samples=2048
-frame=3 selector=audio/stereo format=s16le sample_rate=48000 channels=2 samples=2048 rms=0.00109385 peak=0.00180054 max_peak=0.373413 recv_wall_ms=1774596378136 total_samples=6144
-frame=6 selector=audio/stereo format=s16le sample_rate=48000 channels=2 samples=2048 rms=0.000470563 peak=0.00119019 max_peak=0.373413 recv_wall_ms=1774596378136 total_samples=12288
+Canonical alias endpoints use `public_name` instead of thin `name`.
+This renames the Orbbec device from `sv1301s-u3` to `desk-rgbd`.
 """
 ```
 
 ```bash
-./build/bin/pipewire_audio_monitor --app-name=pipewire-audio-rest --backend-host=127.0.0.1 --backend-port=18294 --max-frames=5 --report-every=1
+curl -s -X POST http://127.0.0.1:18180/api/streams/21/alias -H 'Content-Type: application/json' -d '{"public_name":"main-preset"}' | jq '{stream_id, public_name, default_name, selector, uri}'
 ```
+
+```text
+"""
+Renames grouped stream `21` to `main-preset`.
+Its selector stays `orbbec/preset/480p_30`, while the current URI becomes
+`insightos://localhost/desk-rgbd/main-preset`.
+"""
+```
+
+Check the alias-aware URI view:
 
 ```bash
-curl -s http://127.0.0.1:18294/api/apps
+curl -s http://127.0.0.1:18180/api/dev/uris | jq '.uris[] | select(.stream_id==21 or .stream_id==29) | {stream_id, device, name, uri}'
 ```
 
 ```text
 """
-{
-  "apps": [
-    {
-      "app_id": 1,
-      "created_at_ms": 1774596389562,
-      "name": "pipewire-audio-rest",
-      "updated_at_ms": 1774596389562
-    }
-  ]
-}
+After the alias walkthrough, the thin URI view reports:
+- stream `29` as `front-camera / main-preview`
+- stream `21` as `desk-rgbd / main-preset`
+Already-created sessions still remember their original `requested_uri`, but
+the current canonical URI surface switches to the new aliases immediately.
 """
 ```
+
+## Runtime Inspect: Recommended `/api/dev/runtime`, Alternative `/api/status`
+
+Recommended thin runtime snapshot:
 
 ```bash
-curl -s -X POST http://127.0.0.1:18294/api/apps/1/sources -H 'Content-Type: application/json' -d '{"target":"audio","input":"insightos://localhost/web-camera-mono/audio/mono"}'
+curl -s http://127.0.0.1:18180/api/dev/runtime | jq '{sessions: [.sessions[] | {session_id, device, stream, state, requested_uri}], serving_runtimes: [.serving_runtimes[] | {runtime_key, device, stream, consumer_count, rtsp_enabled}]}'
 ```
 
 ```text
 """
-{
-  "active_session": {
-    "capture_policy_json": {
-      "device_uri": "pw:60",
-      "driver": "pipewire",
-      "selected_caps": {
-        "channels": 1,
-        "format": "s16le",
-        "named": "s16le_48000x1",
-        "sample_rate": 48000
-      },
-      "stream_id": "audio",
-      "stream_name": "audio"
-    },
-    "created_at_ms": 1774596396229,
-    "delivered_caps_json": {
-      "channels": 1,
-      "format": "s16le",
-      "named": "s16le_48000x1",
-      "sample_rate": 48000
-    },
-    "request_json": {
-      "app_id": 1,
-      "input": "insightos://localhost/web-camera-mono/audio/mono",
-      "rtsp_enabled": false,
-      "target": "audio"
-    },
-    "resolved_exact_stream_id": 32,
-    "resolved_source": {
-      "capture_policy_json": {
-        "device_uri": "pw:60",
-        "driver": "pipewire",
-        "selected_caps": {
-          "channels": 1,
-          "format": "s16le",
-          "named": "s16le_48000x1",
-          "sample_rate": 48000
-        },
-        "stream_id": "audio",
-        "stream_name": "audio"
-      },
-      "delivered_caps_json": {
-        "channels": 1,
-        "format": "s16le",
-        "named": "s16le_48000x1",
-        "sample_rate": 48000
-      },
-      "device_key": "dev_9a7e8bfbbed8ea7e8319e7c5b593e24c",
-      "media_kind": "audio",
-      "public_name": "web-camera-mono",
-      "publications_json": {
-        "rtsp": {
-          "profile": "default",
-          "url": "rtsp://127.0.0.1:18594/web-camera-mono/audio/mono"
-        }
-      },
-      "selector": "audio/mono",
-      "shape_kind": "exact",
-      "stream_id": 32,
-      "uri": "insightos://localhost/web-camera-mono/audio/mono"
-    },
-    "rtsp_enabled": false,
-    "serving_runtime": {
-      "consumer_count": 1,
-      "consumer_session_ids": [
-        2
-      ],
-      "ipc_channels": [
-        {
-          "attached_consumer_count": 0,
-          "channel_id": "stream:32:audio",
-          "delivered_caps_json": {
-            "channels": 1,
-            "format": "s16le",
-            "named": "s16le_48000x1",
-            "sample_rate": 48000
-          },
-          "frames_published": 0,
-          "media_kind": "audio",
-          "route_name": "audio",
-          "selector": "audio/mono",
-          "stream_name": "audio"
-        }
-      ],
-      "ipc_socket_path": "/tmp/insight-io-ipc-129958-6872020206810212583-0.sock",
-      "owner_session_id": 2,
-      "rtsp_enabled": false,
-      "runtime_key": "stream:32",
-      "shared": false,
-      "state": "ready"
-    },
-    "session_id": 2,
-    "session_kind": "app",
-    "started_at_ms": 1774596396229,
-    "state": "active",
-    "updated_at_ms": 1774596396229
-  },
-  "active_session_id": 2,
-  "capture_policy_json": {
-    "device_uri": "pw:60",
-    "driver": "pipewire",
-    "selected_caps": {
-      "channels": 1,
-      "format": "s16le",
-      "named": "s16le_48000x1",
-      "sample_rate": 48000
-    },
-    "stream_id": "audio",
-    "stream_name": "audio"
-  },
-  "created_at_ms": 1774596396229,
-  "delivered_caps_json": {
-    "channels": 1,
-    "format": "s16le",
-    "named": "s16le_48000x1",
-    "sample_rate": 48000
-  },
-  "resolved_exact_stream_id": 32,
-  "rtsp_enabled": false,
-  "source_id": 1,
-  "state": "active",
-  "target": "audio",
-  "target_resource_name": "apps/1/routes/audio",
-  "updated_at_ms": 1774596396229,
-  "uri": "insightos://localhost/web-camera-mono/audio/mono"
-}
+Thin runtime shows alias-aware current names plus original request URIs.
+On this rerun it shows two live runtimes:
+- `stream:29` for `front-camera / main-preview` with `consumer_count = 3`
+- `stream:21` for `desk-rgbd / main-preset` with `consumer_count = 1`
 """
+```
+
+Alternative canonical status snapshot:
+
+```bash
+curl -s http://127.0.0.1:18180/api/status | jq '{total_sessions, active_sessions, total_serving_runtimes, serving_runtimes: [.serving_runtimes[] | {runtime_key, selector: .resolved_source.selector, consumer_count, owner_session_id}]}'
 ```
 
 ```text
 """
-audio caps: selector=audio/mono format=s16le sample_rate=48000 channels=1
-audio caps: selector=audio/mono format=s16le sample_rate=48000 channels=1
-frame=1 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0 peak=0 max_peak=0 recv_wall_ms=1774596396661 total_samples=1024
-frame=2 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.038407 peak=0.339905 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=2048
-frame=3 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.00107979 peak=0.00219727 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=3072
-frame=4 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.000719793 peak=0.00149536 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=4096
-frame=5 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.000587613 peak=0.00131226 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=5120
-frame=6 selector=audio/mono format=s16le sample_rate=48000 channels=1 samples=1024 rms=0.000603064 peak=0.00158691 max_peak=0.339905 recv_wall_ms=1774596396661 total_samples=6144
+Canonical status shows the same two runtimes, but by selector and owner
+session id instead of the thinner alias-oriented shape:
+- `stream:29` owns selector `720p_30` with owner session `1`
+- `stream:21` owns selector `orbbec/preset/480p_30` with owner session `4`
+"""
+```
+
+## CLI: Default First, Then Optional Features
+
+Recommended idle CLI startup with no flags:
+
+```bash
+./build/bin/v4l2_latency_monitor
+```
+
+```text
+"""
+No immediate terminal output appears while the app is idle.
+The app name defaults to the executable name, `v4l2-latency-monitor`.
+It declares route `camera` automatically, but creates no source yet.
+"""
+```
+
+Inspect the idle app by name:
+
+```bash
+curl -s http://127.0.0.1:18180/api/dev/apps | jq '.apps[] | select(.name=="v4l2-latency-monitor")'
+```
+
+```text
+"""
+While the process is running, `/api/dev/apps` lists one row named
+`v4l2-latency-monitor`.
+To activate it later, post one source bind to its `camera` target by using the
+same `/sources` flow shown above.
+"""
+```
+
+Optional feature: custom app name while staying idle:
+
+```bash
+./build/bin/v4l2_latency_monitor --app-name=frontcam-demo
+```
+
+```text
+"""
+Uses a custom durable app name instead of the executable-derived default.
+This is the easiest way to make the later REST target stable when multiple
+copies of the same example might run at once.
+"""
+```
+
+Inspect the custom-name idle app by name:
+
+```bash
+curl -s http://127.0.0.1:18180/api/dev/apps | jq '.apps[] | select(.name=="frontcam-demo")'
+```
+
+```text
+"""
+While that process is running, `/api/dev/apps` lists one row named
+`frontcam-demo`.
+Only the durable app name changed; the example still exposes its usual idle
+`camera` route until you post one source bind.
+"""
+```
+
+Optional feature: startup `insightos://...` bind:
+
+```bash
+./build/bin/v4l2_latency_monitor --app-name=frontcam-startup insightos://localhost/front-camera/main-preview
+```
+
+```text
+"""
+Startup URI skips the later `/sources` POST and begins streaming immediately.
+On this rerun it printed camera caps right away and started emitting frame
+timing lines from `front-camera / main-preview`.
+"""
+```
+
+Optional feature: short auto-stop run with `--max-frames`:
+
+```bash
+./build/bin/v4l2_latency_monitor --app-name=frontcam-five2 --max-frames=5 insightos://localhost/front-camera/main-preview
+```
+
+```text
+"""
+`--max-frames` turns the example into a short bounded run instead of a long
+manual one. On this rerun the command printed startup caps and first-frame
+timing, then exited cleanly on its own.
+"""
+```
+
+Check that the short-run app is gone afterwards:
+
+```bash
+curl -s http://127.0.0.1:18180/api/dev/apps | jq '.apps[] | select(.name=="frontcam-five2")'
+```
+
+```text
+"""
+This returns no row on the rerun above.
+The short `--max-frames` run cleaned itself up instead of leaving a persistent
+idle app behind.
 """
 ```

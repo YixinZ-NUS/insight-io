@@ -1,8 +1,8 @@
 -- role: canonical v1 durable schema for the standalone insight-io rebuild.
--- revision: 2026-03-26 app-route-source-persistence
--- major changes: hardens app-route ambiguity guards with triggers, enforces
--- exact-bind target consistency, and ties app-source session references to the
--- same durable stream row they claim to serve.
+-- revision: 2026-03-27 developer-rest-and-stream-aliases
+-- major changes: adds durable per-stream public aliases for developer-facing
+-- canonical URIs while keeping stable internal selector identity, and keeps
+-- the existing app-route ambiguity guards plus exact-bind/session consistency.
 -- See docs/past-tasks.md for the implementation record.
 
 PRAGMA foreign_keys = ON;
@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS streams (
     stream_id INTEGER PRIMARY KEY,
     device_id INTEGER NOT NULL REFERENCES devices(device_id) ON DELETE CASCADE,
     selector TEXT NOT NULL,
+    public_name TEXT NOT NULL,
     media_kind TEXT NOT NULL,
     shape_kind TEXT NOT NULL CHECK (shape_kind IN ('exact', 'grouped')),
     channel TEXT,
@@ -34,7 +35,8 @@ CREATE TABLE IF NOT EXISTS streams (
     is_present INTEGER NOT NULL DEFAULT 1,
     created_at_ms INTEGER NOT NULL,
     updated_at_ms INTEGER NOT NULL,
-    UNIQUE (device_id, selector)
+    UNIQUE (device_id, selector),
+    UNIQUE (device_id, public_name)
 );
 
 CREATE TABLE IF NOT EXISTS apps (

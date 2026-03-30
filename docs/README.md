@@ -4,8 +4,15 @@
 
 - role: central entry for the active `insight-io` design set
 - status: active
-- version: 29
+- version: 31
 - major changes:
+  - 2026-03-27 revalidated the task-10 developer surface on the live host,
+    added `/api/dev/*` demo-command coverage, and corrected the remaining
+    task-11/task-12 overclaim in the hub-aligned docs
+  - 2026-03-27 completed the task-10 developer control surface by extending
+    the thin `/api/dev/*` facade into the checked-in browser UI, adding
+    direct-session management plus device/stream alias actions, and fixing
+    live runtime-status alias coherence after rename
   - 2026-03-27 added the checked-in PipeWire audio example app, live-verified
     direct stereo startup plus idle mono late bind on the current host, and
     documented why `audio/mono` and `audio/stereo` remain separate exact
@@ -16,8 +23,8 @@
     and closed the remaining Mermaid backlog with four new sequence diagrams
   - 2026-03-27 closed the task-9 SDK slice plus the browser route-builder
     slice, added the repo-native frontend, live-verified the example apps on
-    webcam and Orbbec hardware, verified grouped `session_id` attach and
-    runtime rebind, and moved the repo to a full tracker-green state
+    webcam and Orbbec hardware, and verified grouped `session_id` attach plus
+    runtime rebind
   - 2026-03-27 added a dedicated runtime-wait writeup that records the current
     worker-start and RTSP-start sleep behavior, the live evidence that it is
     currently working, and the empirical optimization plan for replacing those
@@ -104,6 +111,8 @@
   - 2026-03-24 simplified the durable schema to catalog, app intent, session,
     and log tables
 - past tasks:
+  - `2026-03-27 – Revalidate Task-10 Developer Surface, Correct Overclaim, And Add Dev Demo Alternatives`
+  - `2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence`
   - `2026-03-27 – Add PipeWire Audio Example And Verify Mono/Stereo Selectors`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
@@ -149,7 +158,9 @@
 
 - one derived `uri` selects one fixed catalog-published source shape
 - `uri` is derived from stable catalog identity plus the current device public
-  name; it is not a durable DB key
+  name and current stream public name; it is not a durable DB key
+- the stream public name defaults to `selector`, but developers may persist a
+  different alias and use that alias as the terminal canonical URI segment
 - app-source requests use one app-local `target` field; the backend resolves
   whether that target is one exact route or one grouped target root
 - route names stay app-local and should model logical input roles such as
@@ -161,7 +172,8 @@
 - the current worktree now serves health, device catalog, alias, direct
   session lifecycle, app/route/source lifecycle, runtime-status endpoints,
   local IPC attach, exact single-channel RTSP publication, the route-oriented
-  SDK, the repo-native browser UI, and the example-app verification surface
+  SDK, the repo-native browser UI, the thin `/api/dev/*` developer control
+  surface, and the example-app verification surface
 - the checked-in example apps now cover webcam latency, PipeWire audio
   monitoring, Orbbec grouped overlay, and mixed-device routing; each supports
   both startup binds and idle startup with later
@@ -180,9 +192,9 @@
   later
 - RTSP is optional durable publication intent on `app_sources` and `sessions`
 - `streams.publications_json` may expose a queryable `rtsp.url` for the same
-  source shape; that URL should keep the same `/<device>/<selector>` path as
-  the derived `insightos://` URI while replacing `localhost` with the
-  configured RTSP host
+  source shape; that URL should keep the same public
+  `/<device-public-name>/<stream-public-name>` path as the derived
+  `insightos://` URI while replacing `localhost` with the configured RTSP host
 - same `uri` plus the same publication requirements may share one serving path;
   RTSP publication may be additive on shared runtime when lifecycle rules allow
 - the runtime now includes the first runtime-only post-capture publication

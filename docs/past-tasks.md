@@ -4,8 +4,33 @@
 
 - role: chronological change log and verification index for active repo work
 - status: active
-- version: 24
+- version: 30
 - major changes:
+  - 2026-03-30 removed thin `/api/dev/apps/{id}/routes` mutation from the
+    checked-in runtime, switched the browser to canonical `/api/apps/{id}/routes`
+    for route declare/delete, and scrubbed current docs so `/api/dev/*`
+    remains the recommended operator surface except for route declaration
+  - 2026-03-30 rewrote the checked-in demo transcript around one fresh
+    default-port daemon run, integrated recommended `/api/dev/*` and CLI
+    examples with canonical `/api/*` alternatives by workflow, and rechecked
+    every demo docstring against the live host
+  - 2026-03-30 fixed Orbbec exact-stream dedupe so fresh SQLite catalogs keep
+    unsuffixed exact color public names, added focused regression coverage,
+    and recorded the current same-stream versus different-stream reuse
+    boundary from a fresh live-host rerun
+  - 2026-03-30 refreshed the checked-in demo commands around the thin
+    `/api/dev/*` developer surface, reran the flow on a fresh SQLite file on
+    the live host, added explicit refresh-or-requery guidance for current IDs,
+    and kept the original canonical `/api/*` transcript as an alternative
+  - 2026-03-27 revalidated the task-10 developer control surface on the live
+    host, added `/api/dev/*` alternatives to the checked-in demo commands, and
+    corrected the remaining task-list and report overclaim that tasks 11 and
+    12 were already closed
+  - 2026-03-27 completed the task-10 developer control surface by extending
+    the thin `/api/dev/*` REST facade into the checked-in browser UI, adding
+    direct-session management plus device/stream alias actions, fixing stale
+    alias reporting in runtime snapshots, and live-verifying browser-driven
+    source injection on the current host
   - 2026-03-27 fixed the two actionable PR #8 review items by validating
     browser source-form payloads before submit and making `bind_from_cli()`
     propagate `argv[0]` for omitted app-name derivation, then reverified the
@@ -87,6 +112,654 @@
   - 2026-03-26 recorded the persisted discovery catalog and alias flow
   - 2026-03-25 recorded the bootstrap backend reintroduction and the related
     docs-only contract updates
+
+## 2026-03-30 – Remove Thin Dev Route Mutation And Keep Routes Canonical
+
+### What Changed
+
+- removed `POST /api/dev/apps/{id}/routes` and
+  `DELETE /api/dev/apps/{id}/routes/{route}` from the checked-in REST server
+- switched the checked-in browser UI to use canonical
+  `/api/apps/{id}/routes` for route declare and delete while leaving the rest
+  of the browser on `/api/dev/*`
+- updated the active docs so `/api/dev/*` remains the recommended operator
+  surface for catalog, aliases, direct sessions, runtime, and source binding,
+  while route declaration is explicitly documented as the low-level canonical
+  SDK-mirroring contract
+- scrubbed current verification transcripts so they no longer tell readers to
+  declare routes through `/api/dev/*`
+
+### Why
+
+- route declaration is not an operator-friendly convenience action like source
+  bind or direct-session start; it is the REST form of SDK
+  `app.route(...).expect(...)`
+- keeping `/api/dev/*` focused on higher-frequency developer and browser flows
+  makes the surface simpler and avoids implying that route declaration is a
+  peer convenience API
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+rm -f /tmp/insight-io-route-canonical-18180.sqlite3
+./build/bin/insightiod --db-path /tmp/insight-io-route-canonical-18180.sqlite3 --rtsp-port 18640
+curl -s -X POST http://127.0.0.1:18180/api/dev/catalog:refresh | jq '.devices[] | {name, driver, stream_count: (.streams | length)}'
+curl -s http://127.0.0.1:18180/api/dev/health | jq
+curl -s -X POST http://127.0.0.1:18180/api/dev/sessions -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps -H 'Content-Type: application/json' -d '{"name":"dev-runner"}' | jq
+curl -s -o /dev/null -w '%{http_code}\n' -X POST http://127.0.0.1:18180/api/dev/apps/1/routes -H 'Content-Type: application/json' -d '{"name":"camera","media":"video"}'
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes -H 'Content-Type: application/json' -d '{"route_name":"camera","expect":{"media":"video"}}' | jq
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/1/sources -H 'Content-Type: application/json' -d '{"session_id":1,"target":"camera"}' | jq
+curl -s http://127.0.0.1:18180/api/dev/apps/1 | jq '{routes, sources}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps -H 'Content-Type: application/json' -d '{"name":"delete-check"}' | jq
+curl -s -X POST http://127.0.0.1:18180/api/apps/2/routes -H 'Content-Type: application/json' -d '{"route_name":"camera","expect":{"media":"video"}}' | jq
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE http://127.0.0.1:18180/api/dev/apps/2/routes/camera
+curl -s -o /dev/null -w '%{http_code}\n' -X DELETE http://127.0.0.1:18180/api/apps/2/routes/camera
+```
+
+Observed results:
+
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`, and the
+  updated REST test now proves `POST /api/dev/apps/{id}/routes` returns `404`
+- the fresh daemon again exposed four devices on this host:
+  one Orbbec, one V4L2 webcam, and two PipeWire audio devices
+- fresh `GET /api/dev/health` started at `session_count = 0` and
+  `active_sessions = 0`
+- thin route create returned `404`, confirming that the mutation path is gone
+- canonical route create on `/api/apps/1/routes` returned the expected
+  low-level payload with `route_name = camera` and `expect.media = video`
+- thin source bind on `/api/dev/apps/1/sources` still worked unchanged and the
+  thin app detail view still reported one route plus one source
+- thin route delete returned `404`, while canonical
+  `DELETE /api/apps/2/routes/camera` returned `204`
+
+## 2026-03-30 – Reorganize Demo Commands Around Integrated Dev, CLI, And Canonical Flows
+
+### What Changed
+
+- rewrote [demo_command.md](/home/yixin/Coding/insight-io/demo_command.md)
+  around one fresh SQLite-backed daemon run on the default backend port so the
+  checked-in transcript now:
+  - presents recommended `/api/dev/*` and CLI commands alongside canonical
+    `/api/*` alternatives by workflow instead of splitting them into separate
+    sections
+  - keeps every command self-contained with concrete IDs from one rerun rather
+    than shell variables or helper snippets
+  - adds an explicit `POST /routes` versus `POST /sources` JSON cheat sheet
+    and explains what each body means
+  - makes the CLI default path the baseline by showing no backend flags first,
+    then introducing `--app-name`, `--max-frames`, and startup
+    `insightos://...` binds as optional features
+  - replaces the stale large response dumps with short result docstrings that
+    were rechecked on the current host
+
+### Why
+
+- the prior demo file still treated `/api/dev/*` as a separate add-on and had
+  drifted away from the now-preferred thin developer surface and default-port
+  CLI workflow
+- the old transcript also obscured the route-versus-source distinction and
+  made it harder to see which JSON shape actually declares app-local targets
+  versus which one creates runtime
+- the user explicitly asked for a non-script-like, self-contained transcript
+  with live-revalidated result notes
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+rm -f /tmp/insight-io-demo-18180.sqlite3
+./build/bin/insightiod --db-path /tmp/insight-io-demo-18180.sqlite3 --rtsp-port 18640
+```
+
+Fresh demo rerun on the live host:
+
+```bash
+curl -s -X POST http://127.0.0.1:18180/api/dev/catalog:refresh | jq '.devices[] | {name, driver, stream_count: (.streams | length)}'
+curl -s http://127.0.0.1:18180/api/dev/health | jq
+curl -s http://127.0.0.1:18180/api/dev/uris | jq '.uris[] | select(.stream_id == 21 or .stream_id == 29 or .stream_id == 34 or .stream_id == 35) | {stream_id, device, name, driver, media, uri}'
+
+curl -s -X POST http://127.0.0.1:18180/api/dev/sessions -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq '{session_id, device, stream, media, state, requested_uri}'
+curl -s -X POST http://127.0.0.1:18180/api/sessions -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq '{session_id, state, input_uri, resolved_exact_stream_id, selector: .resolved_source.selector, runtime_key: .serving_runtime.runtime_key, consumer_count: .serving_runtime.consumer_count}'
+
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps -H 'Content-Type: application/json' -d '{"name":"dev-runner"}' | jq '{app_id, name}'
+curl -s -X POST http://127.0.0.1:18180/api/apps -H 'Content-Type: application/json' -d '{"name":"api-runner"}' | jq '{app_id, name}'
+curl -s -X POST http://127.0.0.1:18180/api/apps/1/routes -H 'Content-Type: application/json' -d '{"route_name":"camera","expect":{"media":"video"}}' | jq '{route_name, expect}'
+curl -s -X POST http://127.0.0.1:18180/api/apps/2/routes -H 'Content-Type: application/json' -d '{"route_name":"camera","expect":{"media":"video"}}' | jq '{route_name, expect}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/1/sources -H 'Content-Type: application/json' -d '{"session_id":1,"target":"camera"}' | jq '{source_id, target, source_session_id, active_session_id, device, stream, media, state}'
+curl -s -X POST http://127.0.0.1:18180/api/apps/2/sources -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/web-camera/720p_30","target":"camera"}' | jq '{source_id, target, resolved_exact_stream_id, uri, state, active_session_id, runtime_key: .active_session.serving_runtime.runtime_key, consumer_count: .active_session.serving_runtime.consumer_count}'
+
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps -H 'Content-Type: application/json' -d '{"name":"rgbd-dev-runner"}' | jq '{app_id, name}'
+curl -s -X POST http://127.0.0.1:18180/api/apps/3/routes -H 'Content-Type: application/json' -d '{"route_name":"orbbec/color","expect":{"media":"video"}}' | jq '{route_name, expect}'
+curl -s -X POST http://127.0.0.1:18180/api/apps/3/routes -H 'Content-Type: application/json' -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}' | jq '{route_name, expect}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/3/sources -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30","target":"orbbec"}' | jq '{source_id, target, device, stream, media, state}'
+curl -s http://127.0.0.1:18180/api/dev/apps/3 | jq '.sources[0] | {target, selector, media, members: [.members[] | {route, selector, media}]}'
+
+curl -s -X POST http://127.0.0.1:18180/api/dev/devices/web-camera/alias -H 'Content-Type: application/json' -d '{"name":"front-camera"}' | jq '{name, default_name, driver}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/streams/29/alias -H 'Content-Type: application/json' -d '{"name":"main-preview"}' | jq '{stream_id, name, default_name, selector, uri}'
+curl -s -X POST http://127.0.0.1:18180/api/devices/sv1301s-u3/alias -H 'Content-Type: application/json' -d '{"public_name":"desk-rgbd"}' | jq '{public_name, default_name, driver}'
+curl -s -X POST http://127.0.0.1:18180/api/streams/21/alias -H 'Content-Type: application/json' -d '{"public_name":"main-preset"}' | jq '{stream_id, public_name, default_name, selector, uri}'
+curl -s http://127.0.0.1:18180/api/dev/runtime | jq '{sessions: [.sessions[] | {session_id, device, stream, state, requested_uri}], serving_runtimes: [.serving_runtimes[] | {runtime_key, device, stream, consumer_count, rtsp_enabled}]}'
+curl -s http://127.0.0.1:18180/api/status | jq '{total_sessions, active_sessions, total_serving_runtimes, serving_runtimes: [.serving_runtimes[] | {runtime_key, selector: .resolved_source.selector, consumer_count, owner_session_id}]}'
+
+./build/bin/v4l2_latency_monitor
+curl -s http://127.0.0.1:18180/api/dev/apps/6 | jq '{app_id, name, routes, sources}'
+curl -s -X POST http://127.0.0.1:18180/api/dev/apps/6/sources -H 'Content-Type: application/json' -d '{"input":"insightos://localhost/front-camera/main-preview","target":"camera"}' | jq '{source_id, target, device, stream, media, state, active_session_id}'
+./build/bin/v4l2_latency_monitor --app-name=frontcam-demo
+curl -s http://127.0.0.1:18180/api/dev/apps/5 | jq '{app_id, name, routes, sources}'
+./build/bin/v4l2_latency_monitor --app-name=frontcam-startup insightos://localhost/front-camera/main-preview
+./build/bin/v4l2_latency_monitor --app-name=frontcam-five2 --max-frames=5 insightos://localhost/front-camera/main-preview
+curl -s http://127.0.0.1:18180/api/dev/apps | jq '.apps[] | select(.name=="frontcam-five2")'
+```
+
+Observed results:
+
+- build stayed up to date and `ctest --test-dir build --output-on-failure`
+  remained green at `8/8`
+- the fresh default-port daemon again exposed four devices and the same core
+  demo stream ids:
+  `21` for grouped Orbbec preset `480p_30`,
+  `29` for webcam `720p_30`,
+  `34` for `web-camera-mono/audio/mono`,
+  and `35` for `web-camera-mono/audio/stereo`
+- the thin direct-session create returned the human-facing summary for session
+  `1`, while the canonical create for session `2` showed the richer
+  `resolved_exact_stream_id = 29` plus shared runtime `stream:29`
+- app `1` through `/api/dev/*` and app `2` through `/api/*` demonstrated the
+  two route JSON shapes and the difference between one session-backed source
+  bind and one URI-backed bind
+- grouped app `3` showed the grouped source contract clearly:
+  binding target root `orbbec` to preset `480p_30` fanned out to
+  `orbbec/color/480p_30` and `orbbec/depth/480p_30`
+- the alias walkthrough updated the current canonical URIs to
+  `front-camera/main-preview` and `desk-rgbd/main-preset` while
+  existing sessions still reported their original `requested_uri`
+- thin runtime and canonical status agreed on the two live runtimes from this
+  transcript:
+  `stream:29` with `consumer_count = 3` and
+  `stream:21` with `consumer_count = 1`
+- the CLI rerun confirmed the new default-port guidance:
+  no-arg `v4l2_latency_monitor` registered an idle app with route `camera`,
+  the later `/api/dev/apps/6/sources` POST activated it,
+  `--app-name=frontcam-demo` changed only the app name,
+  startup `insightos://...` began streaming immediately,
+  and `--max-frames=5` cleaned itself up without leaving an app row behind
+
+## 2026-03-30 – Fix Orbbec Exact Selector Dedupe And Document Reuse Boundary
+
+### What Changed
+
+- fixed the Orbbec exact-source shaping in
+  [catalog.cpp](/home/yixin/Coding/insight-io/backend/src/catalog.cpp) so
+  exact selectors now collapse duplicate width-height-fps profiles before
+  selector generation and choose one preferred capture format instead of
+  letting duplicate exact selectors drift to suffixed persisted public names
+- updated [catalog_service_test.cpp](/home/yixin/Coding/insight-io/backend/tests/catalog_service_test.cpp)
+  with a focused regression case that feeds duplicate-format Orbbec color caps
+  into one profile and asserts the exact selector, grouped preset caps, and
+  persisted `public_name` all stay stable
+- updated [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  so it now documents:
+  - the Orbbec exact-selector stability rule for fresh SQLite catalogs
+  - the current runtime reuse boundary: same `stream_id` can reuse, different
+    exact stream rows do not merge even when caps are compatible
+
+### Why
+
+- the fresh DB audit on the live host exposed a real persistence bug:
+  exact Orbbec color selectors such as `orbbec/color/480p_30` were stored with
+  suffixed public names like `orbbec/color/480p_30-2` because duplicate raw SDK
+  profiles were collapsing onto one selector after alias-uniquing
+- the same audit also showed that the durable schema itself remained lean, so
+  the defect was catalog shaping rather than schema bloat
+- the runtime rerun made the actual reuse boundary worth documenting more
+  explicitly:
+  matching caps are not the reuse key today, but additive RTSP on the same
+  exact stream does reuse one runtime cleanly
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+```
+
+Fresh DB and live-host rerun:
+
+```bash
+rm -f /tmp/insight-io-reuse-audit-18332.sqlite3
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18332 \
+  --db-path /tmp/insight-io-reuse-audit-18332.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18632
+
+curl -s http://127.0.0.1:18332/api/dev/health | jq
+curl -s -X POST http://127.0.0.1:18332/api/dev/catalog:refresh | jq
+sqlite3 /tmp/insight-io-reuse-audit-18332.sqlite3 '.tables'
+sqlite3 -header -column /tmp/insight-io-reuse-audit-18332.sqlite3 \
+  "SELECT stream_id, selector, public_name, json_extract(caps_json, '$.format') AS format \
+   FROM streams \
+   WHERE device_id = (SELECT device_id FROM devices WHERE driver='orbbec' LIMIT 1) \
+     AND selector LIKE 'orbbec/color/%' \
+   ORDER BY selector;"
+sqlite3 -header -column /tmp/insight-io-reuse-audit-18332.sqlite3 \
+  "SELECT 'devices' AS table_name, COUNT(*) AS rows FROM devices \
+   UNION ALL SELECT 'streams', COUNT(*) FROM streams \
+   UNION ALL SELECT 'apps', COUNT(*) FROM apps \
+   UNION ALL SELECT 'app_routes', COUNT(*) FROM app_routes \
+   UNION ALL SELECT 'app_sources', COUNT(*) FROM app_sources \
+   UNION ALL SELECT 'sessions', COUNT(*) FROM sessions \
+   UNION ALL SELECT 'session_logs', COUNT(*) FROM session_logs;"
+```
+
+Different-stream no-reuse rerun:
+
+```bash
+./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18332 --app-name=audio-mono-check --max-frames=20000 insightos://localhost/web-camera-mono/audio/mono
+
+./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18332 --app-name=audio-stereo-check --max-frames=20000 insightos://localhost/web-camera-mono/audio/stereo
+
+curl -s http://127.0.0.1:18332/api/apps | jq \
+  '[.apps[] | select(.name=="audio-mono-check" or .name=="audio-stereo-check") | {app_id, name}]'
+curl -s http://127.0.0.1:18332/api/status | jq \
+  '{serving_runtimes: [.serving_runtimes[] | select(.resolved_source.selector=="audio/mono" or .resolved_source.selector=="audio/stereo") | {runtime_key, consumer_count, consumer_session_ids, selector: .resolved_source.selector}], sessions: [.sessions[] | select(.input_uri=="insightos://localhost/web-camera-mono/audio/mono" or .input_uri=="insightos://localhost/web-camera-mono/audio/stereo") | {session_id, state, input_uri, stream_id}]}'
+```
+
+Same-stream additive-RTSP reuse rerun:
+
+```bash
+mkdir -p Log/mediamtx
+sed -e 's/apiAddress: :9997/apiAddress: :19998/' \
+    -e 's/rtspAddress: :8554/rtspAddress: :18632/' \
+    third_party/mediamtx/insightio.yml > /tmp/insightio-mediamtx-18632.yml
+./third_party/mediamtx/mediamtx /tmp/insightio-mediamtx-18632.yml
+
+curl -s -X POST http://127.0.0.1:18332/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq
+curl -s -X POST http://127.0.0.1:18332/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":true}' | jq
+curl -s http://127.0.0.1:18332/api/status | jq \
+  '{serving_runtimes: [.serving_runtimes[] | select(.resolved_source.selector=="720p_30") | {runtime_key, consumer_count, consumer_session_ids, selector: .resolved_source.selector, rtsp_enabled, rtsp_state: .rtsp_publication.state, frames_forwarded: .rtsp_publication.frames_forwarded}], sessions: [.sessions[] | select(.session_id==3 or .session_id==4) | {session_id, state, input_uri, rtsp_enabled, rtsp_url}]}'
+ffmpeg -rtsp_transport tcp -loglevel warning \
+  -err_detect +crccheck+bitstream+buffer+careful \
+  -i rtsp://127.0.0.1:18632/web-camera/720p_30 \
+  -t 3 -an -f null /dev/null 2>/tmp/insight-io-rtsp-18632-errors.log
+test ! -s /tmp/insight-io-rtsp-18632-errors.log
+```
+
+Observed results:
+
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`, now
+  including the duplicate-format Orbbec catalog regression
+- the fresh SQLite file still contained only the intended seven durable tables:
+  `devices`, `streams`, `apps`, `app_routes`, `app_sources`, `sessions`, and
+  `session_logs`
+- the fresh Orbbec exact color rows now persisted with
+  `public_name == selector` and no `-1` or `-2` suffixes:
+  the live host rerun showed `orbbec/color/1080p_30`, `480p_10`, `480p_15`,
+  `480p_30`, `480p_5`, `480p_60`, and `720p_30`, all backed by `format = mjpeg`
+- two concurrent `pipewire_audio_monitor` instances on
+  `insightos://localhost/web-camera-mono/audio/mono` and
+  `insightos://localhost/web-camera-mono/audio/stereo` created two separate
+  runtimes with one consumer each:
+  `stream:34` for mono and `stream:35` for stereo
+- two direct sessions on the same webcam exact URI,
+  first with `rtsp_enabled = false` and then with `rtsp_enabled = true`,
+  reused one runtime `stream:29` with `consumer_count = 2`,
+  `consumer_session_ids = [3, 4]`, and `rtsp_publication.state = active`
+- strict FFmpeg validation of
+  `rtsp://127.0.0.1:18632/web-camera/720p_30` completed cleanly with
+  `FFMPEG_EXIT=0` and an empty errors log
+
+## 2026-03-30 – Refresh Demo Commands For Fresh Thin Developer Surface Verification
+
+### What Changed
+
+- updated [demo_command.md](/home/yixin/Coding/insight-io/demo_command.md)
+  so the thin `/api/dev/*` path is now the recommended demo flow rather than
+  just an add-on:
+  - moved the fresh-daemon command ahead of the thin-surface walkthrough
+  - replaced the variable-based examples with self-contained concrete commands
+    from one fresh SQLite rerun
+  - added one grouped Orbbec app-source example through `/api/dev/apps/{id}`
+  - added explicit `POST /api/dev/catalog:refresh` guidance plus a reminder to
+    re-query `/api/dev/catalog` or `/api/dev/uris` if current IDs differ
+  - added the host-specific retry note for transient Orbbec discovery loss
+- updated [USER_GUIDE.md](/home/yixin/Coding/insight-io/docs/USER_GUIDE.md)
+  so its thin developer-rest section now mirrors that fresh-host guidance by
+  calling out `POST /api/dev/catalog:refresh` and warning that the alias
+  walkthrough mutates the canonical webcam URI for later commands on the same
+  DB
+- kept the older canonical `/api/*` transcript below that refreshed section as
+  the preserved alternative reference instead of deleting it
+
+### Why
+
+- the checked-in developer-surface examples had drifted from the repo’s
+  preferred transcript style because they introduced shell variables even
+  though the rest of the file uses concrete one-shot commands
+- the new thin surface is now the developer-friendly path the browser UI and
+  current docs expect, so the demo file needed to promote that flow instead of
+  leaving it as a secondary add-on
+- the fresh-host rerun also showed that a short refresh-or-requery note is
+  necessary before readers rely on hard-coded `stream_id` values such as `29`
+  for the webcam
+
+### Verification
+
+```bash
+cmake --build build -j4
+ctest --test-dir build --output-on-failure
+```
+
+Fresh daemon and thin-surface rerun on the live host:
+
+```bash
+rm -f /tmp/insight-io-demo-18330.sqlite3
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18330 \
+  --db-path /tmp/insight-io-demo-18330.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18630
+
+curl -s -X POST http://127.0.0.1:18330/api/dev/catalog:refresh | jq
+curl -s http://127.0.0.1:18330/api/dev/health | jq
+curl -s http://127.0.0.1:18330/api/dev/catalog | jq
+curl -s http://127.0.0.1:18330/api/dev/uris | jq
+curl -s -X POST http://127.0.0.1:18330/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30","rtsp_enabled":false}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"dev-runner"}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/apps/1/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"camera","expect":{"media":"video"}}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/dev/apps/1/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":1,"target":"camera"}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"orbbec-dev-runner"}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/apps/2/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/color","expect":{"media":"video"}}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/apps/2/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"orbbec/depth","expect":{"media":"depth"}}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/dev/apps/2/sources \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/sv1301s-u3/orbbec/preset/480p_30","target":"orbbec"}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/dev/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"front-camera"}' | jq
+curl -s -X POST http://127.0.0.1:18330/api/dev/streams/29/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"main-preview"}' | jq
+curl -s http://127.0.0.1:18330/api/dev/runtime | jq
+```
+
+Observed results:
+
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- fresh `GET /api/dev/health` reported `device_count = 4`:
+  one SDK-backed Orbbec device, one V4L2 webcam, and two PipeWire audio
+  devices
+- the thin direct-session create returned `session_id = 1` for
+  `insightos://localhost/web-camera/720p_30`
+- the grouped Orbbec bind returned `media = grouped`, `stream_id = 21`, and
+  two resolved `members` entries for `orbbec/color` and `orbbec/depth`
+- after aliasing the webcam device to `front-camera` and stream `29` to
+  `main-preview`, the thin URI, session, app, and runtime views all reported
+  `insightos://localhost/front-camera/main-preview` while keeping
+  `selector = 720p_30`
+
+## 2026-03-27 – Revalidate Task-10 Developer Surface, Correct Overclaim, And Add Dev Demo Alternatives
+
+### What Changed
+
+- updated [demo_command.md](/home/yixin/Coding/insight-io/demo_command.md)
+  so the checked-in runtime transcript now includes thin `/api/dev/*`
+  alternatives for:
+  - minimal health, catalog, and URI browse
+  - direct-session create through `POST /api/dev/sessions`
+  - app create, route declare, and session-backed source injection through
+    `/api/dev/apps/{id}`
+  - live device and stream alias changes plus runtime inspection
+- corrected the task-status wording in
+  [fullstack-intent-routing-task-list.md](/home/yixin/Coding/insight-io/docs/tasks/fullstack-intent-routing-task-list.md),
+  [TECH_REPORT.md](/home/yixin/Coding/insight-io/docs/design_doc/TECH_REPORT.md),
+  and [README.md](/home/yixin/Coding/insight-io/docs/README.md) so the docs
+  now keep the closeout scoped to task 10 instead of claiming tasks 11 and 12
+  are already finished
+- refreshed the file header in
+  [rest_server.cpp](/home/yixin/Coding/insight-io/backend/src/api/rest_server.cpp)
+  so its inline revision note matches the checked-in task-10 developer-facing
+  REST surface
+
+### Why
+
+- the current worktree already contained the task-10 implementation, but the
+  remaining closeout docs still mixed that state with a broader task-11 and
+  task-12 completion claim that was not the requested scope for this review
+- the checked-in demo transcript still emphasized the canonical `/api/*`
+  surface even though the new developer-facing `/api/dev/*` flow is now the
+  friendlier control surface for day-to-day work
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+node --check frontend/app.js
+ctest --test-dir build --output-on-failure
+```
+
+Live host validation on a fresh daemon:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18320 \
+  --db-path /tmp/insight-io-task10-followup.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18620
+
+curl -s http://127.0.0.1:18320/api/dev/health | jq
+curl -s http://127.0.0.1:18320/api/dev/catalog | jq
+curl -s http://127.0.0.1:18320/api/dev/uris | jq
+```
+
+Live alias-coherence rerun on the same daemon:
+
+```bash
+session_id=$(curl -s -X POST http://127.0.0.1:18320/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+app_id=$(curl -s -X POST http://127.0.0.1:18320/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"alias-runtime-check"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18320/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"camera","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18320/api/dev/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"camera\"}"
+curl -s -X POST http://127.0.0.1:18320/api/dev/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"front-camera-dev"}'
+curl -s -X POST http://127.0.0.1:18320/api/dev/streams/29/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"main-preview"}'
+curl -s http://127.0.0.1:18320/api/dev/runtime | jq
+```
+
+Browser validation used Chrome DevTools Protocol directly because Chrome
+DevTools MCP was not available in this session:
+
+```bash
+google-chrome --headless=new --disable-gpu \
+  --remote-debugging-port=9224 \
+  --user-data-dir=/tmp/insight-io-chrome-task10 \
+  http://127.0.0.1:18320/
+
+node <<'NODE'
+// Attach to the page target over CDP and drive:
+// direct-session form -> app create -> route create ->
+// session-backed source bind -> source stop/start.
+NODE
+```
+
+Observed results:
+
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- live `GET /api/dev/health` reported `device_count = 4` on the current host:
+  one SDK-backed Orbbec device, one V4L2 webcam, and two PipeWire audio
+  devices
+- after renaming the live webcam device to `front-camera-dev` and stream `29`
+  to `main-preview`, `GET /api/dev/uris`, `GET /api/dev/sessions`,
+  `GET /api/dev/apps/{id}`, and `GET /api/dev/runtime` all reported
+  `insightos://localhost/front-camera-dev/main-preview` while preserving the
+  stable selector `720p_30`
+- the headless browser flow succeeded end to end against the checked-in UI:
+  - the page loaded and rendered the dev-surface catalog
+  - the direct-session form created `session_id = 2` from
+    `insightos://localhost/front-camera-dev/main-preview`
+  - the browser created app `browser-dev-flow-1774604433923`
+  - the browser created route `camera`
+  - the browser attached `session:2` into a durable app source
+  - the browser stop/start buttons returned that source to `active`
+
+## 2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence
+
+### What Changed
+
+- extended the thin developer-facing REST regression coverage in
+  [rest_server_test.cpp](/home/yixin/Coding/insight-io/backend/tests/rest_server_test.cpp)
+  so the checked-in suite now proves:
+  - `/api/dev/devices/{device}/alias`
+  - `/api/dev/streams/{stream_id}/alias`
+  - `/api/dev/sessions`
+  - session-backed `POST /api/dev/apps/{id}/sources`
+  - `GET /api/dev/runtime` stays coherent after alias changes
+- updated
+  [session_service.cpp](/home/yixin/Coding/insight-io/backend/src/session_service.cpp)
+  so runtime snapshots rehydrate the current device and stream aliases from
+  SQLite instead of holding stale in-memory names after a live alias rename
+- adopted and extended the checked-in browser client in
+  [app.js](/home/yixin/Coding/insight-io/frontend/app.js),
+  [index.html](/home/yixin/Coding/insight-io/frontend/index.html), and
+  [style.css](/home/yixin/Coding/insight-io/frontend/style.css) so the UI now
+  supports:
+  - direct-session create from catalog-selected URIs
+  - session-backed source injection into one app-local target
+  - source stop/start from the browser
+  - device and stream alias actions from catalog cards
+  - correct rebind behavior for session-backed sources
+- added the new Mermaid sequence
+  [developer-control-surface-sequence.md](/home/yixin/Coding/insight-io/docs/diagram/developer-control-surface-sequence.md)
+  and refreshed the task list, REST reference, guide, tech report, and
+  feature trackers around the developer surface
+
+### Why
+
+- the current worktree already had the backend half of the thin `/api/dev/*`
+  surface, but task 10 was still incomplete because the checked-in browser UI
+  did not expose direct-session management or alias actions, and the live host
+  validation uncovered one real inconsistency:
+  `/api/dev/runtime` still reported the pre-rename device/stream alias from
+  the in-memory serving-runtime snapshot after a live alias update
+- fixing that inconsistency was required before the developer-facing REST
+  surface could be called minimal and coherent
+
+### Verification
+
+```bash
+cmake -S . -B build
+cmake --build build -j4
+node --check frontend/app.js
+ctest --test-dir build --output-on-failure
+./build/bin/rest_server_test
+```
+
+Browser runtime validation used Chrome headless plus the Chrome DevTools
+Protocol directly because Chrome DevTools MCP was not available in this
+session:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18310 \
+  --db-path /tmp/insight-io-task10.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18610
+
+google-chrome --headless=new --disable-gpu \
+  --remote-debugging-port=9223 \
+  --user-data-dir=/tmp/insight-io-chrome \
+  http://127.0.0.1:18310/
+
+node <<'NODE'
+// Connect to the page target over the Chrome DevTools Protocol and drive:
+// catalog -> direct session -> app create -> route create ->
+// session-backed source inject -> source stop/start.
+NODE
+```
+
+Live alias-coherence validation on a fresh daemon:
+
+```bash
+./build/bin/insightiod \
+  --host 127.0.0.1 \
+  --port 18311 \
+  --db-path /tmp/insight-io-task10b.sqlite3 \
+  --rtsp-host 127.0.0.1 \
+  --rtsp-port 18611
+
+session_id=$(curl -s -X POST http://127.0.0.1:18311/api/dev/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"input":"insightos://localhost/web-camera/720p_30"}' | jq -r '.session_id')
+app_id=$(curl -s -X POST http://127.0.0.1:18311/api/dev/apps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"alias-runtime-check"}' | jq -r '.app_id')
+curl -s -X POST http://127.0.0.1:18311/api/apps/${app_id}/routes \
+  -H 'Content-Type: application/json' \
+  -d '{"route_name":"camera","expect":{"media":"video"}}'
+curl -s -X POST http://127.0.0.1:18311/api/dev/apps/${app_id}/sources \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":${session_id},\"target\":\"camera\"}"
+curl -s -X POST http://127.0.0.1:18311/api/dev/devices/web-camera/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"front-camera-dev"}'
+curl -s -X POST http://127.0.0.1:18311/api/dev/streams/29/alias \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"main-preview"}'
+curl -s http://127.0.0.1:18311/api/dev/runtime | jq
+```
+
+Observed results:
+
+- `ctest --test-dir build --output-on-failure` stayed green at `8/8`
+- `./build/bin/rest_server_test` now reports `rest_server_test: 10 test(s) passed`
+- the headless-browser runtime flow succeeded end to end on the current host:
+  - catalog selection populated the direct-session form
+  - the browser created one direct session from `web-camera/720p_30`
+  - the browser created app `browser-dev-flow`
+  - the browser created route `camera`
+  - the browser attached `session:1` into a durable app source
+  - the browser stop/start buttons toggled the source state and runtime row
+- the live alias rerun on port `18311` confirmed the stale-alias bug is fixed:
+  `GET /api/dev/runtime` now reports
+  `insightos://localhost/front-camera-dev/main-preview` in both the session and
+  serving-runtime views after the live device and stream rename
 
 ## 2026-03-27 – Fix Actionable PR #8 Review Items
 
