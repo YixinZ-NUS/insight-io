@@ -73,6 +73,7 @@ Before proposing or implementing changes, read these documents in order:
   - Use subgents liberally to keep main context window clean
   - Offload research, exploration, and parallel analysis to subagents
   - For complex problems, throw more compute at it via subagents
+- For Git workflow, never wrap multiple rounds of changes inside a single commit. Always commit in a scoped and incremental way. Multiple commits for a feature is allowed.
 - Never mark a task complete without proving it work. Apply the emperical workflow below.
 
 ## Empirical Validation Philosophy
