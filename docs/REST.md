@@ -4,8 +4,12 @@
 
 - role: public HTTP contract for `insight-io`
 - status: active
-- version: 14
+- version: 15
 - major changes:
+  - 2026-03-30 removed thin `/api/dev/apps/{id}/routes` mutation from the
+    public developer facade, kept route declaration canonical under
+    `/api/apps/{id}/routes`, and documented why that low-level contract still
+    mirrors SDK `app.route(...).expect(...)`
   - 2026-03-27 documented the thin `/api/dev/*` developer-facing facade,
     added device and stream alias actions plus browser direct-session controls,
     and updated the copied-handle wording so public paths mirror current
@@ -104,6 +108,10 @@ The checked-in backend also exposes one thin developer-facing facade that keeps
 the same runtime behavior while returning only the fields the current browser
 UI and internal developer tooling need.
 
+Route declaration is intentionally not mirrored under `/api/dev/*`. Use the
+canonical `/api/apps/{id}/routes` endpoints for that low-level app-contract
+step, because it is the REST form of SDK `app.route(...).expect(...)`.
+
 Key endpoints:
 
 | Method | Path | Purpose |
@@ -124,8 +132,6 @@ Key endpoints:
 | `GET` | `/api/dev/apps` | list minimal app rows |
 | `GET` | `/api/dev/apps/{id}` | inspect one app plus routes and sources in one response |
 | `DELETE` | `/api/dev/apps/{id}` | delete one app |
-| `POST` | `/api/dev/apps/{id}/routes` | create one route with `{ "name": "...", "media": "..." }` |
-| `DELETE` | `/api/dev/apps/{id}/routes/{route}` | delete one route |
 | `POST` | `/api/dev/apps/{id}/sources` | create one URI-backed or session-backed bind |
 | `POST` | `/api/dev/apps/{id}/sources/{source_id}:start` | start one durable source |
 | `POST` | `/api/dev/apps/{id}/sources/{source_id}:stop` | stop one durable source |
@@ -173,7 +179,9 @@ Minimal catalog response shape:
   from the repository root
 - `/static/*` serves the bundled HTML, CSS, and JavaScript assets for the
   browser route-builder flow
-- the checked-in browser UI now talks to `/api/dev/*` and supports:
+- the checked-in browser UI now talks to `/api/dev/*` for most operator actions
+  and keeps route declare/delete on canonical `/api/apps/{id}/routes`; it
+  supports:
   - catalog browse plus direct-session start from a selected URI
   - device and stream alias updates
   - app create, route declaration, URI-backed bind, session-backed bind, and

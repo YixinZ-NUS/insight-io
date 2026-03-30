@@ -4,8 +4,11 @@
 
 - role: internal implementation report for the standalone `insight-io` rebuild
 - status: active
-- version: 22
+- version: 23
 - major changes:
+  - 2026-03-30 removed thin `/api/dev/apps/{id}/routes` mutation, kept route
+    declaration canonical under `/api/apps/{id}/routes`, and switched the
+    checked-in browser to that low-level SDK-mirroring contract
   - 2026-03-27 revalidated the task-10 developer surface on the live host,
     added `/api/dev/*` demo-command coverage, and corrected the remaining
     task-11/task-12 overclaim so the report stays aligned with the requested
@@ -206,8 +209,6 @@ In concrete HTTP terms, the current backend now serves:
 - `GET /api/dev/apps`
 - `GET /api/dev/apps/{id}`
 - `DELETE /api/dev/apps/{id}`
-- `POST /api/dev/apps/{id}/routes`
-- `DELETE /api/dev/apps/{id}/routes/{route}`
 - `POST /api/dev/apps/{id}/sources`
 - `POST /api/dev/apps/{id}/sources/{source_id}:start`
 - `POST /api/dev/apps/{id}/sources/{source_id}:stop`

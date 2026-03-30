@@ -1,9 +1,10 @@
 // role: focused REST tests for the standalone backend slices.
-// revision: 2026-03-27 task10-developer-runtime-surface
+// revision: 2026-03-30 canonical-route-declare-only
 // major changes: verifies both the canonical and thin developer-facing REST
 // surfaces for catalog, alias, direct-session, session-backed app-source,
 // grouped-route delete cleanup, runtime-status reuse, and browser/static
-// serving without relying on a fixed Orbbec serial.
+// serving while keeping route mutation canonical-only and the thin `/api/dev/*`
+// surface focused on higher-level operator flows.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/app_service.hpp"
@@ -387,13 +388,20 @@ TEST(developer_endpoints_cover_minimal_catalog_app_runtime_and_stream_alias_flow
     const auto app_id =
         nlohmann::json::parse(create_app->body).at("app_id").get<std::int64_t>();
 
-    const auto create_route = client.Post(
+    const auto rejected_thin_route = client.Post(
         ("/api/dev/apps/" + std::to_string(app_id) + "/routes").c_str(),
         R"({"name":"camera","media":"video"})",
         "application/json");
+    EXPECT_TRUE(rejected_thin_route);
+    EXPECT_EQ(rejected_thin_route->status, 404);
+
+    const auto create_route = client.Post(
+        ("/api/apps/" + std::to_string(app_id) + "/routes").c_str(),
+        R"({"route_name":"camera","expect":{"media":"video"}})",
+        "application/json");
     EXPECT_TRUE(create_route);
     EXPECT_EQ(create_route->status, 201);
-    EXPECT_EQ(nlohmann::json::parse(create_route->body).at("name").get<std::string>(),
+    EXPECT_EQ(nlohmann::json::parse(create_route->body).at("route_name").get<std::string>(),
               "camera");
 
     const auto create_source = client.Post(
@@ -528,8 +536,8 @@ TEST(developer_session_endpoints_cover_alias_direct_session_and_session_backed_b
         nlohmann::json::parse(create_app->body).at("app_id").get<std::int64_t>();
 
     const auto create_route = client.Post(
-        ("/api/dev/apps/" + std::to_string(app_id) + "/routes").c_str(),
-        R"({"name":"camera","media":"video"})",
+        ("/api/apps/" + std::to_string(app_id) + "/routes").c_str(),
+        R"({"route_name":"camera","expect":{"media":"video"}})",
         "application/json");
     EXPECT_TRUE(create_route);
     EXPECT_EQ(create_route->status, 201);

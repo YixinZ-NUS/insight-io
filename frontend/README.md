@@ -4,8 +4,11 @@
 
 - role: repo-native browser surface for the task-9 route-builder flow
 - status: active
-- version: 1
+- version: 2
 - major changes:
+  - 2026-03-30 kept route declare/delete on canonical `/api/apps/{id}/routes`
+    while the rest of the browser surface stays on the thinner `/api/dev/*`
+    operator facade
   - 2026-03-27 added a static single-page UI for catalog browse, app create,
     route declare, source bind/rebind/start/stop, and runtime inspection
 
@@ -20,7 +23,9 @@ The frontend is plain HTML, CSS, and JavaScript served by `insightiod`.
 
 - inspect discovered catalog URIs and grouped presets
 - create or delete persistent apps
-- declare app-local routes with `expect.media`
+- declare or delete app-local routes through canonical `/api/apps/{id}/routes`
+- use thin `/api/dev/*` calls for app create/delete, source bind/rebind,
+  direct sessions, aliases, and runtime inspection
 - create source binds from one `input` URI or `session_id`
 - rebind one durable source through `:rebind`
 - stop and restart durable sources through `:stop` and `:start`

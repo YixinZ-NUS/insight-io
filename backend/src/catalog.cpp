@@ -1,8 +1,9 @@
 // role: persisted discovery catalog for the standalone backend.
-// revision: 2026-03-27 developer-rest-and-stream-aliases
+// revision: 2026-03-30 orbbec-exact-cap-dedupe
 // major changes: preserves donor-grounded selector shaping while adding
 // durable per-stream public aliases for canonical URIs, thin developer-facing
-// REST responses, and alias-preserving refresh behavior.
+// REST responses, alias-preserving refresh behavior, and profile-level Orbbec
+// exact-stream dedupe so persisted public names stay stable across refresh.
 // See docs/past-tasks.md.
 
 #include "insightio/backend/catalog.hpp"
@@ -828,6 +829,22 @@ int audio_format_rank(std::string_view format) {
     return static_cast<int>(order.size());
 }
 
+std::map<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>, ResolvedCaps>
+choose_video_caps_by_profile(const StreamInfo& stream) {
+    std::map<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>, ResolvedCaps>
+        chosen;
+    for (const auto& caps : stream.supported_caps) {
+        const auto key = std::make_tuple(caps.width, caps.height, caps.fps);
+        auto it = chosen.find(key);
+        if (it == chosen.end() ||
+            video_format_rank(caps.format) <
+                video_format_rank(it->second.format)) {
+            chosen[key] = caps;
+        }
+    }
+    return chosen;
+}
+
 const StreamInfo* find_stream(const DeviceInfo& device, std::string_view stream_id) {
     for (const auto& stream : device.streams) {
         if (stream.stream_id == stream_id) {
@@ -908,16 +925,7 @@ std::vector<CatalogSource> build_v4l2_sources(const DeviceInfo& device,
         return sources;
     }
 
-    std::map<std::tuple<std::uint32_t, std::uint32_t, std::uint32_t>, ResolvedCaps> chosen;
-    for (const auto& caps : stream->supported_caps) {
-        const auto key = std::make_tuple(caps.width, caps.height, caps.fps);
-        auto it = chosen.find(key);
-        if (it == chosen.end() || video_format_rank(caps.format) < video_format_rank(it->second.format)) {
-            chosen[key] = caps;
-        }
-    }
-
-    for (const auto& [key, caps] : chosen) {
+    for (const auto& [key, caps] : choose_video_caps_by_profile(*stream)) {
         (void)key;
         const auto selector =
             resolution_label(caps.width, caps.height) + "_" + std::to_string(caps.fps);
@@ -1002,12 +1010,17 @@ const ResolvedCaps* find_cap(const StreamInfo& stream,
                              std::uint32_t width,
                              std::uint32_t height,
                              std::uint32_t fps) {
+    const ResolvedCaps* best = nullptr;
     for (const auto& caps : stream.supported_caps) {
         if (caps.width == width && caps.height == height && caps.fps == fps) {
-            return &caps;
+            if (best == nullptr ||
+                video_format_rank(caps.format) <
+                    video_format_rank(best->format)) {
+                best = &caps;
+            }
         }
     }
-    return nullptr;
+    return best;
 }
 
 std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
@@ -1022,7 +1035,8 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
     const OrbbecCatalogProbe probe;
 #endif
     if (color != nullptr) {
-        for (const auto& caps : color->supported_caps) {
+        for (const auto& [key, caps] : choose_video_caps_by_profile(*color)) {
+            (void)key;
             const auto selector = "orbbec/color/" + resolution_label(caps.width, caps.height) +
                                   "_" + std::to_string(caps.fps);
             auto capture_policy = nlohmann::json{
@@ -1055,7 +1069,8 @@ std::vector<CatalogSource> build_orbbec_sources(const DeviceInfo& device,
         (probe.supports_hw_d2c_480 || !probe.probe_ran);
     const bool supports_720_family = color_720 != nullptr && depth_800 != nullptr;
     if (depth != nullptr) {
-        for (const auto& caps : depth->supported_caps) {
+        for (const auto& [key, caps] : choose_video_caps_by_profile(*depth)) {
+            (void)key;
             const auto selector = "orbbec/depth/" + resolution_label(caps.width, caps.height) +
                                   "_" + std::to_string(caps.fps);
             auto capture_policy = nlohmann::json{

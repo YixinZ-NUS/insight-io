@@ -4,8 +4,19 @@
 
 - role: operator and developer guide for the checked-in `insight-io` runtime
 - status: active
-- version: 21
+- version: 24
 - major changes:
+  - 2026-03-30 removed thin `/api/dev/apps/{id}/routes` from the documented
+    developer workflow, clarified that route declaration stays on canonical
+    `/api/apps/{id}/routes` as the low-level SDK-mirroring contract, and
+    updated the browser and curl walkthrough wording to match
+  - 2026-03-30 fixed Orbbec exact-stream profile dedupe so fresh SQLite
+    catalogs no longer persist suffixed `orbbec/color/*-2` aliases, documented
+    the exact-selector stability rule, and clarified the current runtime reuse
+    boundary with live same-stream versus different-stream verification
+  - 2026-03-30 clarified the thin `/api/dev/*` guide for fresh demo DB use on
+    the live host by adding catalog-refresh guidance and an explicit note that
+    the alias walkthrough mutates the canonical webcam URI for later commands
   - 2026-03-27 completed the task-10 developer control surface, documented the
     thin `/api/dev/*` facade plus browser direct-session and alias controls,
     and recorded the live runtime-alias coherence verification after rename
@@ -78,6 +89,8 @@
   - 2026-03-25 added initial build, test, and backend startup instructions for
     the bootstrap slice
 - past tasks:
+  - `2026-03-30 – Fix Orbbec Exact Selector Dedupe And Document Reuse Boundary`
+  - `2026-03-30 – Refresh Demo Commands For Fresh Thin Developer Surface Verification`
   - `2026-03-27 – Complete Task-10 Developer Control Surface And Runtime Alias Coherence`
   - `2026-03-27 – Simplify Example Startup Paths And Close Mermaid Backlog`
   - `2026-03-27 – Complete Task-9 SDK, Browser Flows, And Runtime Verification`
@@ -195,19 +208,28 @@ Current browser flow:
 - start one direct session from the catalog-side session form
 - rename one device or stream from the catalog cards
 - create one persistent app
-- declare routes with `expect.media`
+- declare routes with canonical `/api/apps/{id}/routes` and `expect.media`
 - bind one `input` URI or `session_id` to one target
 - stop, restart, and rebind sources
 - reload after backend restart and explicitly restart persisted sources
 
-The checked-in browser UI now uses the thin `/api/dev/*` facade rather than
-the more verbose canonical `/api/*` payloads.
+The checked-in browser UI uses the thin `/api/dev/*` facade for catalog,
+session, app, source, alias, and runtime actions, but keeps route declare and
+delete on canonical `/api/apps/{id}/routes` because that low-level request
+shape mirrors SDK `app.route(...).expect(...)`.
 
 ## Thin Developer REST
+
+Use this on a fresh DB or after explicitly re-querying the thin catalog. If
+the current host inventory differs, rerun `POST /api/dev/catalog:refresh`
+first. On this host, if the expected Orbbec device is missing, retry discovery
+once and check the physical USB connection before treating that as a software
+regression.
 
 Minimal developer-health and catalog walkthrough:
 
 ```bash
+curl -s -X POST http://127.0.0.1:18180/api/dev/catalog:refresh | jq '.devices[] | {name, driver, stream_count: (.streams | length)}'
 curl -s http://127.0.0.1:18180/api/dev/health | jq
 curl -s http://127.0.0.1:18180/api/dev/catalog | jq '.devices[] | {name, driver, streams: [.streams[] | {stream_id, name, selector, uri}]}'
 curl -s http://127.0.0.1:18180/api/dev/uris | jq '.uris[] | {stream_id, device, name, uri}'
@@ -225,6 +247,11 @@ curl -s -X POST http://127.0.0.1:18180/api/dev/streams/29/alias \
   -d '{"name":"main-preview"}' | jq
 ```
 
+After this alias walkthrough, the current canonical webcam URI becomes
+`insightos://localhost/front-camera/main-preview`. Any later command in this
+guide that still uses `insightos://localhost/web-camera/720p_30` assumes a
+fresh DB or a restart with the original aliases restored.
+
 Minimal direct-session plus app-source walkthrough:
 
 ```bash
@@ -236,9 +263,9 @@ app_id=$(curl -s -X POST http://127.0.0.1:18180/api/dev/apps \
   -H 'Content-Type: application/json' \
   -d '{"name":"dev-runner"}' | jq -r '.app_id')
 
-curl -s -X POST http://127.0.0.1:18180/api/dev/apps/${app_id}/routes \
+curl -s -X POST http://127.0.0.1:18180/api/apps/${app_id}/routes \
   -H 'Content-Type: application/json' \
-  -d '{"name":"camera","media":"video"}' | jq
+  -d '{"route_name":"camera","expect":{"media":"video"}}' | jq
 
 curl -s -X POST http://127.0.0.1:18180/api/dev/apps/${app_id}/sources \
   -H 'Content-Type: application/json' \
@@ -246,6 +273,10 @@ curl -s -X POST http://127.0.0.1:18180/api/dev/apps/${app_id}/sources \
 
 curl -s http://127.0.0.1:18180/api/dev/runtime | jq
 ```
+
+In that flow, route declaration is the low-level canonical app-contract step,
+while `/api/dev/apps/{id}/sources` remains the thin operator path for actual
+runtime binding.
 
 ## Example Apps
 
@@ -854,6 +885,33 @@ Linux device lists.
 If the Orbbec SDK is unavailable at build or run time, that suppression path is
 not active, so the hardware may reappear only through the generic V4L2 route.
 
+### Orbbec Exact Selector Stability
+
+The Orbbec exact catalog now publishes one exact selector per
+width-height-fps profile, not one selector per raw SDK pixel format. If the
+SDK reports the same exact color profile multiple times in different formats,
+the catalog keeps the preferred capture caps for that profile and persists
+`public_name == selector` instead of drifting to `orbbec/color/...-1` or
+`orbbec/color/...-2`.
+
+On the current host, the fresh 2026-03-30 rerun collapsed the duplicate color
+profiles back to unsuffixed `mjpeg` rows:
+
+```bash
+sqlite3 /tmp/insight-io-reuse-audit-18332.sqlite3 ".mode box" \
+  "SELECT selector, public_name, json_extract(caps_json, '$.format') AS format \
+   FROM streams \
+   WHERE device_id = (SELECT device_id FROM devices WHERE driver = 'orbbec' LIMIT 1) \
+     AND selector LIKE 'orbbec/color/%' \
+   ORDER BY selector;"
+```
+
+Expected observations on the current host:
+
+- each `public_name` matches its `selector`
+- no exact Orbbec color row ends in `-1` or `-2`
+- the selected capture format for the published exact color rows is `mjpeg`
+
 ## Direct Session Slice
 
 The current backend now exposes these session endpoints:
@@ -872,10 +930,49 @@ idle-worker teardown, and exact single-channel RTSP publication are now also
 implemented and inspectable here, and the same host now also verifies the
 checked-in SDK callbacks and browser route-builder flow.
 
+## Current Reuse Boundary
+
+The current runtime reuse key is the resolved exact `stream_id`, not merely
+compatible delivered caps across different stream rows.
+
+- different exact stream rows stay separate even when they come from the same
+  physical device and the same app binary can consume both
+- the same exact stream can add RTSP publication without splitting the shared
+  serving runtime
+- matching caps alone are not enough to merge different exact selectors today
+
+### Different Exact Streams Stay Separate
+
+Use this when verifying that two app instances on two different exact streams
+do not reuse one runtime even when they come from the same PipeWire device.
+
+Run these in two terminals:
+
+```bash
+./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18180 --app-name=audio-mono-check --max-frames=20000 insightos://localhost/web-camera-mono/audio/mono
+
+./build/bin/pipewire_audio_monitor --backend-host=127.0.0.1 --backend-port=18180 --app-name=audio-stereo-check --max-frames=20000 insightos://localhost/web-camera-mono/audio/stereo
+```
+
+Inspect the runtime split from a third shell:
+
+```bash
+curl -s http://127.0.0.1:18180/api/status | jq \
+  '{serving_runtimes: [.serving_runtimes[] | select(.resolved_source.selector=="audio/mono" or .resolved_source.selector=="audio/stereo") | {runtime_key, consumer_count, consumer_session_ids, selector: .resolved_source.selector}]}'
+```
+
+Expected observations on the current host:
+
+- one runtime exists for `audio/mono` and one runtime exists for `audio/stereo`
+- the runtime keys differ because the resolved exact `stream_id`s differ
+- the 2026-03-30 rerun showed `stream:34` for mono and `stream:35` for stereo
+- `consumer_count = 1` for each runtime while the two example apps are active
+
 ## Shared Runtime Reuse Smoke Test
 
-Use this when verifying shared runtime plus additive RTSP publication on the
-development host.
+Use this when verifying the same-stream reuse case from the boundary above:
+one exact source is reused across multiple consumers, and RTSP publication is
+added on top of that shared runtime instead of creating a second worker path.
 
 ```bash
 first=$(curl -s -X POST http://127.0.0.1:18180/api/sessions \

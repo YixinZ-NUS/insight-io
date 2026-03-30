@@ -1,10 +1,11 @@
 // role: REST server implementation for the current standalone backend slices.
-// revision: 2026-03-27 task10-developer-runtime-surface
+// revision: 2026-03-30 canonical-route-declare-only
 // major changes: exposes both the canonical and thin developer-facing REST
-// surfaces for catalog, alias, direct-session, app/route/source, and
-// runtime-status control while keeping media realization lightweight,
-// preserving AIP-style custom-method aliases, and serving the repo-native
-// browser UI from optional static frontend assets.
+// surfaces for catalog, alias, direct-session, app/source, and runtime-status
+// control while keeping route declaration on the canonical `/api/apps/*`
+// contract that mirrors SDK `app.route(...).expect(...)`, preserving
+// AIP-style custom-method aliases, and serving the repo-native browser UI from
+// optional static frontend assets.
 // See docs/past-tasks.md for verification history.
 
 #include "insightio/backend/rest_server.hpp"
@@ -1316,6 +1317,10 @@ void RestServer::setup_routes() {
                         response.status = 204;
                     });
 
+    // Route declaration stays canonical-only because it is the low-level
+    // REST form of SDK `app.route(...).expect(...)`. The thin `/api/dev/*`
+    // surface is for high-frequency operator actions after an app contract
+    // already exists.
     server_->Post(R"(/api/apps/(\d+)/routes)",
                   [this](const httplib::Request& request, httplib::Response& response) {
                       std::int64_t app_id = 0;
@@ -1841,73 +1846,6 @@ void RestServer::setup_routes() {
                                               error_status,
                                               error_code,
                                               error_message)) {
-                            send_error(response, error_status, error_code, error_message);
-                            return;
-                        }
-                        response.status = 204;
-                    });
-
-    server_->Post(R"(/api/dev/apps/(\d+)/routes)",
-                  [this](const httplib::Request& request, httplib::Response& response) {
-                      std::int64_t app_id = 0;
-                      if (!parse_path_id(request, response, 1, "app_id", app_id)) {
-                          return;
-                      }
-                      nlohmann::json body;
-                      if (!parse_json_body(request, response, body)) {
-                          return;
-                      }
-                      if (!body.contains("name") || !body.at("name").is_string()) {
-                          send_error(response, 400, "bad_request",
-                                     "Request body must contain string field 'name'");
-                          return;
-                      }
-
-                      nlohmann::json expect_json = nullptr;
-                      if (body.contains("media")) {
-                          if (!body.at("media").is_string()) {
-                              send_error(response, 400, "bad_request",
-                                         "Field 'media' must be string when present");
-                              return;
-                          }
-                          expect_json = {{"media", body.at("media").get<std::string>()}};
-                      }
-
-                      RouteRecord created;
-                      int error_status = 500;
-                      std::string error_code;
-                      std::string error_message;
-                      if (!apps_.create_route(app_id,
-                                              body.at("name").get<std::string>(),
-                                              expect_json,
-                                              nlohmann::json(nullptr),
-                                              created,
-                                              error_status,
-                                              error_code,
-                                              error_message)) {
-                          send_error(response, error_status, error_code, error_message);
-                          return;
-                      }
-
-                      response.status = 201;
-                      response.set_content(developer_route_to_json(created).dump(2),
-                                           "application/json");
-                  });
-
-    server_->Delete(R"(/api/dev/apps/(\d+)/routes/(.+))",
-                    [this](const httplib::Request& request, httplib::Response& response) {
-                        std::int64_t app_id = 0;
-                        if (!parse_path_id(request, response, 1, "app_id", app_id)) {
-                            return;
-                        }
-                        int error_status = 500;
-                        std::string error_code;
-                        std::string error_message;
-                        if (!apps_.delete_route(app_id,
-                                                request.matches[2].str(),
-                                                error_status,
-                                                error_code,
-                                                error_message)) {
                             send_error(response, error_status, error_code, error_message);
                             return;
                         }

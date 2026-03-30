@@ -1,10 +1,11 @@
 /*
 role: browser controller for the task-10 developer control surface.
-revision: 2026-03-27 task10-developer-runtime-surface
-major changes: adopts the existing route-builder flow for the thin
-developer-facing `/api/dev/*` REST facade, adds direct-session management plus
-device/stream alias actions, and fixes session-backed rebind handling in the
-browser client.
+revision: 2026-03-30 canonical-route-declare-only
+major changes: keeps the browser on the thin developer-facing `/api/dev/*`
+surface for catalog, session, app, source, alias, and runtime actions while
+moving route declare/delete back to canonical `/api/apps/*` because that
+contract mirrors SDK `app.route(...).expect(...)`, and preserves the
+session-backed rebind handling in the browser client.
 See docs/past-tasks.md.
 */
 
@@ -405,7 +406,7 @@ function renderSelectedApp() {
       `;
       routeRow.querySelector('.delete-route').addEventListener('click', async () => {
         try {
-          await requestJson(`/api/dev/apps/${app.app_id}/routes/${encodeURIComponent(route.name)}`, {
+          await requestJson(`/api/apps/${app.app_id}/routes/${encodeURIComponent(route.name)}`, {
             method: 'DELETE',
           });
           await loadSelectedApp();
@@ -741,11 +742,13 @@ elements.routeForm.addEventListener('submit', async (event) => {
   }
   setError(elements.routeFormError, '');
   try {
-    await requestJson(`/api/dev/apps/${state.selectedAppId}/routes`, {
+    await requestJson(`/api/apps/${state.selectedAppId}/routes`, {
       method: 'POST',
       body: JSON.stringify({
-        name: elements.routeName.value,
-        media: elements.routeMedia.value,
+        route_name: elements.routeName.value,
+        expect: {
+          media: elements.routeMedia.value,
+        },
       }),
     });
     elements.routeName.value = '';
